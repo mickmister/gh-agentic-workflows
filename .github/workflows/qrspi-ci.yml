@@ -13,4 +13,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test poc/qrspi-slice.test.mjs
+      - run: node --test poc/qrspi-slice.test.mjs .github/scripts/qrspi-comment.test.mjs
