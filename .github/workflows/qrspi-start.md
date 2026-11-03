@@ -11,11 +11,11 @@ permissions:
   contents: read
 tools:
   repo-memory:
-    id: qrspi-poc
-    branch-name: memory/qrspi-poc
-    file-glob: ["*.json", "**/*.json", "**/*.md"]
-    max-file-size: 1048576
-    max-patch-size: 1048576
+    - id: qrspi-poc
+      branch-name: memory/qrspi-poc
+      file-glob: ["*.json", "**/*.json", "**/*.md"]
+      max-file-size: 1048576
+      max-patch-size: 1048576
 steps:
   - name: Prepare deterministic workflow checkpoint
     env:
