@@ -11,6 +11,7 @@ jobs:
       root_id: ${{ steps.cook.outputs.root_id }}
       gate_id: ${{ steps.cook.outputs.gate_id }}
       implement_id: ${{ steps.cook.outputs.implement_id }}
+      approval_id: ${{ steps.cook.outputs.approval_id }}
     steps:
       - uses: actions/checkout@v4
       - name: Install prerequisites
@@ -45,6 +46,9 @@ jobs:
           test -n "$gate_id" && test -n "$implement_id"
           echo "gate_id=$gate_id" >> "$GITHUB_OUTPUT"
           echo "implement_id=$implement_id" >> "$GITHUB_OUTPUT"
+          approval_id="$(sed -n "s/^qrspi-slice\\.approval -> //p" /tmp/qrspi-cook.txt | head -1)"
+          test -n "$approval_id"
+          echo "approval_id=$approval_id" >> "$GITHUB_OUTPUT"
           gc bd show "$root_id"
           gc bd show "$gate_id"
           gc stop /tmp/qrspi-city
@@ -86,6 +90,10 @@ jobs:
           gc bd show "$gate_id"
           gc bd gate resolve "$gate_id" --reason 'Human approval simulated on fresh runner'
           gc bd show "$gate_id"
+          approval_id="${{ needs.cook.outputs.approval_id }}"
+          gc bd close "$approval_id" --reason "Approved reviewer decision processed"
+          gc bd ready --json | tee /tmp/qrspi-ready.json
+          jq -e --arg id "$implement_id" 'any(.[]; .id == $id)' /tmp/qrspi-ready.json
           gc bd show "$implement_id"
           gc formula show qrspi-slice
           echo "Original Gas City root Bead survived independent Actions runner restoration: $EXPECTED_ROOT_ID"
