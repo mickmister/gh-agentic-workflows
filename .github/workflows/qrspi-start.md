@@ -1,4 +1,8 @@
 ---
+concurrency:
+  group: qrspi-workspace-${{ inputs.workspace_id }}
+  cancel-in-progress: false
+  job-discriminator: ${{ github.run_id }}
 name: QRSPI start (source)
 on:
   workflow_dispatch:
