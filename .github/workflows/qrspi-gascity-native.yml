@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       root_id: ${{ steps.cook.outputs.root_id }}
+      gate_id: ${{ steps.cook.outputs.gate_id }}
+      implement_id: ${{ steps.cook.outputs.implement_id }}
     steps:
       - uses: actions/checkout@v4
       - name: Install prerequisites
@@ -33,7 +35,18 @@ jobs:
           root_id="$(sed -n 's/^Root: //p' /tmp/qrspi-cook.txt | head -1)"
           test -n "$root_id"
           echo "root_id=$root_id" >> "$GITHUB_OUTPUT"
+          for stage in goals design tests; do
+            step_id="$(sed -n "s/^qrspi-slice\\.$stage -> //p" /tmp/qrspi-cook.txt | head -1)"
+            test -n "$step_id"
+            gc bd close "$step_id" --reason "Deterministic stage finished before human approval"
+          done
+          gate_id="$(sed -n "s/^qrspi-slice\\.gate-approval -> //p" /tmp/qrspi-cook.txt | head -1)"
+          implement_id="$(sed -n "s/^qrspi-slice\\.implement -> //p" /tmp/qrspi-cook.txt | head -1)"
+          test -n "$gate_id" && test -n "$implement_id"
+          echo "gate_id=$gate_id" >> "$GITHUB_OUTPUT"
+          echo "implement_id=$implement_id" >> "$GITHUB_OUTPUT"
           gc bd show "$root_id"
+          gc bd show "$gate_id"
           gc stop /tmp/qrspi-city
           tar -czf /tmp/qrspi-native-checkpoint.tar.gz -C /tmp qrspi-city
       - uses: actions/upload-artifact@v4
@@ -68,5 +81,11 @@ jobs:
           dolt config --global --add user.email 'qrspi-ci@users.noreply.github.com'
           gc start /tmp/qrspi-city
           gc bd show "$EXPECTED_ROOT_ID"
+          gate_id="${{ needs.cook.outputs.gate_id }}"
+          implement_id="${{ needs.cook.outputs.implement_id }}"
+          gc bd show "$gate_id"
+          gc bd gate resolve "$gate_id" --reason 'Human approval simulated on fresh runner'
+          gc bd show "$gate_id"
+          gc bd show "$implement_id"
           gc formula show qrspi-slice
           echo "Original Gas City root Bead survived independent Actions runner restoration: $EXPECTED_ROOT_ID"
