@@ -14,3 +14,4 @@ jobs:
         with:
           node-version: '22'
       - run: node --test poc/qrspi-slice.test.mjs .github/scripts/qrspi-comment.test.mjs
+      - run: bash -n poc/scripts/*.sh
