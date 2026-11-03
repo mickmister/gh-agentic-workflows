@@ -5,13 +5,10 @@ on:
 permissions:
   contents: read
 jobs:
-  cook:
+  start:
     runs-on: ubuntu-latest
     outputs:
-      root_id: ${{ steps.cook.outputs.root_id }}
-      gate_id: ${{ steps.cook.outputs.gate_id }}
-      implement_id: ${{ steps.cook.outputs.implement_id }}
-      approval_id: ${{ steps.cook.outputs.approval_id }}
+      root_id: ${{ steps.checkpoint.outputs.root_id }}
     steps:
       - uses: actions/checkout@v4
       - name: Install prerequisites
@@ -20,46 +17,27 @@ jobs:
           sudo apt-get install -y -qq tmux jq
       - name: Install pinned Gas City, Beads, Dolt
         run: bash poc/scripts/install-gascity.sh
-      - name: Initialize city and create real formula-v2 Beads
-        id: cook
+      - name: Execute same native Start script used by gh-aw
+        env:
+          WORKSPACE_ID: pr-smoke
+        run: bash poc/scripts/native-start.sh
+      - name: Package durable workspace handoff
+        id: checkpoint
         run: |
           set -euo pipefail
-          export PATH="$RUNNER_TEMP/qrspi-bin:$PATH"
-          dolt config --global --add user.name 'QRSPI CI'
-          dolt config --global --add user.email 'qrspi-ci@users.noreply.github.com'
-          gc init /tmp/qrspi-city
-          mkdir -p /tmp/qrspi-city/formulas
-          cp poc/formulas/qrspi-slice.toml /tmp/qrspi-city/formulas/
-          cd /tmp/qrspi-city
-          gc formula show qrspi-slice
-          gc formula cook qrspi-slice | tee /tmp/qrspi-cook.txt
-          root_id="$(sed -n 's/^Root: //p' /tmp/qrspi-cook.txt | head -1)"
-          test -n "$root_id"
+          memory=/tmp/gh-aw/repo-memory/qrspi-poc
+          test -s "$memory/pr-smoke/checkpoint.json"
+          test -s "$memory/pr-smoke/city.tar.gz"
+          root_id="$(jq -r '.root_id' "$memory/pr-smoke/checkpoint.json")"
           echo "root_id=$root_id" >> "$GITHUB_OUTPUT"
-          for stage in goals design tests; do
-            step_id="$(sed -n "s/^qrspi-slice\\.$stage -> //p" /tmp/qrspi-cook.txt | head -1)"
-            test -n "$step_id"
-            gc bd close "$step_id" --reason "Deterministic stage finished before human approval"
-          done
-          gate_id="$(sed -n "s/^qrspi-slice\\.gate-approval -> //p" /tmp/qrspi-cook.txt | head -1)"
-          implement_id="$(sed -n "s/^qrspi-slice\\.implement -> //p" /tmp/qrspi-cook.txt | head -1)"
-          test -n "$gate_id" && test -n "$implement_id"
-          echo "gate_id=$gate_id" >> "$GITHUB_OUTPUT"
-          echo "implement_id=$implement_id" >> "$GITHUB_OUTPUT"
-          approval_id="$(sed -n "s/^qrspi-slice\\.approval -> //p" /tmp/qrspi-cook.txt | head -1)"
-          test -n "$approval_id"
-          echo "approval_id=$approval_id" >> "$GITHUB_OUTPUT"
-          gc bd show "$root_id"
-          gc bd show "$gate_id"
-          gc stop /tmp/qrspi-city
-          tar -czf /tmp/qrspi-native-checkpoint.tar.gz -C /tmp qrspi-city
+          tar -czf /tmp/qrspi-handoff.tar.gz -C "$memory" pr-smoke
       - uses: actions/upload-artifact@v4
         with:
           name: native-gascity-checkpoint
-          path: /tmp/qrspi-native-checkpoint.tar.gz
+          path: /tmp/qrspi-handoff.tar.gz
           retention-days: 7
-  restore:
-    needs: cook
+  resume:
+    needs: start
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,27 +51,23 @@ jobs:
         with:
           name: native-gascity-checkpoint
           path: /tmp
-      - name: Restore on fresh runner and inspect original workflow root
-        env:
-          EXPECTED_ROOT_ID: ${{ needs.cook.outputs.root_id }}
+      - name: Restore checkpoint into gh-aw memory mount layout
         run: |
           set -euo pipefail
-          export PATH="$RUNNER_TEMP/qrspi-bin:$PATH"
-          tar -xzf /tmp/qrspi-native-checkpoint.tar.gz -C /tmp
-          cd /tmp/qrspi-city
-          dolt config --global --add user.name 'QRSPI CI'
-          dolt config --global --add user.email 'qrspi-ci@users.noreply.github.com'
-          gc start /tmp/qrspi-city
-          gc bd show "$EXPECTED_ROOT_ID"
-          gate_id="${{ needs.cook.outputs.gate_id }}"
-          implement_id="${{ needs.cook.outputs.implement_id }}"
-          gc bd show "$gate_id"
-          gc bd gate resolve "$gate_id" --reason 'Human approval simulated on fresh runner'
-          gc bd show "$gate_id"
-          approval_id="${{ needs.cook.outputs.approval_id }}"
-          gc bd close "$approval_id" --reason "Approved reviewer decision processed"
-          gc bd ready --json | tee /tmp/qrspi-ready.json
-          jq -e --arg id "$implement_id" 'any(.[]; .id == $id)' /tmp/qrspi-ready.json
-          gc bd show "$implement_id"
-          gc formula show qrspi-slice
-          echo "Original Gas City root Bead survived independent Actions runner restoration: $EXPECTED_ROOT_ID"
+          mkdir -p /tmp/gh-aw/repo-memory/qrspi-poc
+          tar -xzf /tmp/qrspi-handoff.tar.gz -C /tmp/gh-aw/repo-memory/qrspi-poc
+          test -s /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json
+      - name: Execute same native Resume script used by gh-aw
+        env:
+          WORKSPACE_ID: pr-smoke
+          REVISION: '1'
+          DECISION: approve
+          EXPECTED_ROOT_ID: ${{ needs.start.outputs.root_id }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.root_id' /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json)" = "$EXPECTED_ROOT_ID"
+          bash poc/scripts/native-resume.sh
+          test "$(jq -r '.status' /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json)" = implementation_ready
+          test "$(jq -r '.root_id' /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json)" = "$EXPECTED_ROOT_ID"
+          # Retry must not repeat an already-accepted approval.
+          bash poc/scripts/native-resume.sh
