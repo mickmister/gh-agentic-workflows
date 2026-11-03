@@ -1,0 +1,68 @@
+name: QRSPI native Gas City checkpoint smoke test
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cook:
+    runs-on: ubuntu-latest
+    outputs:
+      root_id: ${{ steps.cook.outputs.root_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq
+      - name: Install pinned Gas City, Beads, Dolt
+        run: bash poc/scripts/install-gascity.sh
+      - name: Initialize city and create real formula-v2 Beads
+        id: cook
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/qrspi-bin:$PATH"
+          gc init /tmp/qrspi-city
+          mkdir -p /tmp/qrspi-city/formulas
+          cp poc/formulas/qrspi-slice.toml /tmp/qrspi-city/formulas/
+          cd /tmp/qrspi-city
+          gc formula show qrspi-slice
+          gc formula cook qrspi-slice | tee /tmp/qrspi-cook.txt
+          root_id="$(sed -n 's/^Root: //p' /tmp/qrspi-cook.txt | head -1)"
+          test -n "$root_id"
+          echo "root_id=$root_id" >> "$GITHUB_OUTPUT"
+          gc bd show "$root_id"
+          gc stop /tmp/qrspi-city
+          tar -czf /tmp/qrspi-native-checkpoint.tar.gz -C /tmp qrspi-city
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-gascity-checkpoint
+          path: /tmp/qrspi-native-checkpoint.tar.gz
+          retention-days: 7
+  restore:
+    needs: cook
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq
+      - name: Install pinned Gas City, Beads, Dolt
+        run: bash poc/scripts/install-gascity.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-gascity-checkpoint
+          path: /tmp
+      - name: Restore on fresh runner and inspect original workflow root
+        env:
+          EXPECTED_ROOT_ID: ${{ needs.cook.outputs.root_id }}
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/qrspi-bin:$PATH"
+          tar -xzf /tmp/qrspi-native-checkpoint.tar.gz -C /tmp
+          cd /tmp/qrspi-city
+          gc start /tmp/qrspi-city
+          gc bd show "$EXPECTED_ROOT_ID"
+          gc formula show qrspi-slice
+          echo "Original Gas City root Bead survived independent Actions runner restoration: $EXPECTED_ROOT_ID"
