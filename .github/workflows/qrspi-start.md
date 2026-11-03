@@ -22,7 +22,7 @@ tools:
       branch-name: memory/qrspi-poc
       file-glob: ["*.json", "**/*.json", "**/*.tar.gz"]
       max-file-size: 16777216
-      max-patch-size: 33554432
+      max-patch-size: 1048576
 steps:
   - name: Install pinned local Gas City runtime
     run: |
