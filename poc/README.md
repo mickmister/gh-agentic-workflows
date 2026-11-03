@@ -1,46 +1,34 @@
-# QRSPI+ resumable workflow experiment
+# QRSPI+ resumable, workspace-scoped Gas City proof
 
-**Status: draft integration prototype.** The deterministic oracle below is runnable and tested. The Gas City formula is included as the intended native execution graph; wiring a real Gas City session, native human-gate resolution, and gh-aw compiled locks remains necessary before calling this an end-to-end Gas City proof.
+**Status:** draft, native checkpoint and gate restoration proven; actual two-run `gh-aw` Repo Memory deployment still pending.
 
-## Scope and invariants
+## Architecture
 
-One workspace/feature = one logical run and one durable isolated store. Parallel Design/Tests depend on Goals; Implementation is blocked behind a human review; an independent Resume invocation advances the same run. Completed work is never repeated.
+Each feature/PR has its own **Gas City workspace and embedded Dolt/Beads store**. QRSPI's sample formula models Goals → parallel Design/Tests → human gate → Implement → Integrate. Its durable Beads graph is the workflow state; a small checkpoint manifest records the root ID, gate ID, revision, and archive checksum.
 
-## Run the deterministic checkpoint oracle locally
+`poc/scripts/native-start.sh` and `poc/scripts/native-resume.sh` implement the *same* runtime path for the gh-aw Start/Resume workflows and CI. They use an isolated local Gas City directory per workspace. No S3 is required.
 
-```sh
-node --test poc/qrspi-slice.test.mjs
-node poc/qrspi-slice.mjs init /tmp/qrspi-feature-1
-node poc/qrspi-slice.mjs start /tmp/qrspi-feature-1
-node poc/qrspi-slice.mjs inspect /tmp/qrspi-feature-1
-# Exit shell, restart the process: nothing is held in memory.
-node poc/qrspi-slice.mjs resume /tmp/qrspi-feature-1 1 approve
-```
+## Verified native integration
 
-## What is real and what is not
+[`.github/workflows/qrspi-gascity-native.yml`](../.github/workflows/qrspi-gascity-native.yml) provisions pinned Gas City 1.5.1, Beads 1.3.2, and Dolt 2.6.2 on two **different GitHub-hosted runners**:
 
-- **Real in this PR:** independent process restarts, durable checkpoint files, artifact hashes, stale revision rejection, idempotent duplicate resume, two isolated feature workspaces, executable graph definition, CI tests.
-- **Not yet proved:** Gas City's actual control dispatcher running the formula; Beads/Dolt persistence and restore; compiled gh-aw workflows on separate Actions runners; human identity/role enforcement; safe cross-host snapshot publication; real AI execution.
-- Do not count this oracle as an alternative scheduler or claim it proves those missing integrations. Use it as a regression baseline when replacing each stage with native Gas City steps.
+1. Start: materialize a real v2 Gas City formula, close Goals/Design/Tests using deterministic test workers (via actual Beads commands), verify the pending gate, stop Gas City, and archive the workspace.
+2. Resume: restore the same archive at the same workspace path, restart Gas City, verify the original root Bead ID, resolve the native human gate, close the approval step, and assert Implementation is now eligible.
+3. Repeating resume against the accepted snapshot must be an idempotent no-op.
 
-## GitHub Actions and memory
+The cross-runner handoff currently uses a **GitHub Actions artifact**, not gh-aw Repo Memory. The intended gh-aw Start and Resume workflows both use Repo Memory and the same scripts but cannot be dispatched until their generated lockfiles are available on the default branch.
 
-The two gh-aw workflow sources are intentionally distinct. They use Repo Memory, which is backed by a dedicated Git branch. This is a temporary stand-in for gh-aw Repo Memory, which has configurable file/push limits and does **not** provide a native Dolt SQL remote. After adding actual Gas City persistence, store a quiesced, integrity-checked per-workspace snapshot and restore it before starting Gas City.
+## gh-aw Repo Memory constraints
 
-The native two-runner CI test verifies the same Gas City root Bead ID before and after restoration and an actual human gate transition. A separate **Actions workflow run** using gh-aw Repo Memory, native agent execution, and reaching finalization remain explicit acceptance criteria.
+Both Markdown workflow sources (`qrspi-start.md` and `qrspi-resume.md`) compile with `gh aw compile`. They restore/publish an immutable-ish, quiesced workspace archive plus a manifest on `memory/qrspi-poc` at `/tmp/gh-aw/repo-memory/qrspi-poc/<workspace_id>`.
 
-## Native Gas City integration smoke test
+**Important:** Repo Memory enforces a maximum patch size of **1 MiB**. Native CI checks the compressed workspace size against a conservative 1,000,000-byte threshold. This is viable only while the entire changed archive plus manifest fits within the actual gh-aw publication limit. Larger workspaces should switch to an S3 Dolt remote or another supported durable artifact store; do not silently truncate or split the database.
 
-The `.github/workflows/qrspi-gascity-native.yml` workflow installs pinned `gc 1.5.1`, `bd 1.3.2`, and `dolt 2.6.2`. It uses **two separate GitHub-hosted runners**:
+The GitHub Actions token was **refused** when an automated job attempted to commit compiled workflow lockfiles, because it lacked workflow-file permission. That job was removed. A suitably authorized maintainer must commit the generated locks. Compilation artifacts are downloadable from the `Compile QRSPI gh-aw sources` CI run.
 
-1. Initialize Gas City, cook a *real* v2 formula, verify its Beads root, stop the city, archive its workspace.
-2. Download and restore the city archive on a fresh runner, restart Gas City, and look up the **same root bead ID**.
+## PR-comment interface
 
-The native test now marks Goals, Design, and Tests complete as deterministic worker stand-ins, then restores the graph and resolves the **real Beads human gate** on a fresh runner. The next assertion closes the approval step and checks that Implementation becomes ready. This does not yet run Gas City-managed agent sessions; worker stand-ins are explicit test operations.
-
-## PR comment trigger
-
-`.github/workflows/qrspi-pr-comment.yml` handles two exact commands posted by maintainers with write access:
+Once merged to the default branch (`master`), [`qrspi-pr-comment.yml`](../.github/workflows/qrspi-pr-comment.yml) accepts these exact commands from a GitHub user with repository write access:
 
 ```text
 /qrspi start
@@ -48,14 +36,25 @@ The native test now marks Goals, Design, and Tests complete as deterministic wor
 /qrspi resume 1 request_changes
 ```
 
-The dispatcher derives `workspace_id=pr-<number>` from the GitHub event, not user text, and targets trusted workflow definitions on `master`. **This handler is inactive until it exists on the default branch**, and the compiled `.lock.yml` workflows must also be present there. Do not merge to enable it until native end-to-end persistence and access checks pass.
+It derives `workspace_id=pr-N` from the GitHub event rather than trusting arbitrary paths from comments, validates authorization, and dispatches the corresponding compiled `gh-aw` workflow. Because GitHub runs `issue_comment` handlers from the default branch, the listener **cannot be tested as an active comment trigger from this PR branch**. We are intentionally not merging to `master` before readiness.
 
-The slash commands are only a thin interface: the authoritative approval revision and resume eligibility must be verified against the restored workspace, never inferred from the comment itself.
+## Deterministic contract tests
 
-## Deployment prerequisites
+The earlier dependency-free Node.js simulation remains useful for fast checks:
 
-The GitHub PR-comment handler uses `issue_comment`, which GitHub loads from the **default branch**. It only becomes active after merge to `master`. The handler dispatches the compiled `.lock.yml` workflows; those must also be committed to `master` first.
+```sh
+node --test poc/qrspi-slice.test.mjs .github/scripts/qrspi-comment.test.mjs
+bash -n poc/scripts/*.sh
+```
 
-The compile CI produces valid lockfiles as downloadable artifacts, but the GitHub Actions token on this repository is currently **not authorized to push workflow files**. An attempted automatic lockfile commit was rejected by GitHub with missing `workflows` permission. The auto-commit workflow was removed. A maintainer or suitably authorized GitHub App must commit the compiled lockfiles before enabling PR-comment commands.
+It tests stale revision rejection, idempotency, isolated workspaces and exact command parsing. It does **not** replace the native Beads/Dolt integration tests.
 
-No S3 is configured. The native two-job smoke test transfers a quiesced Dolt city snapshot through GitHub Actions artifacts (short-lived transfer), not gh-aw Repo Memory. These are distinct persistence mechanisms and must not be conflated.
+## Remaining acceptance criteria before merging
+
+- Execute actual gh-aw Start and Resume as **two distinct GitHub Actions runs** using Repo Memory, proving the manifest and Dolt archive survive a branch-backed memory round trip.
+- Pin and commit the compiled `.lock.yml` files using a workflow-authorized credential.
+- Exercise real Gas City `exec` workers / sessions; current deterministic worker stand-ins call Beads commands directly.
+- Test a revision-request loop, source-PR comment authorization in a live handler, recovery from interrupted publication, and complete native finalization.
+- Confirm that parallel features do not overwrite each other's Repo Memory checkpoints.
+
+The POC does **not** claim production-grade durable transactionality or exactly-once distributed execution. It demonstrates specific underlying behaviors with runnable assertions and leaves the remaining cross-run trust boundary explicit.
