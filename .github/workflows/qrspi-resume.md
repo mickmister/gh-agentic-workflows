@@ -34,8 +34,8 @@ steps:
     run: |
       set -eu
       test -n "$WORKSPACE_ID"
-      node poc/qrspi-slice.mjs resume "/tmp/gh-aw/repo-memory-qrspi-poc/$WORKSPACE_ID" "$REVISION" "$DECISION"
-      node poc/qrspi-slice.mjs inspect "/tmp/gh-aw/repo-memory-qrspi-poc/$WORKSPACE_ID"
+      node poc/qrspi-slice.mjs resume "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID" "$REVISION" "$DECISION"
+      node poc/qrspi-slice.mjs inspect "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
 ---
 
 This test deliberately executes in a different Actions run. It verifies the restored checkpoint can be advanced without recreating prior deterministic stages. Gas City execution and lockfile compilation remain follow-up acceptance criteria.
