@@ -28,3 +28,26 @@ node poc/qrspi-slice.mjs resume /tmp/qrspi-feature-1 1 approve
 The two manual workflows are intentionally distinct. They exchange a deterministic feature checkpoint through a dedicated Git reference via the GitHub API. This is a temporary stand-in for gh-aw Repo Memory, which has configurable file/push limits and does **not** provide a native Dolt SQL remote. After adding actual Gas City persistence, store a quiesced, integrity-checked per-workspace snapshot and restore it before starting Gas City.
 
 The ultimate acceptance test is: same Gas City root Bead ID before and after a fresh runner, no duplicate step Beads, human gate resolves once, and the graph reaches finalize. This is explicitly **not yet achieved** by the deterministic oracle.
+
+## Native Gas City integration smoke test
+
+The `.github/workflows/qrspi-gascity-native.yml` workflow installs pinned `gc 1.5.1`, `bd 1.3.2`, and `dolt 2.6.2`. It uses **two separate GitHub-hosted runners**:
+
+1. Initialize Gas City, cook a *real* v2 formula, verify its Beads root, stop the city, archive its workspace.
+2. Download and restore the city archive on a fresh runner, restart Gas City, and look up the **same root bead ID**.
+
+This test does not yet run scripted agent sessions or resolve the human gate. A successful run validates native Beads graph persistence and a fresh-host restore with pinned dependencies.
+
+## PR comment trigger
+
+`.github/workflows/qrspi-pr-comment.yml` handles two exact commands posted by maintainers with write access:
+
+```text
+/qrspi start
+/qrspi resume 1 approve
+/qrspi resume 1 request_changes
+```
+
+The dispatcher derives `workspace_id=pr-<number>` from the GitHub event, not user text, and targets trusted workflow definitions on `master`. **This handler is inactive until it exists on the default branch**, and the compiled `.lock.yml` workflows must also be present there. Do not merge to enable it until native end-to-end persistence and access checks pass.
+
+The slash commands are only a thin interface: the authoritative approval revision and resume eligibility must be verified against the restored workspace, never inferred from the comment itself.
