@@ -1,0 +1,27 @@
+name: Compile QRSPI gh-aw sources
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gh-aw
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh extension install github/gh-aw
+      - name: Compile workflow sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh aw compile .github/workflows/qrspi-start.md
+          gh aw compile .github/workflows/qrspi-resume.md
+      - name: Upload compiled locks for review
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gh-aw-compiled-locks
+          path: .github/workflows/*.lock.yml
