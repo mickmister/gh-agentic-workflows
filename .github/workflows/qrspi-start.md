@@ -1,35 +1,41 @@
 ---
+name: QRSPI native Start
 concurrency:
   group: qrspi-workspace-${{ inputs.workspace_id }}
   cancel-in-progress: false
   job-discriminator: ${{ github.run_id }}
-name: QRSPI start (source)
 on:
   workflow_dispatch:
     inputs:
       workspace_id:
-        description: "Feature workspace identifier"
+        description: "Feature/PR workspace id (e.g. pr-123)"
         type: string
         required: true
 permissions:
   contents: read
+engine:
+  id: copilot
+  command: /bin/true
 tools:
   repo-memory:
     - id: qrspi-poc
       branch-name: memory/qrspi-poc
-      file-glob: ["*.json", "**/*.json", "**/*.md"]
-      max-file-size: 1048576
-      max-patch-size: 1048576
+      file-glob: ["*.json", "**/*.json", "**/*.tar.gz"]
+      max-file-size: 16777216
+      max-patch-size: 33554432
 steps:
-  - name: Prepare deterministic workflow checkpoint
+  - name: Install pinned local Gas City runtime
+    run: |
+      set -euo pipefail
+      sudo apt-get update -qq
+      sudo apt-get install -y -qq tmux jq
+      bash poc/scripts/install-gascity.sh
+  - name: Start native QRSPI workflow in isolated workspace
     env:
       WORKSPACE_ID: ${{ inputs.workspace_id }}
-    run: |
-      set -eu
-      test -n "$WORKSPACE_ID"
-      node poc/qrspi-slice.mjs init "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
-      node poc/qrspi-slice.mjs start "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
-      node poc/qrspi-slice.mjs inspect "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
+    run: bash poc/scripts/native-start.sh
 ---
 
-This is an orchestration proof of concept. The deterministic pre-step initializes the feature checkpoint. This is not yet a live Gas City agent execution.
+Creates a real Gas City/Beads formula graph, completes deterministic stand-in stages,
+then checkpoints the quiesced workspace into gh-aw Repo Memory. No AI inference is
+required for the deterministic proof.
