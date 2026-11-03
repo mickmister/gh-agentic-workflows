@@ -23,9 +23,9 @@ steps:
     run: |
       set -eu
       test -n "$WORKSPACE_ID"
-      node poc/qrspi-slice.mjs init "/tmp/gh-aw/repo-memory-qrspi-poc/$WORKSPACE_ID"
-      node poc/qrspi-slice.mjs start "/tmp/gh-aw/repo-memory-qrspi-poc/$WORKSPACE_ID"
-      node poc/qrspi-slice.mjs inspect "/tmp/gh-aw/repo-memory-qrspi-poc/$WORKSPACE_ID"
+      node poc/qrspi-slice.mjs init "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
+      node poc/qrspi-slice.mjs start "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
+      node poc/qrspi-slice.mjs inspect "/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
 ---
 
 This is an orchestration proof of concept. The deterministic pre-step initializes the feature checkpoint. This is not yet a live Gas City agent execution.
