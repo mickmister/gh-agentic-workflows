@@ -24,6 +24,7 @@ jobs:
         run: |
           gh aw compile .github/workflows/qrspi-start.md
           gh aw compile .github/workflows/qrspi-resume.md
+          gh aw compile .github/workflows/testopia-router.md
       - name: Upload compiled locks for review
         if: success()
         uses: actions/upload-artifact@v4
@@ -55,7 +56,7 @@ jobs:
           gh auth setup-git
           git config user.name "${APP_SLUG}[bot]"
           git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
-          git add -- .github/workflows/qrspi-start.lock.yml .github/workflows/qrspi-resume.lock.yml
+          git add -- .github/workflows/qrspi-start.lock.yml .github/workflows/qrspi-resume.lock.yml .github/workflows/testopia-router.lock.yml
           if git diff --cached --quiet; then
             echo "Compiled lockfiles already current"
             exit 0
