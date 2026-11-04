@@ -6,6 +6,6 @@
   "approval_id": "ci-xkz",
   "implement_id": "ci-pk6",
   "revision": 1,
-  "status": "awaiting_approval",
-  "archive_sha256": "4bb58279ccde14cc1b47bb2d15ea8c44a8f2dbd338bff4cb9b28c2ce4fbf3c05"
+  "status": "implementation_ready",
+  "archive_sha256": "2a0596069ef4692eff81c399c72d0f70f5f7a2bdf1a8a7be3545ce4e9336cfee"
 }
