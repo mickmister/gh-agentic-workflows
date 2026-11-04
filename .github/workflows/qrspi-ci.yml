@@ -13,5 +13,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test poc/qrspi-slice.test.mjs .github/scripts/qrspi-comment.test.mjs
+      - run: node --test poc/qrspi-slice.test.mjs poc/testopia-route.test.mjs .github/scripts/qrspi-comment.test.mjs
       - run: bash -n poc/scripts/*.sh
