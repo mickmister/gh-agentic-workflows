@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "workspace_id": "pr-smoke",
+  "root_id": "ci-p6x",
+  "gate_id": "ci-owy",
+  "approval_id": "ci-xkz",
+  "implement_id": "ci-pk6",
+  "revision": 1,
+  "status": "awaiting_approval",
+  "archive_sha256": "4bb58279ccde14cc1b47bb2d15ea8c44a8f2dbd338bff4cb9b28c2ce4fbf3c05"
+}
