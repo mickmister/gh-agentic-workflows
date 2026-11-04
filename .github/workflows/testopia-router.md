@@ -22,6 +22,7 @@ permissions:
   actions: read
   pull-requests: read
 engine: copilot
+inlined-imports: true
 max-turns: 12
 timeout-minutes: 15
 tools:
