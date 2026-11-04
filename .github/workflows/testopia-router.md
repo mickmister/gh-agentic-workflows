@@ -74,7 +74,7 @@ Only route a fresh CI investigation when the PR is still open with:
 If the operator requests anything other than a read-only CI investigation or
 these conditions do not match, **do not dispatch**. Explain why and stop.
 
-For an eligible request, call the `dispatch_workflow` safe-output tool
+For an eligible request, call the workflow-specific `testopia_gascity_worker` safe-output tool
 **once**, using:
 - `workflow_name`: `testopia-gascity-worker`
 - `inputs.workspace_id`: `testopia-pr-3`
