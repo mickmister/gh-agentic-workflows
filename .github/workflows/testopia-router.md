@@ -21,7 +21,9 @@ permissions:
   contents: read
   actions: read
   pull-requests: read
-engine: copilot
+engine:
+  id: copilot
+  model: gpt-5-mini
 inlined-imports: true
 max-turns: 12
 timeout-minutes: 15
