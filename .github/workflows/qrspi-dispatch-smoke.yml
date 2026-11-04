@@ -1,0 +1,72 @@
+name: QRSPI independent-run dispatch smoke
+on:
+  push:
+    paths:
+      - .github/workflows/qrspi-dispatch-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+jobs:
+  dispatch-and-verify:
+    if: github.ref == 'refs/heads/feat/qrspi-resumable-workflow-poc'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      REF: ${{ github.ref_name }}
+      WORKSPACE_ID: pr-smoke
+    steps:
+      - name: Dispatch Start, verify checkpoint, then dispatch Resume
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$REF"
+          test "$ref" = "feat/qrspi-resumable-workflow-poc"
+          workflow_start="qrspi-start.lock.yml"
+          workflow_resume="qrspi-resume.lock.yml"
+
+          dispatch() {
+            local wf="$1" inputs="$2"
+            jq -nc --arg ref "$ref" --argjson inputs "$inputs" '{ref:$ref,inputs:$inputs}' |
+              gh api -X POST "repos/$REPO/actions/workflows/$wf/dispatches" --input -
+          }
+          find_run() {
+            local wf="$1" started="$2"
+            gh api "repos/$REPO/actions/workflows/$wf/runs?event=workflow_dispatch&branch=$ref&per_page=25" \
+              --jq "[.workflow_runs[] | select(.created_at >= \"$started\")] | sort_by(.created_at) | last | .id // empty"
+          }
+          await_run() {
+            local wf="$1" started="$2" run_id=""
+            for i in {1..60}; do
+              run_id="$(find_run "$wf" "$started")"
+              if [[ -n "$run_id" ]]; then break; fi
+              sleep 5
+            done
+            test -n "$run_id" || { echo "::error::No $wf run found"; return 1; }
+            echo "$wf run https://github.com/$REPO/actions/runs/$run_id"
+            for i in {1..120}; do
+              local state
+              state="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status + ":" + (.conclusion // "")')"
+              if [[ "$state" == "completed:success" ]]; then
+                echo "$wf succeeded"
+                return 0
+              fi
+              if [[ "$state" == completed:* ]]; then
+                echo "::error::$wf ended: $state"
+                return 1
+              fi
+              sleep 10
+            done
+            echo "::error::Timed out checking $wf"
+            return 1
+          }
+
+          started="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          dispatch "$workflow_start" "$(jq -nc --arg id "$WORKSPACE_ID" '{workspace_id:$id}')"
+          await_run "$workflow_start" "$started"
+          # Only dispatch Resume after Start has successfully published the checkpoint.
+          started="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          dispatch "$workflow_resume" "$(jq -nc --arg id "$WORKSPACE_ID" '{workspace_id:$id,revision:"1",decision:"approve"}')"
+          await_run "$workflow_resume" "$started"
