@@ -36,7 +36,7 @@ jobs:
       # The app must be installed on this repository with Contents: write and
       # Workflows: write. This does not promote anything to the default branch.
       - name: Mint GitHub App token for workflow-file changes
-        if: ${{ github.ref_name == 'feat/qrspi-resumable-workflow-poc' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
+        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/qrspi-resumable-workflow-poc') || (github.event_name == 'push' && github.ref_name == 'feat/qrspi-resumable-workflow-poc') }}
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
