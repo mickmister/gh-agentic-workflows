@@ -9,6 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Avoid using the workflow's read-only GITHUB_TOKEN for publication.
+          persist-credentials: false
+          # On a same-repo PR, compile and publish against the actual head branch.
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Install gh-aw
         env:
           GH_TOKEN: ${{ github.token }}
@@ -25,3 +30,35 @@ jobs:
         with:
           name: gh-aw-compiled-locks
           path: .github/workflows/*.lock.yml
+
+      # Authenticated publication is restricted to this maintained same-repo PR.
+      # The app must be installed on this repository with Contents: write and
+      # Workflows: write. This does not promote anything to the default branch.
+      - name: Mint GitHub App token for workflow-file changes
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/qrspi-resumable-workflow-poc' }}
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.GH_WORKFLOW_EDIT_CLIENT_ID }}
+          private-key: ${{ secrets.GH_WORKFLOW_EDIT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+      - name: Commit and push generated lockfiles to the PR branch
+        if: ${{ steps.app-token.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          test "$HEAD_REF" = "feat/qrspi-resumable-workflow-poc"
+          gh auth setup-git
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
+          git add -- .github/workflows/qrspi-start.lock.yml .github/workflows/qrspi-resume.lock.yml
+          if git diff --cached --quiet; then
+            echo "Compiled lockfiles already current"
+            exit 0
+          fi
+          git commit -m "chore(gh-aw): compile QRSPI workflow lockfiles"
+          git push origin "HEAD:refs/heads/$HEAD_REF"
