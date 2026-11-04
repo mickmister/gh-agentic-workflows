@@ -42,8 +42,7 @@ jobs:
               pr:{number:$pr[0].number,state:$pr[0].state,
                   base:$pr[0].base.ref,head:$pr[0].head.ref,
                   head_sha:$pr[0].head.sha,repo:$pr[0].head.repo.full_name},
-              recent_runs:[$runs[0].workflow_runs[]? | {name,status,conclusion,html_url}]}' \\
-            > evidence/route-context.json
+              recent_runs:[$runs[0].workflow_runs[]? | {name,status,conclusion,html_url}]}' > evidence/route-context.json
 ---
 # Testopia PR #3 — Gas City intent router
 
