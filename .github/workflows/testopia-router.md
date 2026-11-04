@@ -1,6 +1,16 @@
 ---
 name: Testopia Gas City Intent Router
 on:
+  workflow_call:
+    inputs:
+      request:
+        description: "Authorized Testopia PR request"
+        required: false
+        type: string
+        default: "Investigate the failing browser CI using Gas City"
+    secrets:
+      COPILOT_GITHUB_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       request:
@@ -75,7 +85,8 @@ For an eligible request, call the `dispatch_workflow` safe-output tool
 - `inputs.expected_head_sha`: the verified full 40-character PR head SHA
 
 Never request a GitHub branch push, new PR, approval, arbitrary shell command,
-or a second dispatch. The worker independently rechecks the live PR and will
+or a second dispatch. When called from Testopia, the dispatch targets the Testopia repository's thin
+worker entry point. The worker independently rechecks the live PR and will
 reject stale or unauthorized inputs.
 
 This is an **experiment**, not a production durable scheduler. The
