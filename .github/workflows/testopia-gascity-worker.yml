@@ -1,5 +1,28 @@
 name: Testopia Gas City Copilot worker experiment
 on:
+  workflow_call:
+    inputs:
+      workspace_id:
+        required: true
+        type: string
+      action:
+        required: true
+        type: string
+      formula:
+        required: true
+        type: string
+      target_repo:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+      expected_head_sha:
+        required: true
+        type: string
+    secrets:
+      COPILOT_GITHUB_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       workspace_id:
@@ -36,9 +59,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout control plane
+      - name: Checkout trusted control plane
         uses: actions/checkout@v4
         with:
+          repository: mickmister/gh-agentic-workflows
+          # Prototype only: the caller should pin this workflow and checkout
+          # to the same immutable commit for a production deployment.
+          ref: feat/qrspi-resumable-workflow-poc
           persist-credentials: false
       - name: Read actual Testopia PR state
         env:
@@ -83,8 +110,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh extension install github/gh-copilot || true
-          # GitHub Copilot CLI is distributed separately from the gh-copilot extension.
+          # Official Copilot CLI (not the deprecated gh-copilot extension).
           npm install -g @github/copilot
           command -v copilot
       - name: Run real Gas City Copilot investigator
