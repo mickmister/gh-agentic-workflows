@@ -11,6 +11,8 @@
     "version": "1.5.1",
     "url": "https://github.com/gastownhall/gascity/releases/download/v1.5.1/gascity_1.5.1_linux_amd64.tar.gz",
     "sha256": "3a405a5455eb6216f7f65d4516a614e4913d83bc8964df8800e0533ab2d40044",
-    "archive_bytes": 48295943
+    "archive_bytes": 48295943,
+    "member": "gc",
+    "source_commit": "4f698fe2a7eefae49e545c5e38189f1b63fb9b39"
   }
 }

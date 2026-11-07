@@ -52,3 +52,37 @@ OPENCODE_TEST_BINARY=/absolute/path/to/opencode python3 -m unittest discover -s 
 The offline provider verifies the outgoing exact model, medium reasoning and
 1,536-token limit, and requires the read result to return through the SDK. This
 regression does not substitute for the hosted provider proof.
+
+## Gas City scheduler preflight
+
+`gascity-provider-smoke.yml` adds digest-pinned Gas City 1.5.1. A foreground
+supervisor uses a private `GC_HOME` and declarative city registry, starts a real
+tmux session from the configured `probe` template, and delivers the bounded read
+assignment to OpenCode. The receipt requires the created session to appear in
+GC's census with the expected template/provider, and its injected session ID/name
+to match those observed inside the worker. The same completed read/marker checks
+then apply. A single-start guard prevents another inference launch if GC retries
+the short-lived process. A short acknowledgement handshake keeps it alive long
+enough to observe its GC identity before teardown. The supervisor is stopped and
+reaped in a finalizer, without installing a machine service.
+
+This preflight city uses disposable file-backed GC session bookkeeping, entirely
+separate from the workspace's native Beads collection. Gas City 1.5.1's fresh
+native-city initialization requires Beads >=1.3.0; the proven workspace toolchain
+remains at 1.2.2. This probe neither upgrades nor initializes workspace Beads. It
+establishes scheduling/tool execution only; generic target checkout, formulas,
+native workspace checkpoint/final publication, and resume remain later gates.
+Only `receipt.json` is uploaded. Runtime configuration, startup credentials,
+events, tmux output and supervisor diagnostics remain private to the runner.
+
+The real scheduler can also be exercised against the credential-free local
+streaming provider:
+
+```sh
+GASCITY_TEST_BINARY=/absolute/path/to/gc OPENCODE_TEST_BINARY=/absolute/path/to/opencode python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+```
+
+The tmux backend is intentional: GC 1.5.1's subprocess backend does not deliver
+the startup prompt suffix required by this provider. Explicit worker startup
+environment also avoids inheriting stale configuration/credentials from an
+already-running tmux server.

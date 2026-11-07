@@ -73,18 +73,19 @@ def command(args, root, env, timeout=180):
     return result.stdout
 
 
-def download_binary(base):
-    lock = json.loads((SCRIPT.parent.parent / "agent-toolchain.lock.json").read_text())["opencode"]
+def download_binary(base, tool="opencode"):
+    require(tool in ("opencode", "gas_city"), "unexpected agent tool")
+    lock = json.loads((SCRIPT.parent.parent / "agent-toolchain.lock.json").read_text())[tool]
     with urllib.request.urlopen(lock["url"], timeout=90) as response:
         packed = response.read(lock["archive_bytes"] + 1)
     require(len(packed) == lock["archive_bytes"] and hashlib.sha256(packed).hexdigest() == lock["sha256"],
-            "OpenCode archive digest mismatch")
+            "agent tool archive digest mismatch")
     with tarfile.open(fileobj=io.BytesIO(packed), mode="r:gz") as archive:
         member = archive.getmember(lock["member"])
         require(member.isfile() and 0 < member.size < 400 * 1024 * 1024, "unexpected OpenCode archive member")
         data = archive.extractfile(member).read(member.size + 1)
     require(len(data) == member.size and data.startswith(b"\x7fELF"), "invalid OpenCode executable")
-    binary = base / "opencode"
+    binary = base / lock["member"]
     binary.write_bytes(data)
     binary.chmod(0o700)
     return binary, lock
@@ -126,7 +127,7 @@ def inspect_events(output, fixture, marker):
             "usage": usage}
 
 
-def probe(base, binary=None, validate_only=False):
+def probe(base, binary=None, validate_only=False, launcher=command):
     base.mkdir(parents=True, mode=0o700, exist_ok=True)
     root = base / "workspace"
     root.mkdir(mode=0o700, exist_ok=True)
@@ -155,7 +156,7 @@ def probe(base, binary=None, validate_only=False):
     require(endpoint.scheme == "https" and not endpoint.username and not endpoint.password and
             not endpoint.query and not endpoint.fragment, "invalid inference endpoint")
     prompt = f"Use the read tool to read {fixture}. Reply with exactly its first line, no other text. You must actually invoke read. Do not use other tools."
-    output = command([str(binary), "run", "--pure", "--format", "json", "--title", "Bounded provider probe", "--model", MODEL,
+    output = launcher([str(binary), "run", "--pure", "--format", "json", "--title", "Bounded provider probe", "--model", MODEL,
                       "--agent", "ci-probe", "--variant", "medium", prompt], root, env)
     result = {"opencode_version": version, "selected_model": MODEL, "reasoning_effort": "medium",
               "tool_read_and_marker": "passed", "isolated_config_accepted": True,

@@ -57,9 +57,19 @@ class ProviderProof(unittest.TestCase):
                 env = probe.isolated_environment(base, config, fake=True)
                 env["INFERENCE_BASE_URL"] = f"http://127.0.0.1:{server.server_port}/v1"
                 probe.command(["git", "init", "--quiet", str(root)], root, env)
-                output = probe.command([os.environ["OPENCODE_TEST_BINARY"], "run", "--pure",
-                                        "--format", "json", "--title", "Offline provider probe", "--model", probe.MODEL, "--agent", "ci-probe",
-                                        "--variant", "medium", f"Read {fixture} and return its first line."], root, env)
+                launcher = probe.command
+                if os.environ.get("GASCITY_TEST_BINARY"):
+                    gc_spec = importlib.util.spec_from_file_location("gc_probe", Path(__file__).with_name("gascity-provider-smoke.py"))
+                    gc_probe = importlib.util.module_from_spec(gc_spec)
+                    gc_spec.loader.exec_module(gc_probe)
+                    launcher = gc_probe.GasCityLauncher(Path(os.environ["GASCITY_TEST_BINARY"]))
+                try:
+                    output = launcher([os.environ["OPENCODE_TEST_BINARY"], "run", "--pure",
+                                            "--format", "json", "--title", "Offline provider probe", "--model", probe.MODEL, "--agent", "ci-probe",
+                                            "--variant", "medium", f"Read {fixture} and return its first line."], root, env)
+                except RuntimeError as error:
+                    self.fail(str(error) + "\nOffline GC diagnostics: " + "\n".join(
+                        path.name + ": " + path.read_text()[-10000:] for path in base.glob("gc-*-error.txt")))
                 try:
                     result = probe.inspect_events(output, fixture, marker)
                 except RuntimeError:
@@ -71,6 +81,9 @@ class ProviderProof(unittest.TestCase):
                 self.assertTrue(all(request.get("reasoning_effort") == "medium" for request in requests))
                 self.assertTrue(all(request.get("max_tokens") == 1536 for request in requests))
                 self.assertEqual(len(requests), 2)
+                if os.environ.get("GASCITY_TEST_BINARY"):
+                    self.assertTrue(launcher.evidence["gc_worker_identity_verified"])
+                    self.assertIn(str(fixture), json.dumps(requests[0]["messages"]))
             finally:
                 server.shutdown()
                 server.server_close()
