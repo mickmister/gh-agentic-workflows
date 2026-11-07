@@ -137,8 +137,11 @@ class Proof:
         raw = os.environ.get("NUGS_WORKSPACE_CONTEXT", "")
         require(0 < len(raw.encode()) <= 8192, "trusted workspace context is required")
         self.handoff = validate_handoff(json.loads(raw), self.workspace,
-                                       os.environ["NUGS_COLLECTION_ID"], os.environ["NUGS_DOLT_COMMIT"])
-        require(os.environ.get("NUGS_WORKER_MODE", "success") in ("success", "fail-worker", "reject-push"),
+                                        os.environ["NUGS_COLLECTION_ID"], os.environ["NUGS_DOLT_COMMIT"])
+        self.resource = os.environ.get("NUGS_PROOF_RESOURCE", RESOURCE)
+        require(re.fullmatch(r"ci/persistence/(?:callers/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/)?proof\.json", self.resource),
+                "invalid proof resource")
+        require(os.environ.get("NUGS_WORKER_MODE", "success") in ("success", "fail-worker", "reject-push", "concurrent-peer"),
                 "invalid bounded worker mode")
         run_id, attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
         require(run_id.isdigit() and attempt.isdigit(), "invalid run identity")
@@ -229,13 +232,14 @@ class Proof:
     def restore(self):
         result = self.restore_into(self.root, self.base / "collection", self.handoff)
         require(result["restoration"]["verified"], "native restore was not verified")
-        self.bd(self.root, "show", os.environ["NUGS_EXPECT_ISSUE"], "--readonly")
+        if os.environ.get("NUGS_EXPECT_ISSUE"):
+            self.bd(self.root, "show", os.environ["NUGS_EXPECT_ISSUE"], "--readonly")
         write_json(self.base / "restore.json", result)
         print("Restored and read the exact native workspace collection.")
 
     def worker(self):
         previous = os.environ.get("NUGS_EXPECT_PREVIOUS_RUN", "")
-        observed = self.nugs("documents", "read", "--name", RESOURCE, allow_failure=True)
+        observed = self.nugs("documents", "read", "--name", self.resource, allow_failure=True)
         if observed.returncode:
             response = json.loads(observed.stdout)
             require(not previous and response.get("error", {}).get("code") == "not_found",
@@ -255,23 +259,23 @@ class Proof:
         body = {"run_id": self.run_id, "attempt": os.environ["GITHUB_RUN_ATTEMPT"],
                 "issue_id": issue["id"], "previous_run_id": prior["run_id"] if prior else None,
                 "source_sha": os.environ["GITHUB_SHA"]}
-        artifact = self.nugs("documents", "upsert", "--name", RESOURCE, "--expected", version,
+        artifact = self.nugs("documents", "upsert", "--name", self.resource, "--expected", version,
                              content=json.dumps(body).encode())
         require(artifact["receipt"]["changed"], "proof artifact was not published")
         # A stale version must not silently overwrite this update.
-        stale = self.nugs("documents", "upsert", "--name", RESOURCE, "--expected", version,
+        stale = self.nugs("documents", "upsert", "--name", self.resource, "--expected", version,
                           content=b"stale overwrite", allow_failure=True)
         require(stale.returncode == 3 and json.loads(stale.stdout)["error"]["code"] == "conflict",
                 "stale artifact update was not rejected")
         write_json(self.base / "work.json", {"proof": body, "artifact": artifact["receipt"]})
         print("Published bounded artifact update and rejected stale overwrite.")
-        if os.environ.get("NUGS_WORKER_MODE") == "reject-push":
+        if os.environ.get("NUGS_WORKER_MODE") in ("reject-push", "concurrent-peer"):
             self.advance_peer(checkpoint)
         require(os.environ.get("NUGS_WORKER_MODE", "success") != "fail-worker",
                 "intentional worker failure after durable artifact/native changes")
 
     def checkpoint(self, issue_id):
-        result = self.nugs("beads", "publish", "--root", str(self.root))
+        result = self.nugs("beads", "sync", "--root", str(self.root))
         publication = result["publication"]
         require(publication["verified"], "intermediate native checkpoint was not verified")
         checkpoint = {"run_id": self.run_id, "issue_id": issue_id, "publication": publication, "handoff": result["handoff"]}
@@ -293,7 +297,7 @@ class Proof:
         advanced = self.nugs("beads", "publish", "--root", str(peer), root=peer)["publication"]
         require(advanced["verified"], "concurrent writer publication was not verified")
         write_json(self.base / "peer.json", {"issue_id": issue["id"], "publication": advanced})
-        print("Controlled peer advanced the native ref; the stale final push must be rejected.")
+        print("Controlled peer advanced native history; finalization must preserve its edits.")
 
     def retain_recovery(self):
         """Native transport to a distinct recovery ref, never a live DB copy."""
@@ -338,8 +342,11 @@ class Proof:
             if path.exists():
                 receipt[name] = json.loads(path.read_text())
         try:
-            published = self.nugs("beads", "publish", "--root", str(self.root))
+            operation = "publish" if os.environ.get("NUGS_WORKER_MODE") == "reject-push" else "sync"
+            published = self.nugs("beads", operation, "--root", str(self.root))
             receipt["publication"], receipt["handoff"] = published["publication"], published["handoff"]
+            if "synchronization" in published:
+                receipt["synchronization"] = published["synchronization"]
             require(receipt["publication"]["verified"], "native final publication not verified")
             # A separate local clone verifies the final checkpoint and changed
             # issue. The next Actions run proves independent-runner recovery.
@@ -348,7 +355,9 @@ class Proof:
             self.restore_into(verify, self.base / "verify-collection", receipt["handoff"])
             work = json.loads((self.base / "work.json").read_text())
             self.bd(verify, "show", work["proof"]["issue_id"], "--readonly")
-            recovered = self.nugs("documents", "read", "--name", RESOURCE)
+            if "peer" in receipt:
+                self.bd(verify, "show", receipt["peer"]["issue_id"], "--readonly")
+            recovered = self.nugs("documents", "read", "--name", self.resource)
             require(recovered["document"]["version"] == work["artifact"]["version"] and
                     json.loads(recovered["document"]["text"]) == work["proof"],
                     "artifact changed before final verification")

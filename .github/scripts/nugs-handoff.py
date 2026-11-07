@@ -22,7 +22,7 @@ def execute(args, *, content=None, json_output=False, cwd=None):
 def handoff(args, call=execute):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", args.workspace):
         raise RuntimeError("invalid workspace")
-    publication = call([args.nugs, "beads", "publish", "--root", args.root],
+    publication = call([args.nugs, "beads", "sync", "--root", args.root],
                        cwd=args.root, json_output=True)
     receipt = publication.get("publication", {})
     if (publication.get("error") or not receipt.get("verified") or

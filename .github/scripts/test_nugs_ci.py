@@ -22,6 +22,9 @@ handoff_spec.loader.exec_module(handoff)
 recovery_spec = importlib.util.spec_from_file_location("nugs_recovery", Path(__file__).with_name("nugs-recover.py"))
 recovery = importlib.util.module_from_spec(recovery_spec)
 recovery_spec.loader.exec_module(recovery)
+source_spec = importlib.util.spec_from_file_location("nugs_source", Path(__file__).with_name("nugs-source.py"))
+source = importlib.util.module_from_spec(source_spec)
+source_spec.loader.exec_module(source)
 
 
 def fixture_handoff():
@@ -30,6 +33,43 @@ def fixture_handoff():
 
 
 class Boundaries(unittest.TestCase):
+    def test_source_configuration_is_stable_and_scopes_proof_to_caller(self):
+        seed = fixture_handoff()
+        env = {"NUGS_WORKSPACE_SEED": json.dumps(seed), "GITHUB_REPOSITORY": "owner/source",
+               "GITHUB_SHA": "b" * 40, "NUGS_DOLT_COMMIT": "untrusted-inherited-selector"}
+        source.configure_source(env)
+        self.assertEqual(json.loads(env["NUGS_WORKSPACE_CONTEXT"]), seed)
+        self.assertEqual(env["NUGS_DOLT_COMMIT"], seed["dolt_commit"])
+        self.assertEqual(env["NUGS_PROOF_RESOURCE"], "ci/persistence/callers/owner/source/proof.json")
+        # Another invocation uses exactly the same seed, with a new caller SHA.
+        env["GITHUB_SHA"] = "c" * 40
+        source.configure_source(env)
+        self.assertEqual(json.loads(env["NUGS_WORKSPACE_CONTEXT"]), seed)
+        for changed in ({**seed, "remote": "https://github.com/private/storage"},
+                        {**seed, "workspace_ref": "foreign"}, {**seed, "dolt_commit": "main"}):
+            with self.assertRaises(RuntimeError):
+                source.configure_source({**env, "NUGS_WORKSPACE_SEED": json.dumps(changed)})
+
+    def test_source_restore_syncs_seed_to_current_history_and_preserves_identity(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+                "GITHUB_REPOSITORY": "owner/source", "GITHUB_SHA": "b" * 40, "GITHUB_EVENT_NAME": "issue_comment"}):
+            proof = object.__new__(source.SourceProof)
+            proof.base, proof.root, proof.workspace = Path(temp), Path(temp), "fixture"
+            proof.handoff = fixture_handoff()
+            current = {**proof.handoff, "dolt_commit": "b" * 32}
+            proof.restore_into = Mock(return_value={"restoration": {"verified": True}})
+            proof.nugs = Mock(return_value={"publication": {"verified": True}, "handoff": current,
+                                           "synchronization": {"attempts": 2}})
+            with contextlib.redirect_stdout(io.StringIO()):
+                proof.restore()
+            proof.nugs.assert_called_once_with("beads", "sync")
+            restored = json.loads((proof.base / "restore.json").read_text())
+            self.assertEqual(restored["current_handoff"], current)
+            self.assertEqual(restored["caller"]["repository"], "owner/source")
+            proof.nugs.return_value["handoff"] = {**current, "engagement": "foreign"}
+            with self.assertRaisesRegex(RuntimeError, "changed authorized workspace"):
+                proof.restore()
+
     @unittest.skipUnless(os.environ.get("NUGS_TEST_NPM") == "1", "set NUGS_TEST_NPM=1 for the actual pinned public npm download")
     def test_pinned_npm_archive_downloads_and_its_native_executable_runs(self):
         item = json.loads(ci.LOCK.read_text())["tools"]["nugs"]
@@ -191,6 +231,7 @@ class Boundaries(unittest.TestCase):
             proof.base = Path(temp)
             proof.root = proof.base
             proof.workspace = "fixture"
+            proof.resource = ci.RESOURCE
             proof.run_id = "123"
             proof.receipt_path = proof.base / "receipt.json"
             proof.nugs = Mock(side_effect=[RuntimeError("push rejected"), {}])
@@ -209,6 +250,7 @@ class Boundaries(unittest.TestCase):
             proof.base = Path(temp)
             proof.root = proof.base
             proof.workspace = "fixture"
+            proof.resource = ci.RESOURCE
             proof.run_id = "123"
             proof.receipt_path = proof.base / "receipt.json"
             work = {"proof": {"issue_id": "fixture-1"}, "artifact": {"version": "version"}}
