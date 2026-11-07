@@ -33,7 +33,7 @@ def handoff(args, call=execute):
     if not re.fullmatch(r"[0-9a-f]{40}", source.get("sha", "")):
         raise RuntimeError("central workflow source revision unavailable; dispatch blocked")
     command = ["gh", "workflow", "run", "nugs-persistence-smoke.yml", "--repo", REPOSITORY,
-               "--ref", source["sha"], "-f", "workspace=" + args.workspace,
+               "--ref", args.source_ref, "-f", "workspace=" + args.workspace,
                "-f", "collection_id=" + receipt["collection_id"],
                "-f", "dolt_commit=" + receipt["dolt_commit"],
                "-f", "expect_issue=" + args.expect_issue,
@@ -57,6 +57,13 @@ def handoff(args, call=execute):
         os.chmod(local, 0o600)
         json.dump(result, stream, indent=2)
     try:
+        # workflow_dispatch requires a branch/tag ref. Check the accepted run's
+        # exact SHA after dispatch, retaining its identity before this read so a
+        # lookup failure cannot cause a blind duplicate dispatch.
+        actual = call(["gh", "run", "view", match[1], "--repo", REPOSITORY,
+                       "--json", "headSha"], json_output=True)
+        if actual.get("headSha") != source["sha"]:
+            raise RuntimeError("central source advanced during dispatch")
         artifact = call([args.nugs, "documents", "upsert", "--workspace", args.workspace,
                          "--name", "operations/ci-handoffs/" + match[1] + ".json"],
                         content=json.dumps(result).encode(), json_output=True)
@@ -64,7 +71,7 @@ def handoff(args, call=execute):
             raise RuntimeError("handoff receipt publication failed")
     except Exception:
         print(json.dumps(result))
-        raise RuntimeError("run dispatched; receipt publication failed; recover saved handoff before retry") from None
+        raise RuntimeError("run dispatched; source verification or receipt publication failed; recover saved handoff before retry") from None
     result["artifact"] = artifact["receipt"]
     return result
 

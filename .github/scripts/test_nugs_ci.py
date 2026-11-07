@@ -36,12 +36,14 @@ class Boundaries(unittest.TestCase):
                                                      "collection_id": "collection", "dolt_commit": "commit", "git_commit": "git"}},
                                      {"sha": "a" * 40},
                                      b"https://github.com/mickmister/gh-agentic-workflows/actions/runs/123",
+                                     {"headSha": "a" * 40},
                                      RuntimeError("network unavailable")])
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "run dispatched"):
                 handoff.handoff(args, call)
             saved = json.loads((Path(temp) / "123.json").read_text())
             self.assertEqual(saved["run_id"], 123)
-            self.assertIn("a" * 40, call.call_args_list[2].args[0])
+            self.assertIn("feature", call.call_args_list[2].args[0])
+            self.assertEqual(saved["source_sha"], "a" * 40)
 
     def test_credentials_are_only_returned_to_the_exact_storage_repository(self):
         env = {"NUGS_STORAGE_URL": "https://github.com/example/storage.git",
