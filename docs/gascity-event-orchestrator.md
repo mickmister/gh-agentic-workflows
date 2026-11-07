@@ -62,11 +62,13 @@ request text is rejected. A failed event remains retryable.
   other workspace Beads writers. Actions concurrency groups are not a durable queue;
   a superseded pending invocation must be explicitly redispatched.
 
-This is the repo-local dispatch/reusable execution core. PR-comment authentication,
-PR publication, automatic trigger subscriptions, arbitrary source checkouts, graph
-migration, concurrent independent controllers and abrupt runner-loss checkpoints
-are follow-on work. The current developer checkout follows the integration branch;
-external production callers should pin an immutable implementation revision.
+This execution core also handles authenticated PR slash requests and structured
+form responses through the [PR comment entrypoint](pr-comment-workflow.md), with
+correlated App-owned status publication. Arbitrary source execution/checkouts,
+graph migration, concurrent independent controllers and abrupt runner-loss
+checkpoints remain follow-on work. The current developer checkout follows the
+integration branch; external production callers should pin an immutable
+implementation revision.
 
 ## Verification
 
