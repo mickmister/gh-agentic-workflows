@@ -63,6 +63,7 @@ class City:
         self.home.mkdir(mode=0o700)
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith(("GC_", "BEADS_"))}
+        self.env["PATH"] = str(self.binary.parent) + os.pathsep + self.env["PATH"]
         self.env.update(GC_HOME=str(self.home), GC_BEADS="file", GC_SESSION="tmux",
                         GC_SUPERVISOR_ENV="INFERENCE_BASE_URL INFERENCE_API_KEY CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET")
         self.roles = {}
@@ -146,9 +147,10 @@ max_active_sessions = 1
         (self.home / "cities.toml").write_text(f'[[cities]]\npath = {quote(str(self.city))}\nname = "{CITY}"\n')
         self.supervisor = None
 
-    def command(self, *args, raw=False):
+    def command(self, *args, raw=False, direct=False):
         result = subprocess.run([str(self.binary), *args], cwd=self.city,
-            env={**self.env, "PWD": str(self.city)}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+            env={**self.env, "PWD": str(self.city), **({"GC_NO_API": "1"} if direct else {})},
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
         if result.returncode:
             diagnostic = self.base / "gc-error.txt"
             diagnostic.write_bytes(result.stdout + result.stderr)
@@ -204,7 +206,9 @@ max_active_sessions = 1
         return value
 
     def bead(self, identifier):
-        return gc.formula_api(self.port, identifier, city_name=CITY)
+        # The API serves a cached projection. In particular, a control step run
+        # by another gc process may be committed before that cache refreshes.
+        return self.command("beads", "show", identifier, "--format=json", direct=True)
 
     def close_step(self, root, step):
         gc.formula_api(self.port, step, "close", city_name=CITY)
@@ -227,6 +231,19 @@ max_active_sessions = 1
                     "cannot recover work still owned by an open Gas City session")
             gc.formula_api(self.port, step, "update", {"status": "open", "assignee": "",
                 "metadata": {"gc.session_id": "", "gc.session_name": ""}}, city_name=CITY)
+
+    def finish_workflow(self, root, finalizer):
+        if self.bead(root).get("status") != "closed" and self.bead(finalizer).get("status") == "open":
+            # Explicitly drive the native deterministic control step as well as
+            # allowing GC's background dispatcher to handle it. No manual root
+            # closure or synthetic completion of the workflow graph.
+            output = self.command("convoy", "control", finalizer, raw=True)
+            (self.base / "control-output.txt").write_bytes(output)
+        for _ in range(30):
+            if self.bead(root).get("status") == "closed":
+                return
+            time.sleep(1)
+        raise RuntimeError("native workflow finalizer did not complete")
 
     def run_agent(self, role, assignment, prompt, validator, step=None, prior=None):
         folder, root, fixture, env, template = self.roles[role]

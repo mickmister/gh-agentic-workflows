@@ -171,6 +171,13 @@ class NativeRecovery(unittest.TestCase):
                 self.assertEqual(second.bead(root)["status"], "open")
                 self.assertEqual(second.bead(assess)["status"], "closed")
                 self.assertEqual(second.bead(cooked["id_mapping"]["investigate.followup"])["status"], "open")
+                second.close_step(root, cooked["id_mapping"]["investigate.followup"])
+                try:
+                    second.finish_workflow(root, cooked["id_mapping"]["investigate.workflow-finalize"])
+                except RuntimeError:
+                    self.fail("Offline finalizer diagnostics: " + (second.base / "control-output.txt").read_text() +
+                              json.dumps([second.bead(identifier) for identifier in cooked["id_mapping"].values()]))
+                self.assertEqual(second.bead(root)["status"], "closed")
 
 
 if __name__ == "__main__":

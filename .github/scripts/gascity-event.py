@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 import secrets
 import sys
-import time
 
 
 def load(name, filename):
@@ -102,6 +101,51 @@ class EventProof(source.SourceProof):
                             content=json.dumps(report).encode())["receipt"]
         ci.write_json(local, {**report, "artifact": receipt})
 
+    def perform_step(self, city, state, step, report):
+        city.prepare_step(step)
+        report.update(root_id=state["root_id"], step_id=step, formula=state["formula"])
+        if os.environ.get("GC_FAIL_WORKER") == "true":
+            raise RuntimeError("intentional worker failure after native formula selection")
+        nonce = secrets.token_hex(16)
+        assignment = {"nonce": nonce, "event": self.event, "formula": state["formula"],
+                      "root_id": state["root_id"], "step_id": step, "source": state["source"]}
+        prior = state.get("worker_session")
+        answer = {}
+
+        def validate_answer(text):
+            value = json.loads(text)
+            keys = {"nonce", "summary", "prior_nonce"} if prior else {"nonce", "summary"}
+            require(set(value) == keys and value["nonce"] == nonce and
+                    isinstance(value["summary"], str) and 1 <= len(value["summary"]) <= 4000,
+                    "worker returned an invalid result")
+            require(not prior or value["prior_nonce"] == state["results"][-1]["nonce"],
+                    "worker did not recover its previous native conversation")
+            answer.update(value)
+
+        prompt = ('Perform the requested read-only investigation or implementation planning according to formula. '
+            'Ground your answer in source.text and cite the supplied source.path; distinguish missing evidence. '
+            'Return exactly nonce copied from assignment and summary (at most 4000 characters).')
+        if prior:
+            prompt += (' Continue the imported conversation. Include prior_nonce recovered from your previous '
+                       'answer in conversation history; it is intentionally absent from the new assignment.')
+        evidence, native_session = city.run_agent("worker", assignment, prompt, validate_answer, step=step, prior=prior)
+        state["worker_session"] = native_session
+        state["results"].append({**answer, "event_id": self.event["id"], "step_id": step, "execution": evidence})
+        city.close_step(state["root_id"], step)
+        report.update(worker=evidence, summary=answer["summary"])
+
+    def complete_graph(self, city, state):
+        finalizer = state.get("finalizer_id")
+        if not finalizer:
+            # Backward-compatible recovery of the first hosted checkpoints.
+            store = json.loads(runtime.decode_store(state["gc_store"]))
+            matches = [bead["id"] for bead in store["beads"]
+                       if bead.get("metadata", {}).get("gc.root_bead_id") == state["root_id"] and
+                       bead.get("metadata", {}).get("gc.kind") == "workflow-finalize"]
+            require(len(matches) == 1, "native workflow finalizer identity missing")
+            finalizer = state["finalizer_id"] = matches[0]
+        city.finish_workflow(state["root_id"], finalizer)
+
     def worker(self):
         state, revision = self.read_state()
         catalog = runtime.catalog()
@@ -134,6 +178,7 @@ class EventProof(source.SourceProof):
                 prompt = ('You are the Gas City workflow orchestrator. Choose the native workflow operation from the event intent and '
                     'current durable state. For a new investigation select investigate; for an implementation plan select plan-change. '
                     'Start only when no execution exists. For a linked follow-up resume or update the existing incomplete execution. '
+                    'If its work steps are already closed but phase is incomplete, resume to finish native finalization. '
                     'Completed executions normally need noop. await_human is available when the request needs clarification. '
                     'Return exactly nonce, action (start/resume/update/await_human/noop), formula, execution_id, expected_revision, reason. '
                     'Copy nonce and revision from assignment; formula must be a catalog key, the existing formula, or empty when no '
@@ -153,6 +198,7 @@ class EventProof(source.SourceProof):
                     state = {"schema_version": 1, "repository": self.event["repository"],
                              "execution_id": self.event["execution_id"], "catalog": catalog,
                              "formula": decision["formula"], "root_id": cooked["root_id"],
+                             "finalizer_id": cooked["id_mapping"][decision["formula"] + ".workflow-finalize"],
                              "steps": {name: cooked["id_mapping"][decision["formula"] + "." + name]
                                        for name in ("assess", "followup")},
                              "phase": "ready", "events": [], "results": [],
@@ -162,49 +208,14 @@ class EventProof(source.SourceProof):
                     changed = True
                     pending = [identifier for identifier in state["steps"].values()
                                if city.bead(identifier).get("status") != "closed"]
-                    require(pending, "no pending native formula work")
-                    step = pending[0]
-                    city.prepare_step(step)
-                    report.update(root_id=state["root_id"], step_id=step, formula=state["formula"])
-                    if os.environ.get("GC_FAIL_WORKER") == "true":
-                        raise RuntimeError("intentional worker failure after native formula selection")
-                    nonce = secrets.token_hex(16)
-                    worker_assignment = {"nonce": nonce, "event": self.event, "formula": state["formula"],
-                                         "root_id": state["root_id"], "step_id": step, "source": state["source"]}
-                    prior = state.get("worker_session")
-                    answer = {}
-
-                    def validate_answer(text):
-                        value = json.loads(text)
-                        keys = {"nonce", "summary", "prior_nonce"} if prior else {"nonce", "summary"}
-                        require(set(value) == keys and value["nonce"] == nonce and
-                                isinstance(value["summary"], str) and 1 <= len(value["summary"]) <= 4000,
-                                "worker returned an invalid result")
-                        require(not prior or value["prior_nonce"] == state["results"][-1]["nonce"],
-                                "worker did not recover its previous native conversation")
-                        answer.update(value)
-
-                    worker_prompt = ('Perform the requested read-only investigation or implementation planning according to formula. '
-                        'Ground your answer in source.text and cite the supplied source.path; distinguish missing evidence. '
-                        'Return exactly nonce copied from assignment and summary (at most 4000 characters).')
-                    if prior:
-                        worker_prompt += (' Continue the imported conversation. Include prior_nonce recovered from your previous '
-                                          'answer in conversation history; it is intentionally absent from the new assignment.')
-                    worker_evidence, native_session = city.run_agent("worker", worker_assignment, worker_prompt,
-                                                                    validate_answer, step=step, prior=prior)
-                    state["worker_session"] = native_session
-                    state["results"].append({**answer, "event_id": self.event["id"], "step_id": step,
-                                             "execution": worker_evidence})
-                    city.close_step(state["root_id"], step)
+                    if pending:
+                        self.perform_step(city, state, pending[0], report)
                     completed = all(city.bead(identifier).get("status") == "closed" for identifier in state["steps"].values())
                     if completed:
-                        for _ in range(30):
-                            if city.bead(state["root_id"]).get("status") == "closed":
-                                break
-                            time.sleep(1)
-                        require(city.bead(state["root_id"]).get("status") == "closed", "native workflow finalizer did not complete")
+                        self.complete_graph(city, state)
                     state["phase"] = "completed" if completed else "awaiting_followup"
-                    report.update(worker=worker_evidence, summary=answer["summary"], phase=state["phase"])
+                    report.update(phase=state["phase"], root_id=state["root_id"],
+                                  finalizer_recovered=completed and not pending)
                 elif state:
                     changed = True
                     if decision["action"] == "await_human":

@@ -53,6 +53,11 @@ request text is rejected. A failed event remains retryable.
   expected-version CAS. Local reports/recovery receipts are also Actions artifacts.
 - GC is stopped before capture. Ordinary worker failure retains pending work; final
   persistence independently restores the workspace and reads the exact checkpoint.
+- Completion uses the native `gc convoy control <finalizer>` operation and checks
+  authoritative `GC_NO_API=1 gc beads show` reads. The supervisor API's cached
+  projection is not a completion barrier for writes made by another GC process.
+  A retry with already-closed worker steps finishes finalization without rerunning
+  those validated workers.
 - Actions serializes invocations for each repository/execution, without pausing
   other workspace Beads writers. Actions concurrency groups are not a durable queue;
   a superseded pending invocation must be explicitly redispatched.
