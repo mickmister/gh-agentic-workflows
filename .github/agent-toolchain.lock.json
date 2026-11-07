@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "opencode": {
+    "version": "1.19.4",
+    "url": "https://github.com/anomalyco/opencode/releases/download/v1.19.4/opencode-linux-x64-baseline.tar.gz",
+    "sha256": "1697ef40558d378bd2f72efa8fafe1bed1f0e664f09247b9357556b95dbc7cbc",
+    "archive_bytes": 79667571,
+    "member": "opencode"
+  },
+  "gas_city": {
+    "version": "1.5.1",
+    "url": "https://github.com/gastownhall/gascity/releases/download/v1.5.1/gascity_1.5.1_linux_amd64.tar.gz",
+    "sha256": "3a405a5455eb6216f7f65d4516a614e4913d83bc8964df8800e0533ab2d40044",
+    "archive_bytes": 48295943
+  }
+}

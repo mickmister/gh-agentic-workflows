@@ -18,3 +18,20 @@ no endpoint, credentials, response bodies or generated reasoning. The callback
 coordinator archives it through nugs before accepting the task. This verifies
 the model API and tool/stream protocol only; OpenCode configuration and Gas City
 scheduling remain independent execution proofs.
+
+## OpenCode provider/tool probe
+
+`opencode-provider-smoke.yml` downloads the digest-pinned OpenCode 1.19.4 Linux
+baseline archive. Each probe starts fresh processes with an isolated HOME/config,
+project configuration and external plugins/skills disabled, and only the selected
+provider enabled. Its generated configuration is validated by that binary before
+inference. The current user's running OpenCode session/config is not modified.
+
+The model must invoke OpenCode's real read tool on one permitted synthetic file,
+then return its random marker (which is not in the prompt). Other tool permissions
+are denied; no auto-approval flag is used. The receipt requires completed read
+events, matching fixture path/output and final marker, and contains only tool/
+session counts and allowlisted usage, never raw events, prompts or provider logs.
+The profile has medium reasoning, 1,536 output tokens per request, three agent
+steps and a 180-second process deadline. This proves OpenCode provider/tool
+execution; it does not prove Gas City scheduling or native session continuation.

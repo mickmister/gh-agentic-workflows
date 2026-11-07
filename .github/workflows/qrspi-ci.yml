@@ -15,4 +15,4 @@ jobs:
           node-version: '22'
       - run: node --test poc/qrspi-slice.test.mjs poc/testopia-route.test.mjs .github/scripts/qrspi-comment.test.mjs .github/scripts/inference-smoke.test.mjs .github/scripts/inference-model-smoke.test.mjs
       - run: bash -n poc/scripts/*.sh
-      - run: python3 -m unittest discover -s .github/scripts -p 'test_nugs_ci.py'
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
