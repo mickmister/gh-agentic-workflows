@@ -39,7 +39,7 @@ def handoff(args, call=execute):
     if not re.fullmatch(r"[0-9a-f]{40}", source.get("sha", "")):
         raise RuntimeError("central workflow source revision unavailable; dispatch blocked")
     command = ["gh", "workflow", "run", "nugs-persistence-smoke.yml", "--repo", REPOSITORY,
-               "--ref", args.source_ref, "-f", "workspace=" + args.workspace,
+               "--ref", args.source_ref, "-f", "invocation_mode=checkpoint", "-f", "workspace=" + args.workspace,
                "-f", "workspace_context=" + json.dumps(context, separators=(",", ":")),
                "-f", "collection_id=" + receipt["collection_id"],
                "-f", "dolt_commit=" + receipt["dolt_commit"],

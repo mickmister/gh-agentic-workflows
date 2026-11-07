@@ -1,6 +1,10 @@
 # Native workspace persistence proof
 
-`nugs-persistence-smoke.yml` dispatches the shared `nugs-persistence.yml` proof.
+The primary caller contract is [source-repository setup](source-repo-persistence.md):
+no required workflow arguments, one-time workspace seed, and current native
+history resolved internally. `nugs-persistence-smoke.yml` defaults to that path.
+Its `invocation_mode=checkpoint` retains the explicit `nugs-persistence.yml` proof
+described below for development and diagnostics.
 The reusable workflow declares required `NUGS_STORAGE_URL` and
 `NUGS_STORAGE_TOKEN` **secrets**; the central caller maps them explicitly. Neither
 value is a dispatch input, receipt field, or logged subprocess diagnostic.
@@ -9,7 +13,8 @@ Supply `workspace_context` (the endpoint-free `handoff` object), workspace,
 collection ID, Dolt commit and an existing issue ID from a verified **bound** local
 publication. Source implementation SHA and native data checkpoint
 are independent. The workflow restores the exact checkpoint before work; it
-never initializes an empty replacement. A missing or advanced checkpoint fails.
+never initializes an empty replacement. A missing checkpoint fails; published
+descendants do not invalidate a historical checkpoint.
 Trusted bootstrap uses `nugs workspace restore` once to verify the exact native
 checkpoint and import the original stable reference, engagement and namespace
 into the fresh runner's private registry. Binding publication follows native
@@ -22,7 +27,7 @@ verified checkpoint, not implicitly routed using global defaults.
 The bounded synthetic worker creates one fixture issue, publishes a native
 checkpoint while it is still open, then closes it and CAS-updates a proof
 document. It checks that a stale document write is rejected. Finalization
-runs after ordinary success or failure, publishes native changes without force,
+runs after ordinary success or failure, synchronizes native changes without force,
 and independently restores the final collection and verifies its issue/artifact.
 Receipts live under `ci/persistence/runs/` in nugs; URL-free runner receipts are
 also retained as Actions artifacts. Worker and persistence outcomes remain
@@ -33,10 +38,11 @@ the finalizer. No arbitrary worker command, inference, or source write is run.
 After the first run, dispatch a fresh run with its final Dolt commit and
 `expect_previous_run` set to the first run ID. The new runner must recover the
 prior proof document and its native fixture issue. Repeat using `fail-worker`
-to verify failure finalization. Concurrency serializes this workflow's writers
-per workspace; external/local writers must coordinate handoff. Native push
-rejection preserves remote state and is a persistence failure, not permission
-to overwrite it.
+to verify failure finalization. The explicit checkpoint harness serializes its
+own runs per workspace, but local replicas may continue working. Ordinary native
+sync retries rejected pushes through verified fetch and clean merge; real conflicts
+preserve both histories rather than choosing a winner. `concurrent-peer` explicitly
+tests independent peer work surviving this reconciliation and final recovery.
 
 `reject-push` restores a controlled peer from the intermediate checkpoint and
 publishes an independent task before the original worker finishes. The original
@@ -61,7 +67,7 @@ configuration only; ordinary writers must be quiesced by the caller.
 
 ## Automated local handoff
 
-Use nugs 0.1.1+ and the workspace's existing persistent attachment. The helper
+Use nugs 0.1.2+ and the workspace's existing persistent attachment. The helper
 runs source operations from the explicit root, so a member-repository cwd is not
 used to infer the namespace:
 
@@ -71,7 +77,7 @@ python3 .github/scripts/nugs-handoff.py --nugs /path/to/nugs \
   --source-ref CENTRAL_BRANCH --expect-issue EXISTING_ISSUE
 ```
 
-The adapter checkpoints/publishes/verifies native state before dispatch, obtains
+The adapter synchronizes/verifies native state before explicit checkpoint dispatch, obtains
 the central source revision, and passes the returned endpoint-free handoff and
 collection/revision directly to Actions. Unbound publications (without a stable
 handoff) and unverified state block dispatch. It saves the returned run identity
@@ -83,9 +89,9 @@ handoff argument, and no implicit binding change or local fallback occurs.
 
 ## Pinned npm nugs and native tools
 
-`.github/nugs-toolchain.lock.json` pins **`@mickmister/nugs@0.1.1` from npm**,
+`.github/nugs-toolchain.lock.json` pins **`@mickmister/nugs@0.1.2` from npm**,
 its exact public tarball URL, SHA-512 package integrity, native executable size
-and SHA-256, and source revision `681ae84`. Bootstrap verifies the package bytes,
+and SHA-256, and source revision `39dd98b`. Bootstrap verifies the package bytes,
 name/version, and selected regular `package/binaries/linux-x64/nugs` member before
 running it; no npm lifecycle scripts execute and no additional Node runtime is
 needed by the Go worker. Archive expansion is bounded and archive members are

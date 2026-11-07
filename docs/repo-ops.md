@@ -11,7 +11,7 @@ the explicitly assigned workspace task.
 
 - `workspace`, `collection_id`, `dolt_commit`, `task`: exact existing native
   workspace checkpoint and assigned task. Publish local workspace changes before
-  dispatch; quiesce its other native writers until handoff completes.
+  dispatch. Local replicas may continue working; native sync reconciles clean edits.
 - `workspace_context`: endpoint-free `handoff` object from that verified bound
   publication, including the stable workspace reference and engagement. It must
   match the independently supplied namespace/collection/checkpoint. Only trusted
@@ -37,7 +37,7 @@ changed branch SHA fail with actionable, body-free diagnostics.
 
 ## Lifecycle and results
 
-The pinned npm `@mickmister/nugs@0.1.1` and unchanged native Beads/Dolt toolchain
+The pinned npm `@mickmister/nugs@0.1.2` and unchanged native Beads/Dolt toolchain
 restore the existing collection and stable registry attachment once at setup,
 records a started report, appends the assigned task's run note, and publishes a
 native checkpoint before agent work. Pinned GC/OpenCode use the verified isolated

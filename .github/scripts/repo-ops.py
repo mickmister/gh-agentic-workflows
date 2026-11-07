@@ -91,6 +91,7 @@ class RepoOps(native.Proof):
         os.environ["GITHUB_SHA"] = native.run(["git", "-C", str(Path(__file__).resolve().parents[2]),
                                                 "rev-parse", "HEAD"]).decode().strip()
         native.RESOURCE = f"ci/repo-ops/reports/{self.run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}.json"
+        self.resource = native.RESOURCE
 
     def assignment_target(self):
         operation = os.environ.get("REPO_OPS_OPERATION", "repository-review")
