@@ -41,6 +41,17 @@ and records both recovery and preserved canonical revisions. This is native
 transport, not a copy of a live database or an automatic conflict resolution.
 The failure remains a persistence failure even when retention succeeds.
 
+After inspecting that run's receipt, quiesce local writers and explicitly recover
+the selected histories with `nugs-recover.py --nugs /path/to/nugs --workspace
+WORKSPACE --root /path/to/workspace --run-id RUN_ID`. This verifies the receipt's
+workspace/collection/recovery namespace and exact native identity, catches up
+canonical peer work, fetches the selected recovery ref through Beads, and performs
+a bare native merge without a winner strategy. It verifies both fixture tasks
+and publishes the clean result. Conflicts stop the operation; retained remote
+refs remain available. A temporary remote is removed afterward and a versioned
+recovery receipt is stored through nugs. The setup lock coordinates remote
+configuration only; ordinary writers must be quiesced by the caller.
+
 ## Automated local handoff
 
 From the central checkout, use the workspace's existing nugs configuration:

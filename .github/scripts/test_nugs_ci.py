@@ -17,9 +17,36 @@ spec.loader.exec_module(ci)
 handoff_spec = importlib.util.spec_from_file_location("nugs_handoff", Path(__file__).with_name("nugs-handoff.py"))
 handoff = importlib.util.module_from_spec(handoff_spec)
 handoff_spec.loader.exec_module(handoff)
+recovery_spec = importlib.util.spec_from_file_location("nugs_recovery", Path(__file__).with_name("nugs-recover.py"))
+recovery = importlib.util.module_from_spec(recovery_spec)
+recovery_spec.loader.exec_module(recovery)
 
 
 class Boundaries(unittest.TestCase):
+    def test_missing_storage_credentials_fail_before_any_git_operation(self):
+        with patch.dict(os.environ, {"NUGS_STORAGE_URL": "https://github.com/example/storage.git"}, clear=True), \
+                patch.object(ci.subprocess, "run") as command:
+            with self.assertRaisesRegex(RuntimeError, "credential missing"):
+                ci.Proof()
+            command.assert_not_called()
+
+    def test_native_recovery_rejects_other_workspace_collection_and_ref(self):
+        info = {"configured": True, "collection_id": "collection"}
+        receipt = {"workspace": "fixture", "run_id": "123",
+                   "recovery": {"verified": True, "collection_id": "collection",
+                                "ref": "refs/dolt/nugs-ci-recovery-123-1", "git_commit": "a" * 40, "dolt_commit": "a" * 32},
+                   "peer": {"publication": {"verified": True, "collection_id": "collection"}}}
+        recovery.validate_recovery(receipt, info, "fixture", "123")
+        for workspace, collection, ref in [("other", "collection", receipt["recovery"]["ref"]),
+                                           ("fixture", "other", receipt["recovery"]["ref"]),
+                                           ("fixture", "collection", "refs/dolt/foreign")]:
+            changed = json.loads(json.dumps(receipt))
+            changed["workspace"] = workspace
+            changed["recovery"]["collection_id"] = collection
+            changed["recovery"]["ref"] = ref
+            with self.assertRaises(RuntimeError):
+                recovery.validate_recovery(changed, info, "fixture", "123")
+
     def test_handoff_blocks_dispatch_without_verified_native_state(self):
         args = SimpleNamespace(nugs="nugs", workspace="fixture", root="/fixture")
         call = Mock(return_value={"publication": {"verified": False}})
