@@ -1,0 +1,47 @@
+name: QRSPI PR comment commands
+# GitHub only delivers issue_comment workflows from the repository default branch.
+# Until this is merged into master, this workflow is deliberately inactive.
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+jobs:
+  dispatch:
+    if: github.event.issue.pull_request && github.event.sender.type == 'User'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: qrspi-comment-${{ github.repository_id }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify caller has write access
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          permission="$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.permission')"
+          case "$permission" in admin|maintain|write) ;; *) echo "::error::Untrusted PR comment actor"; exit 1;; esac
+      - name: Parse exact command and dispatch default-branch workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          # Parsing is exact and does not interpolate comment text into shell commands.
+          if ! request="$(node .github/scripts/qrspi-comment.mjs cli)"; then
+            echo "No matching QRSPI command."
+            exit 0
+          fi
+          workflow="$(jq -r '.workflow' <<< "$request")"
+          case "$workflow" in qrspi-start.lock.yml|qrspi-resume.lock.yml) ;; *) exit 1;; esac
+          payload="$(jq -c --arg ref master '{ref: $ref, inputs: .inputs}' <<< "$request")"
+          gh api -X POST "repos/$REPO/actions/workflows/$workflow/dispatches" --input - <<< "$payload"

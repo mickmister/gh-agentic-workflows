@@ -1,0 +1,22 @@
+# Install in mickmister/testopia/.github/workflows/agent-router.yml
+# on Testopia's DEFAULT branch. Prototype refs should be pinned to a reviewed
+# immutable controller SHA before production rollout.
+name: Testopia agent router
+on:
+  workflow_dispatch:
+    inputs:
+      request:
+        type: string
+        required: false
+        default: Investigate the failing browser CI using Gas City
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+jobs:
+  route:
+    uses: mickmister/gh-agentic-workflows/.github/workflows/testopia-router.lock.yml@feat/qrspi-resumable-workflow-poc
+    with:
+      request: ${{ inputs.request }}
+    secrets:
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}

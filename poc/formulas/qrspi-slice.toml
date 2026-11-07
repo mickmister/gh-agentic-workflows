@@ -1,0 +1,29 @@
+formula = "qrspi-slice"
+description = "QRSPI+ proof: goals, parallel design/tests, approval, implementation, integration"
+[requires]
+formula_compiler = ">=2.0.0"
+[[steps]]
+id = "goals"
+title = "Generate reviewable feature goals"
+[[steps]]
+id = "design"
+title = "Produce minimal architecture"
+needs = ["goals"]
+[[steps]]
+id = "tests"
+title = "Draft acceptance checks"
+needs = ["goals"]
+[[steps]]
+id = "approval"
+title = "Wait for human approval of design and tests"
+needs = ["design", "tests"]
+[steps.gate]
+type = "human"
+[[steps]]
+id = "implement"
+title = "Implement the approved design"
+needs = ["approval"]
+[[steps]]
+id = "integrate"
+title = "Validate implementation and finish"
+needs = ["implement"]

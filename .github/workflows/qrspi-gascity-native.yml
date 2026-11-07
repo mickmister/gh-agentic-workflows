@@ -1,0 +1,76 @@
+name: QRSPI native Gas City checkpoint smoke test
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    outputs:
+      root_id: ${{ steps.checkpoint.outputs.root_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq
+      - name: Install pinned Gas City, Beads, Dolt
+        run: bash poc/scripts/install-gascity.sh
+      - name: Execute same native Start script used by gh-aw
+        env:
+          WORKSPACE_ID: pr-smoke
+        run: bash poc/scripts/native-start.sh
+      - name: Package durable workspace handoff
+        id: checkpoint
+        run: |
+          set -euo pipefail
+          memory=/tmp/gh-aw/repo-memory/qrspi-poc
+          test -s "$memory/pr-smoke/checkpoint.json"
+          test -s "$memory/pr-smoke/city.tar.gz"
+          snapshot_bytes="$(stat -c %s "$memory/pr-smoke/city.tar.gz")"
+          echo "Native Dolt archive: $snapshot_bytes bytes"
+          test "$snapshot_bytes" -lt 1000000 || { echo "::error::Dolt snapshot too large for gh-aw Repo Memory 1 MiB patch"; exit 1; }
+          root_id="$(jq -r '.root_id' "$memory/pr-smoke/checkpoint.json")"
+          echo "root_id=$root_id" >> "$GITHUB_OUTPUT"
+          tar -czf /tmp/qrspi-handoff.tar.gz -C "$memory" pr-smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-gascity-checkpoint
+          path: /tmp/qrspi-handoff.tar.gz
+          retention-days: 7
+  resume:
+    needs: start
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq
+      - name: Install pinned Gas City, Beads, Dolt
+        run: bash poc/scripts/install-gascity.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-gascity-checkpoint
+          path: /tmp
+      - name: Restore checkpoint into gh-aw memory mount layout
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gh-aw/repo-memory/qrspi-poc
+          tar -xzf /tmp/qrspi-handoff.tar.gz -C /tmp/gh-aw/repo-memory/qrspi-poc
+          test -s /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json
+      - name: Execute same native Resume script used by gh-aw
+        env:
+          WORKSPACE_ID: pr-smoke
+          REVISION: '1'
+          DECISION: approve
+          EXPECTED_ROOT_ID: ${{ needs.start.outputs.root_id }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.root_id' /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json)" = "$EXPECTED_ROOT_ID"
+          bash poc/scripts/native-resume.sh
+          test "$(jq -r '.status' /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json)" = implementation_ready
+          test "$(jq -r '.root_id' /tmp/gh-aw/repo-memory/qrspi-poc/pr-smoke/checkpoint.json)" = "$EXPECTED_ROOT_ID"
+          # Retry must not repeat an already-accepted approval.
+          bash poc/scripts/native-resume.sh

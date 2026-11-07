@@ -1,0 +1,132 @@
+name: Testopia Gas City Copilot worker experiment
+on:
+  workflow_call:
+    inputs:
+      workspace_id:
+        required: true
+        type: string
+      action:
+        required: true
+        type: string
+      formula:
+        required: true
+        type: string
+      target_repo:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+      expected_head_sha:
+        required: true
+        type: string
+    secrets:
+      COPILOT_GITHUB_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      workspace_id:
+        required: true
+        type: string
+      action:
+        required: true
+        type: choice
+        options: [start, resume, await_human, status]
+      formula:
+        required: true
+        type: string
+      target_repo:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+      expected_head_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: testopia-pr-3-gascity-worker
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted control plane
+        uses: actions/checkout@v4
+        with:
+          repository: mickmister/gh-agentic-workflows
+          # Prototype only: the caller should pin this workflow and checkout
+          # to the same immutable commit for a production deployment.
+          ref: feat/qrspi-resumable-workflow-poc
+          persist-credentials: false
+      - name: Read actual Testopia PR state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/mickmister/testopia/pulls/3 > "$RUNNER_TEMP/testopia-pr.json"
+      - name: Validate model-supplied dispatch and actual branch
+        env:
+          WORKSPACE_ID: ${{ inputs.workspace_id }}
+          ACTION: ${{ inputs.action }}
+          FORMULA: ${{ inputs.formula }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: node poc/testopia-validate.mjs "$RUNNER_TEMP/testopia-pr.json"
+      - name: Checkout pinned Testopia PR head, read-only
+        if: ${{ inputs.action == 'start' }}
+        uses: actions/checkout@v4
+        with:
+          repository: mickmister/testopia
+          ref: ${{ inputs.expected_head_sha }}
+          path: target/testopia
+          persist-credentials: false
+      - name: Check target checkout identity
+        if: ${{ inputs.action == 'start' }}
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C target/testopia rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test -z "$(git -C target/testopia status --porcelain)"
+      - name: Install Gas City dependencies
+        if: ${{ inputs.action == 'start' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq
+          bash poc/scripts/install-gascity.sh
+      - name: Install Copilot CLI for Gas City
+        if: ${{ inputs.action == 'start' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Official Copilot CLI (not the deprecated gh-copilot extension).
+          npm install -g @github/copilot
+          command -v copilot
+      - name: Run real Gas City Copilot investigator
+        if: ${{ inputs.action == 'start' }}
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          WORKSPACE_ID: ${{ inputs.workspace_id }}
+        run: bash poc/scripts/testopia-gascity-copilot.sh
+      - name: Upload evidence, even if execution fails
+        if: ${{ always() && inputs.action == 'start' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: testopia-gascity-copilot-evidence
+          path: |
+            evidence/testopia-gascity/
+          if-no-files-found: warn
+          retention-days: 7

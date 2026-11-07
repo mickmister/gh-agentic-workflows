@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "platform": "linux-amd64",
+  "storage_ref": "refs/documents/nugs-ci-toolchain",
+  "storage_commit": "6a0abf37089ce7720d3b9d951ba81e1403fd94b4",
+  "tools": {
+    "nugs": {
+      "resource": "toolchain/nugs-4cccdaf817c1f32a96a602b2e9c13caba767e8567e018775b55e2f1d12c758bf.gz",
+      "sha256": "d213c0ff2e66d6c249bf0249d1e780cc5462ba56cf85cabbb2229dbc57d1298f",
+      "binary_sha256": "4cccdaf817c1f32a96a602b2e9c13caba767e8567e018775b55e2f1d12c758bf",
+      "compressed_bytes": 2490345,
+      "binary_bytes": 6152376,
+      "source_commit": "c4f9bc1987887302c67d893cce15e816c607558b",
+      "version": "c4f9bc1; go1.25.7; CGO_ENABLED=0; -trimpath; -ldflags=-s -w"
+    },
+    "bd": {
+      "resource": "toolchain/bd-54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e.gz",
+      "sha256": "a744d19dd738a3f9565817231b135ee33b929d7961e65b85922e6f1afde122ce",
+      "binary_sha256": "54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e",
+      "compressed_bytes": 48321685,
+      "binary_bytes": 143260920,
+      "version": "1.2.2 / 6c124203e771433a3550c348771a5b5e27fd3c21; native binary without VD wrapper"
+    },
+    "dolt": {
+      "resource": "toolchain/dolt-14a8d9cd2b2ea7103b7c94e9446923c570919ca525933b53bb05fbc200c8f9cd.gz",
+      "sha256": "a37149fad2fad546512504453175059f2499024d3964352a1fdf14e6ef5fb5f4",
+      "binary_sha256": "14a8d9cd2b2ea7103b7c94e9446923c570919ca525933b53bb05fbc200c8f9cd",
+      "compressed_bytes": 44287811,
+      "binary_bytes": 126903912,
+      "version": "2.3.1; installed custom-ref-capable binary, no source revision claimed"
+    }
+  }
+}
