@@ -12,8 +12,9 @@ never initializes an empty replacement. A missing or advanced checkpoint fails.
 The selected workspace becomes the helper's fixed operation context. Full
 machine-registry/stable-reference routing remains separate implementation work.
 
-The bounded synthetic worker creates/closes one fixture issue and CAS-updates a
-proof document. It checks that a stale document write is rejected. Finalization
+The bounded synthetic worker creates one fixture issue, publishes a native
+checkpoint while it is still open, then closes it and CAS-updates a proof
+document. It checks that a stale document write is rejected. Finalization
 runs after ordinary success or failure, publishes native changes without force,
 and independently restores the final collection and verifies its issue/artifact.
 Receipts live under `ci/persistence/runs/` in nugs; URL-free runner receipts are
@@ -29,6 +30,35 @@ to verify failure finalization. Concurrency serializes this workflow's writers
 per workspace; external/local writers must coordinate handoff. Native push
 rejection preserves remote state and is a persistence failure, not permission
 to overwrite it.
+
+`reject-push` restores a controlled peer from the intermediate checkpoint and
+publishes an independent task before the original worker finishes. The original
+worker then succeeds, but its stale final native push must fail without changing
+the peer's canonical ref. On finalization failure the runner attempts to retain
+its own exact native checkpoint at a distinct
+`refs/dolt/nugs-ci-recovery-<run>-<attempt>` ref, verifies an independent clone,
+and records both recovery and preserved canonical revisions. This is native
+transport, not a copy of a live database or an automatic conflict resolution.
+The failure remains a persistence failure even when retention succeeds.
+
+## Automated local handoff
+
+From the central checkout, use the workspace's existing nugs configuration:
+
+```sh
+python3 .github/scripts/nugs-handoff.py --nugs /path/to/nugs \
+  --workspace WORKSPACE --root /path/to/workspace \
+  --source-ref CENTRAL_BRANCH --expect-issue EXISTING_ISSUE
+```
+
+The adapter checkpoints/publishes/verifies native state before dispatch, obtains
+the central source revision, and passes the returned collection/revision directly
+to Actions. Unverified state blocks dispatch. It saves the returned run identity
+locally under the user state directory and through nugs before returning it.
+If receipt publication fails after dispatch, recover that saved run instead of
+blindly redispatching. The callback watcher/run ledger remains the caller's
+continuation responsibility. No storage URL or token is required as a routine
+handoff argument, and no implicit binding change or local fallback occurs.
 
 ## Pinned native tools
 

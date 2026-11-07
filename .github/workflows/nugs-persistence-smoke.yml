@@ -27,7 +27,7 @@ on:
         description: Exercise success or intentional ordinary failure
         default: success
         type: choice
-        options: [success, fail-worker]
+        options: [success, fail-worker, reject-push]
 
 permissions:
   contents: read

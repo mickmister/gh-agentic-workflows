@@ -84,7 +84,7 @@ class Proof:
         require(os.environ.get("NUGS_STORAGE_TOKEN"), "storage credential missing")
         self.workspace = os.environ["NUGS_WORKSPACE"]
         require(re.fullmatch(r"[A-Za-z0-9_-]{1,200}", self.workspace), "invalid workspace")
-        require(os.environ.get("NUGS_WORKER_MODE", "success") in ("success", "fail-worker"),
+        require(os.environ.get("NUGS_WORKER_MODE", "success") in ("success", "fail-worker", "reject-push"),
                 "invalid bounded worker mode")
         run_id, attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
         require(run_id.isdigit() and attempt.isdigit(), "invalid run identity")
@@ -184,6 +184,7 @@ class Proof:
                 self.bd(self.root, "show", prior["issue_id"], "--readonly")
         issue = self.bd(self.root, "create", "CI persistence proof " + self.run_id,
                         "--description", "Bounded synthetic storage verification; no source code work.")
+        checkpoint = self.checkpoint(issue["id"])
         self.bd(self.root, "close", issue["id"], "--reason", "Synthetic persistence fixture")
         body = {"run_id": self.run_id, "attempt": os.environ["GITHUB_RUN_ATTEMPT"],
                 "issue_id": issue["id"], "previous_run_id": prior["run_id"] if prior else None,
@@ -198,13 +199,81 @@ class Proof:
                 "stale artifact update was not rejected")
         write_json(self.base / "work.json", {"proof": body, "artifact": artifact["receipt"]})
         print("Published bounded artifact update and rejected stale overwrite.")
-        require(os.environ.get("NUGS_WORKER_MODE", "success") == "success",
+        if os.environ.get("NUGS_WORKER_MODE") == "reject-push":
+            self.advance_peer(checkpoint)
+        require(os.environ.get("NUGS_WORKER_MODE", "success") != "fail-worker",
                 "intentional worker failure after durable artifact/native changes")
+
+    def checkpoint(self, issue_id):
+        publication = self.nugs("beads", "publish", "--root", str(self.root))["publication"]
+        require(publication["verified"], "intermediate native checkpoint was not verified")
+        checkpoint = {"run_id": self.run_id, "issue_id": issue_id, "publication": publication}
+        write_json(self.base / "checkpoint.json", checkpoint)
+        self.nugs("documents", "upsert", "--name",
+                  f"ci/persistence/checkpoints/{self.run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}.json",
+                  content=json.dumps(checkpoint).encode())
+        print("Published a recoverable native checkpoint while the worker issue was still open.")
+        return checkpoint
+
+    def advance_peer(self, checkpoint):
+        """A controlled second writer creates real non-fast-forward divergence."""
+        peer = self.base / "peer-workspace"
+        peer.mkdir(mode=0o700)
+        publication = checkpoint["publication"]
+        self.nugs("beads", "restore", "--root", str(peer),
+                  "--data-dir", str(self.base / "peer-collection"),
+                  "--collection-id", publication["collection_id"],
+                  "--dolt-commit", publication["dolt_commit"])
+        issue = self.bd(peer, "create", "CI concurrent writer " + self.run_id,
+                        "--description", "Synthetic native non-fast-forward fixture")
+        self.bd(peer, "close", issue["id"], "--reason", "Synthetic concurrent writer fixture")
+        advanced = self.nugs("beads", "publish", "--root", str(peer))["publication"]
+        require(advanced["verified"], "concurrent writer publication was not verified")
+        write_json(self.base / "peer.json", {"issue_id": issue["id"], "publication": advanced})
+        print("Controlled peer advanced the native ref; the stale final push must be rejected.")
+
+    def retain_recovery(self):
+        """Native transport to a distinct recovery ref, never a live DB copy."""
+        info = self.nugs("beads", "inspect", "--root", str(self.root))["beads"]
+        version = self.bd(self.root, "vc", "status", "--readonly")
+        ref = f"refs/dolt/nugs-ci-recovery-{self.run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+        database = Path(info["data_dir"]) / info["database"]
+        canonical_before = run(["git", "ls-remote", "--exit-code", "--refs",
+                                os.environ["NUGS_STORAGE_URL"], info["desired_ref"]]).decode().split()
+        require(len(canonical_before) == 2, "canonical native ref unavailable")
+        # Same native remote configuration interface used by nugs configure;
+        # runner workers have exited and no second engine opens the live DB.
+        run([str(self.bin / "dolt"), "remote", "add", "--ref", ref,
+             "nugs-ci-recovery", info["desired_url"]], cwd=database)
+        try:
+            run([str(self.bin / "bd"), "--sandbox", "--directory", str(self.root),
+                 "dolt", "push", "--remote", "nugs-ci-recovery"])
+            clone = self.base / "retained-recovery"
+            run([str(self.bin / "dolt"), "clone", "--ref", ref, info["desired_url"], str(clone)])
+            recovered = run([str(self.bin / "dolt"), "sql", "-r", "json", "-q",
+                             "SELECT DOLT_HASHOF('HEAD') AS commit_hash"], cwd=clone, json_output=True)
+            require(len(recovered["rows"]) == 1 and recovered["rows"][0]["commit_hash"] == version["commit"],
+                    "retained recovery checkpoint was not verified")
+            refs = run(["git", "ls-remote", "--exit-code", "--refs",
+                        os.environ["NUGS_STORAGE_URL"], ref]).decode().split()
+            require(len(refs) == 2 and refs[1] == ref, "recovery Git ref was not advertised")
+            canonical_after = run(["git", "ls-remote", "--exit-code", "--refs",
+                                   os.environ["NUGS_STORAGE_URL"], info["desired_ref"]]).decode().split()
+            require(canonical_after == canonical_before, "canonical ref changed during recovery retention")
+            return {"ref": ref, "git_commit": refs[0], "dolt_commit": version["commit"],
+                    "collection_id": info["collection_id"], "verified": True,
+                    "canonical_git_commit_preserved": canonical_before[0]}
+        finally:
+            run([str(self.bin / "dolt"), "remote", "remove", "nugs-ci-recovery"], cwd=database)
 
     def finalize(self):
         receipt = {"run_id": self.run_id, "source_sha": os.environ["GITHUB_SHA"],
                    "workspace": self.workspace, "worker_outcome": os.environ["NUGS_WORKER_OUTCOME"],
                    "persistence_outcome": "failure"}
+        for name in ("checkpoint", "peer"):
+            path = self.base / f"{name}.json"
+            if path.exists():
+                receipt[name] = json.loads(path.read_text())
         try:
             receipt["publication"] = self.nugs("beads", "publish", "--root", str(self.root))["publication"]
             require(receipt["publication"]["verified"], "native final publication not verified")
@@ -224,6 +293,14 @@ class Proof:
                     "artifact changed before final verification")
             receipt["work"] = work
             receipt["persistence_outcome"] = "success"
+        except Exception:
+            # Keep the canonical remote untouched. Even if it advanced, retain
+            # this runner's exact local checkpoint through a separate native ref.
+            try:
+                receipt["recovery"] = self.retain_recovery()
+            except Exception:
+                receipt["recovery"] = {"verified": False}
+            raise
         finally:
             write_json(self.receipt_path, receipt)
             self.nugs("documents", "upsert", "--name", f"ci/persistence/runs/{self.run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}.json",

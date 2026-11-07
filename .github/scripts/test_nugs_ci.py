@@ -7,15 +7,42 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("nugs_ci", Path(__file__).with_name("nugs-ci.py"))
 ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
+handoff_spec = importlib.util.spec_from_file_location("nugs_handoff", Path(__file__).with_name("nugs-handoff.py"))
+handoff = importlib.util.module_from_spec(handoff_spec)
+handoff_spec.loader.exec_module(handoff)
 
 
 class Boundaries(unittest.TestCase):
+    def test_handoff_blocks_dispatch_without_verified_native_state(self):
+        args = SimpleNamespace(nugs="nugs", workspace="fixture", root="/fixture")
+        call = Mock(return_value={"publication": {"verified": False}})
+        with self.assertRaisesRegex(RuntimeError, "dispatch blocked"):
+            handoff.handoff(args, call)
+        self.assertEqual(call.call_count, 1)
+
+    def test_handoff_pins_source_and_retains_dispatched_run_when_receipt_write_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            args = SimpleNamespace(nugs="nugs", workspace="fixture", root="/fixture",
+                                   source_ref="feature", expect_issue="fixture-1", worker_mode="success",
+                                   expect_previous_run="", state_dir=temp)
+            call = Mock(side_effect=[{"publication": {"verified": True, "ref": "refs/dolt/fixture",
+                                                     "collection_id": "collection", "dolt_commit": "commit", "git_commit": "git"}},
+                                     {"sha": "a" * 40},
+                                     b"https://github.com/mickmister/gh-agentic-workflows/actions/runs/123",
+                                     RuntimeError("network unavailable")])
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "run dispatched"):
+                handoff.handoff(args, call)
+            saved = json.loads((Path(temp) / "123.json").read_text())
+            self.assertEqual(saved["run_id"], 123)
+            self.assertIn("a" * 40, call.call_args_list[2].args[0])
+
     def test_credentials_are_only_returned_to_the_exact_storage_repository(self):
         env = {"NUGS_STORAGE_URL": "https://github.com/example/storage.git",
                "NUGS_STORAGE_TOKEN": "private-test-token"}
@@ -58,11 +85,13 @@ class Boundaries(unittest.TestCase):
             proof.run_id = "123"
             proof.receipt_path = proof.base / "receipt.json"
             proof.nugs = Mock(side_effect=[RuntimeError("push rejected"), {}])
+            proof.retain_recovery = Mock(return_value={"ref": "refs/dolt/recovery", "verified": True})
             with self.assertRaisesRegex(RuntimeError, "push rejected"):
                 proof.finalize()
             receipt = json.loads(proof.receipt_path.read_text())
             self.assertEqual(receipt["persistence_outcome"], "failure")
             self.assertEqual(receipt["worker_outcome"], "success")
+            self.assertTrue(receipt["recovery"]["verified"])
 
     def test_worker_failure_does_not_skip_final_publication_and_recovery(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
