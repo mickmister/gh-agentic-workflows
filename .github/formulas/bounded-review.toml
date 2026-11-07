@@ -1,0 +1,10 @@
+formula = "bounded-review"
+description = "One bounded read-only assessment with coordinator-validated completion."
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[[steps]]
+id = "review"
+title = "Perform bounded repository assessment"
+description = "Execute the configured read-only assessment and return structured evidence. The trusted coordinator validates read, nonce, result and session identity before closing this step."

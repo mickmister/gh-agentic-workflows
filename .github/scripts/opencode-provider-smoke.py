@@ -74,7 +74,7 @@ def command(args, root, env, timeout=180):
 
 
 def download_binary(base, tool="opencode"):
-    require(tool in ("opencode", "gas_city"), "unexpected agent tool")
+    require(tool in ("opencode", "gas_city", "gas_city_beads", "gas_city_dolt"), "unexpected agent tool")
     lock = json.loads((SCRIPT.parent.parent / "agent-toolchain.lock.json").read_text())[tool]
     with urllib.request.urlopen(lock["url"], timeout=90) as response:
         packed = response.read(lock["archive_bytes"] + 1)
@@ -85,7 +85,7 @@ def download_binary(base, tool="opencode"):
         require(member.isfile() and 0 < member.size < 400 * 1024 * 1024, "unexpected OpenCode archive member")
         data = archive.extractfile(member).read(member.size + 1)
     require(len(data) == member.size and data.startswith(b"\x7fELF"), "invalid OpenCode executable")
-    binary = base / lock["member"]
+    binary = base / lock.get("executable", lock["member"])
     binary.write_bytes(data)
     binary.chmod(0o700)
     return binary, lock

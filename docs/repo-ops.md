@@ -37,7 +37,20 @@ The pinned native nugs/Beads/Dolt toolchain restores the existing collection,
 records a started report, appends the assigned task's run note, and publishes a
 native checkpoint before agent work. Pinned GC/OpenCode use the verified isolated
 tmux execution path and exact `gpt-6.1-sol` medium profile. GC administrative
-session bookkeeping remains disposable and separate from workspace Beads.
+session bookkeeping is a separate native administrative collection. Formula mode
+uses digest-pinned Beads 1.3.2/Dolt 2.6.2 in an isolated runtime binary directory;
+the workspace continues using its proven Beads 1.2.2/Dolt 2.3.1 pins. Neither its
+collection nor its binaries are upgraded or shared with GC's ledger.
+
+The maintained `.github/formulas/bounded-review.toml` recipe is cooked with the v2
+compiler. Its review step is slung to the configured template; GC creates the
+pool session, and the trusted worker claims that exact step via `gc hook --claim`.
+The native assignment/session metadata is independently read back before model
+work. After validating the real read, nonce and structured answer, the coordinator
+closes the step through GC's local API and waits for GC's control dispatcher to
+close the workflow root. It records recipe digest, root/step IDs and completion
+evidence. A file-backed GC ledger is insufficient for the native hook/control
+path, so the earlier scheduler-only preflight remains a narrower proof.
 
 The report is versioned at
 `ci/repo-ops/reports/RUN_ID-ATTEMPT.json`; it contains target identity, agent
@@ -71,7 +84,9 @@ action in the nugs run ledger. Inspect component outcomes and archived report
 after callback; watcher exit alone is insufficient. Before local native writes,
 catch up to the verified final publication through supported nugs catch-up.
 
-This is the first bounded generic operation. Formula-driven work routing,
-two-target/private hosted acceptance, explicit later resume and broader editing
+This is the first bounded generic operation. Formula routing is tested locally
+against the real GC/Beads/Dolt/OpenCode binaries and a local streaming provider;
+its hosted acceptance is separate from the earlier two-public-target manual-session
+proof. Private hosted acceptance, explicit later resume and broader editing
 remain acceptance work for the generic repo-ops task. Re-running with a new run ID
 creates a new assessment; it is not native conversation resume.

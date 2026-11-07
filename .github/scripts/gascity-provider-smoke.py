@@ -1,5 +1,6 @@
 """Bounded GC tmux scheduling preflight, separate from workspace persistence."""
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -7,7 +8,10 @@ from pathlib import Path
 import sys
 import subprocess
 import socket
+import shlex
 import time
+import urllib.request
+import traceback
 
 SCRIPT = Path(__file__).resolve()
 spec = importlib.util.spec_from_file_location("oc_probe", SCRIPT.with_name("opencode-provider-smoke.py"))
@@ -16,12 +20,21 @@ spec.loader.exec_module(oc)
 
 
 class GasCityLauncher:
-    def __init__(self, binary):
+    def __init__(self, binary, formula=False, result_validator=None):
         self.binary = binary
+        self.formula = formula
+        self.result_validator = result_validator
         self.evidence = None
 
     def __call__(self, args, root, env):
         base = root.parent
+        runtime_path = str(self.binary.parent) + os.pathsep + env["PATH"]
+        if self.formula:
+            admin_bin = base / "gc-admin-bin"
+            admin_bin.mkdir(mode=0o700)
+            oc.download_binary(admin_bin, "gas_city_beads")
+            oc.download_binary(admin_bin, "gas_city_dolt")
+            runtime_path = str(admin_bin) + os.pathsep + runtime_path
         city = base / "city"
         city.mkdir(mode=0o700)
         prompt = base / "probe.template.md"
@@ -33,7 +46,8 @@ class GasCityLauncher:
                       or key.startswith(("XDG_", "OPENCODE_"))}
         # Private worker startup environment avoids inheriting credentials or
         # config from a pre-existing machine tmux server. Never upload this file.
-        launch.write_text(json.dumps({"args": args[:-1], "root": str(root), "environment": worker_env}))
+        launch_context = {"args": args[:-1], "root": str(root), "environment": worker_env}
+        launch.write_text(json.dumps(launch_context))
         launch.chmod(0o600)
         entrypoint = base / "worker-entry.py"
         entrypoint.write_text('import runpy, sys, traceback\nfrom pathlib import Path\n'
@@ -49,8 +63,12 @@ class GasCityLauncher:
         config.write_text(f'''[workspace]
 name = "bounded-provider-probe"
 install_agent_hooks = []
+[workspace.env]
+PATH = {quote(runtime_path)}
+HOME = {quote(env["HOME"])}
+GC_HOME = {quote(str(base / "gc-home"))}
 [beads]
-provider = "file"
+provider = {quote("bd" if self.formula else "file")}
 [session]
 provider = "tmux"
 [daemon]
@@ -78,12 +96,16 @@ lifecycle = "one_shot"
 attach = true
 max_active_sessions = 1
 ''')
-        # This file store is disposable GC session bookkeeping only. It never
-        # replaces or imports the workspace's native Beads collection.
+        if self.formula:
+            with config.open("a") as stream:
+                stream.write("work_query = " + quote(shlex.join([str(self.binary), "--city", str(city), "ready",
+                             "--metadata-field", "gc.routed_to=probe", "--unassigned", "--json"])) + "\n")
+        # GC's administrative store is isolated from workspace tracking. Formula
+        # mode has its own newer native binaries; the workspace pins stay intact.
         gc_env = {key: value for key, value in env.items() if not key.startswith(("GC_", "BEADS_"))}
-        gc_env.update(GC_HOME=str(base / "gc-home"), GC_BEADS="file", GC_SESSION="tmux",
+        gc_env.update(GC_HOME=str(base / "gc-home"), GC_BEADS="bd" if self.formula else "file", GC_SESSION="tmux",
                       GC_SUPERVISOR_ENV="INFERENCE_BASE_URL INFERENCE_API_KEY CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET")
-        gc_env["PATH"] = str(self.binary.parent) + os.pathsep + gc_env["PATH"]
+        gc_env["PATH"] = runtime_path
 
         def gc(*command, timeout=90):
             result = subprocess.run([str(self.binary), *command], cwd=city,
@@ -108,6 +130,9 @@ max_active_sessions = 1
         supervisor_log.chmod(0o600)
         supervisor = None
         try:
+            if self.formula:
+                for key, value in (("user.name", "GC runtime"), ("user.email", "gc-runtime@example.invalid")):
+                    oc.command([str(admin_bin / "dolt"), "config", "--global", "--add", key, value], city, gc_env)
             gc("init", "--file", str(config), "--name", "bounded-provider-probe", "--no-start", "--skip-provider-readiness", str(city))
             # Supply the documented foreground supervisor's declarative registry
             # before startup; gc start/register install a platform service even
@@ -125,14 +150,34 @@ max_active_sessions = 1
             else:
                 raise RuntimeError("private GC supervisor readiness deadline exceeded")
             gc("status", "--json")
-            session = json.loads(gc("session", "new", "probe", "--title", "Bounded provider probe", "--no-attach", "--json"))
-            oc.require(session.get("ok") and session.get("template") == "probe" and session.get("session_id"),
-                       "GC did not create the expected probe session")
-            deadline = time.monotonic() + (60 if env.get("GASCITY_TEST_BINARY") else 200)
+            session = None
+            if not self.formula:
+                session = json.loads(gc("session", "new", "probe", "--title", "Bounded provider probe", "--no-attach", "--json"))
+                oc.require(session.get("ok") and session.get("template") == "probe" and session.get("session_id"),
+                           "GC did not create the expected probe session")
+            formula = None
+            if self.formula:
+                formulas = city / "formulas"
+                formulas.mkdir(exist_ok=True)
+                recipe = (SCRIPT.parent.parent / "formulas/bounded-review.toml").read_bytes()
+                (formulas / "bounded-review.toml").write_bytes(recipe)
+                formula = json.loads(gc("formula", "cook", "bounded-review", "--json"))
+                oc.require(formula.get("ok") and formula.get("root_id") and
+                           formula.get("id_mapping", {}).get("bounded-review.review"), "GC formula was not instantiated")
+                step_id = formula["id_mapping"]["bounded-review.review"]
+                launch_context["formula"] = {"binary": str(self.binary), "city": str(city),
+                                              "step_id": step_id, "root_id": formula["root_id"], "port": port}
+                launch.write_text(json.dumps(launch_context))
+                gc("sling", "probe", step_id, "--no-formula", "--no-convoy", "--json")
+            deadline = time.monotonic() + (100 if env.get("GASCITY_TEST_BINARY") else 200)
             while time.monotonic() < deadline:
                 if (base / "worker-failed").exists():
                     raise RuntimeError("GC-managed OpenCode worker failed; diagnostics redacted")
                 if (base / "worker-events.jsonl").exists():
+                    worker_identity = json.loads((base / "worker-identity.json").read_text())
+                    if self.formula:
+                        session = worker_identity
+                        oc.require(session.get("session_id") and session.get("session_name"), "GC pool identity missing")
                     sessions = json.loads(gc("session", "list", "--state", "all", "--json"))
                     census = base / "gc-census-error.txt"
                     census.write_text(json.dumps(sessions))
@@ -140,13 +185,28 @@ max_active_sessions = 1
                     observed = [item for item in sessions.get("sessions", []) if item.get("id") == session["session_id"]]
                     oc.require(len(observed) == 1 and observed[0].get("template") == "probe" and
                                observed[0].get("provider") == "bounded-opencode", "GC session census did not match")
-                    worker_identity = json.loads((base / "worker-identity.json").read_text())
                     oc.require(worker_identity["session_id"] == session["session_id"] and
                                worker_identity["session_name"] == session["session_name"], "worker GC identity mismatch")
                     self.evidence = {"gc_session_id": session["session_id"],
                                      "gc_session_name": session["session_name"],
                                      "gc_template": "probe", "gc_provider": "bounded-opencode",
                                      "gc_worker_identity_verified": True}
+                    if formula:
+                        assignment = json.loads((base / "formula-assignment.json").read_text())
+                        oc.require(assignment.get("id") == step_id and assignment.get("metadata", {}).get("gc.session_id") == session["session_id"] and
+                                   assignment.get("status") == "in_progress", "GC formula assignment did not match the worker")
+                        self.evidence.update(gc_formula="bounded-review", gc_formula_root=formula["root_id"],
+                                             gc_formula_step=step_id, gc_formula_assignment_verified=True,
+                                             gc_formula_assignment_transport="native-gc-hook")
+                        oc.require(self.result_validator, "formula execution requires a result validator")
+                        self.result_validator((base / "worker-events.jsonl").read_bytes())
+                        complete_formula(port, formula["root_id"], step_id)
+                        self.evidence["gc_formula_completed"] = True
+                        lock = json.loads((SCRIPT.parent.parent / "agent-toolchain.lock.json").read_text())
+                        self.evidence.update(gc_bookkeeping_backend="native-isolated",
+                            gc_formula_sha256=hashlib.sha256(recipe).hexdigest(),
+                            gc_admin_toolchain={key: {field: lock[key][field] for field in ("version", "sha256")}
+                                                for key in ("gas_city_beads", "gas_city_dolt")})
                     (base / "worker-release").write_text("observed")
                     return (base / "worker-events.jsonl").read_bytes()
                 time.sleep(1)
@@ -165,6 +225,27 @@ max_active_sessions = 1
                 log.close()
 
 
+def formula_api(port, bead_id, action="", body=None):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    url = f"http://127.0.0.1:{port}/v0/city/bounded-provider-probe/bead/{bead_id}"
+    if action:
+        url += "/" + action
+    request = urllib.request.Request(url, data=json.dumps(body or {}).encode() if action else None,
+                                     headers={"Content-Type": "application/json", "X-GC-Request": "true"})
+    with opener.open(request, timeout=10) as response:
+        return json.load(response)
+
+
+def complete_formula(port, root_id, step_id):
+    formula_api(port, step_id, "close")
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        if formula_api(port, root_id).get("status") == "closed":
+            return
+        time.sleep(1)
+    raise RuntimeError("GC formula finalizer did not close the workflow")
+
+
 def worker(launch, prompt):
     config = json.loads(launch.read_text())
     base = launch.parent
@@ -177,6 +258,36 @@ def worker(launch, prompt):
         identity.write_text(json.dumps({"session_id": os.environ.get("GC_SESSION_ID"),
                                         "session_name": os.environ.get("GC_SESSION_NAME")}))
         identity.chmod(0o600)
+        if config.get("formula"):
+            formula = config["formula"]
+            session_id = os.environ["GC_SESSION_ID"]
+            claim = None
+            for _ in range(20):
+                result = subprocess.run([formula["binary"], "--city", formula["city"], "hook", "--claim", "--json"],
+                                        cwd=formula["city"], env=os.environ, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, timeout=30, check=False)
+                diagnostic = base / "gc-claim-error.txt"
+                diagnostic.write_bytes(result.stdout + result.stderr)
+                diagnostic.chmod(0o600)
+                claim = json.loads(result.stdout)
+                oc.require(claim.get("ok") and (result.returncode == 0 or claim.get("reason") == "no_work"),
+                           "GC formula claim failed; diagnostics retained privately")
+                if claim.get("action") == "work":
+                    break
+                time.sleep(1)
+            oc.require(claim and claim.get("bead_id") == formula["step_id"], "GC did not claim the expected formula step")
+            for _ in range(40):
+                assignment = formula_api(formula["port"], formula["step_id"])
+                if assignment.get("status") == "in_progress" and assignment.get("metadata", {}).get("gc.session_id") == session_id:
+                    break
+                time.sleep(1)
+            diagnostic = base / "gc-assignment-error.txt"
+            diagnostic.write_text(json.dumps(assignment))
+            diagnostic.chmod(0o600)
+            oc.require(assignment.get("assignee") and
+                       assignment.get("metadata", {}).get("gc.session_id") == session_id and assignment.get("status") == "in_progress",
+                       "formula step assignment was not verified")
+            (base / "formula-assignment.json").write_text(json.dumps(assignment))
         output = oc.command([*config["args"], prompt], Path(config["root"]), {**os.environ, **config["environment"]})
         pending = base / "worker-events.pending"
         pending.write_bytes(output)
@@ -189,6 +300,9 @@ def worker(launch, prompt):
         while time.monotonic() < deadline and not (base / "worker-release").exists():
             time.sleep(0.1)
     except Exception:
+        diagnostic = base / "gc-worker-operation-error.txt"
+        diagnostic.write_text(traceback.format_exc())
+        diagnostic.chmod(0o600)
         (base / "worker-failed").write_text("failed")
         raise RuntimeError("bounded GC worker failed; diagnostics redacted") from None
 

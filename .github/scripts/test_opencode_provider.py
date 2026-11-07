@@ -62,7 +62,9 @@ class ProviderProof(unittest.TestCase):
                     gc_spec = importlib.util.spec_from_file_location("gc_probe", Path(__file__).with_name("gascity-provider-smoke.py"))
                     gc_probe = importlib.util.module_from_spec(gc_spec)
                     gc_spec.loader.exec_module(gc_probe)
-                    launcher = gc_probe.GasCityLauncher(Path(os.environ["GASCITY_TEST_BINARY"]))
+                    launcher = gc_probe.GasCityLauncher(Path(os.environ["GASCITY_TEST_BINARY"]),
+                        formula=bool(os.environ.get("GASCITY_FORMULA_TEST")),
+                        result_validator=lambda output: probe.inspect_events(output, fixture, marker))
                 try:
                     output = launcher([os.environ["OPENCODE_TEST_BINARY"], "run", "--pure",
                                             "--format", "json", "--title", "Offline provider probe", "--model", probe.MODEL, "--agent", "ci-probe",
@@ -84,6 +86,8 @@ class ProviderProof(unittest.TestCase):
                 if os.environ.get("GASCITY_TEST_BINARY"):
                     self.assertTrue(launcher.evidence["gc_worker_identity_verified"])
                     self.assertIn(str(fixture), json.dumps(requests[0]["messages"]))
+                    if os.environ.get("GASCITY_FORMULA_TEST"):
+                        self.assertTrue(launcher.evidence["gc_formula_completed"])
             finally:
                 server.shutdown()
                 server.server_close()

@@ -7,6 +7,21 @@
     "archive_bytes": 79667571,
     "member": "opencode"
   },
+  "gas_city_beads": {
+    "version": "1.3.2",
+    "url": "https://github.com/gastownhall/beads/releases/download/v1.3.2/beads_1.3.2_linux_amd64.tar.gz",
+    "sha256": "c6ea3281f6ff82628351b2d0967c9eb85862c8a0ec0ebc24e63e645c8b02462e",
+    "archive_bytes": 53348580,
+    "member": "bd"
+  },
+  "gas_city_dolt": {
+    "version": "2.6.2",
+    "url": "https://github.com/dolthub/dolt/releases/download/v2.6.2/dolt-linux-amd64.tar.gz",
+    "sha256": "e27a7957b8626946a5022fe0ad6ce4bfb3c8f51544c7f1372b0e6db14c1549cf",
+    "archive_bytes": 44026199,
+    "member": "dolt-linux-amd64/bin/dolt",
+    "executable": "dolt"
+  },
   "gas_city": {
     "version": "1.5.1",
     "url": "https://github.com/gastownhall/gascity/releases/download/v1.5.1/gascity_1.5.1_linux_amd64.tar.gz",
