@@ -1,0 +1,48 @@
+name: Native workspace persistence smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace:
+        description: Workspace handle from the verified handoff
+        required: true
+        type: string
+      collection_id:
+        description: Exact native collection identity
+        required: true
+        type: string
+      dolt_commit:
+        description: Exact verified native checkpoint
+        required: true
+        type: string
+      expect_issue:
+        description: Existing issue to read after native restore
+        required: true
+        type: string
+      expect_previous_run:
+        description: Prior proof run to recover (empty for first run)
+        default: ''
+        type: string
+      worker_mode:
+        description: Exercise success or intentional ordinary failure
+        default: success
+        type: choice
+        options: [success, fail-worker]
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    uses: ./.github/workflows/nugs-persistence.yml
+    with:
+      implementation_ref: ${{ github.sha }}
+      workspace: ${{ inputs.workspace }}
+      collection_id: ${{ inputs.collection_id }}
+      dolt_commit: ${{ inputs.dolt_commit }}
+      expect_issue: ${{ inputs.expect_issue }}
+      expect_previous_run: ${{ inputs.expect_previous_run }}
+      worker_mode: ${{ inputs.worker_mode }}
+    secrets:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
