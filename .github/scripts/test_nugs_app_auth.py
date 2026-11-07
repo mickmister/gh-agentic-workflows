@@ -65,6 +65,30 @@ class AppBoundary(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "repository mismatch"):
             entry.route("workflow_dispatch", "other/repository", payload, access)
 
+    def test_published_form_watermark_suppresses_comment_routing_without_auth(self):
+        for body in ("<!-- github-ultimate:form:decision -->\n```github-task\n{}\n```",
+                     "<!-- github-ultimate:form:decision;submission:run-42-decision -->\n/agentic plumbing",
+                     "/agentic plumbing\n<!-- GITHUB-ULTIMATE:FORM:decision -->"):
+            payload = {"repository": {"full_name": "mickmister/github-ultimate"}, "action": "created",
+                       "comment": {"body": body, "user": {"login": "mickmister"}}}
+            access = Mock(side_effect=AssertionError("form output must not check permissions"))
+            self.assertTrue(entry.is_form_comment("issue_comment", payload))
+            self.assertEqual(entry.route("issue_comment", "mickmister/github-ultimate", payload, access), "none")
+            access.assert_not_called()
+
+    def test_form_watermark_is_not_a_dispatch_or_human_response_filter(self):
+        payload = {"repository": {"full_name": "mickmister/github-ultimate"}, "action": "created",
+                   "comment": {"body": "<!-- github-ultimate:form:decision -->"}}
+        self.assertFalse(entry.is_form_comment("workflow_dispatch", payload))
+        self.assertEqual(entry.route("workflow_dispatch", "mickmister/github-ultimate", payload), "persistence")
+        for body in ("/github-ultimate discuss\n```github-response\n{}\n```", "/agentic plumbing", None):
+            self.assertFalse(entry.is_form_comment("issue_comment", {"comment": {"body": body}}))
+
+    def test_reusable_entry_skips_form_output_before_runner_allocation(self):
+        workflow = Path(__file__).parents[1] / "workflows" / "agentic-entry.yml"
+        guard = "if: ${{ github.event_name != 'issue_comment' || !contains(github.event.comment.body, '" + entry.FORM_COMMENT_MARKER + "') }}"
+        self.assertIn(guard, workflow.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

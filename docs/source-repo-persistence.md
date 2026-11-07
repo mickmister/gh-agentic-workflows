@@ -114,6 +114,18 @@ job permissions, the branch-selected reusable entrypoint, and explicit App/stora
 secret mapping. Routing stays in `agentic-entry.yml` and `workflow-entry.py` in
 this repository so future routing fixes do not require caller edits.
 
+Agent-published form comments already include the hidden watermark
+`<!-- github-ultimate:form:FORM_ID -->` (optionally with `;submission:KEY`). Both
+the source caller and the reusable entrypoint use a job-level condition to skip
+`issue_comment` events containing `<!-- github-ultimate:form:` before runner
+allocation. GitHub can show a skipped workflow entry, but no routing, App-token,
+persistence, or agent job runs. `workflow-entry.py` also recognizes the same marker
+as non-triggering if called directly. This reuses the publisher's existing marker
+without changing retry keys or historical comments. Agents authoring forms manually
+must retain it; human answer comments must not inherit it. It is only an output
+label, never authentication or execution authority. Inline PR review comments and
+review submissions have no event subscriptions at all.
+
 Currently manual dispatch selects model-free persistence. A newly created comment
 whose entire body is `/agentic plumbing` selects that same route only after the
 author's current repository permission is verified as write/maintain/admin.
