@@ -30,6 +30,10 @@ on:
       request:
         required: true
         type: string
+      resume_from:
+        description: 'Optional RUN_ID-ATTEMPT@REPORT_VERSION from a completed native-session report'
+        default: ''
+        type: string
   workflow_call:
     inputs:
       implementation_ref:
@@ -61,6 +65,9 @@ on:
         type: string
       request:
         required: true
+        type: string
+      resume_from:
+        default: ''
         type: string
     secrets:
       NUGS_STORAGE_URL:
@@ -100,6 +107,7 @@ jobs:
       REPO_OPS_TARGET_SHA: ${{ inputs.target_sha }}
       REPO_OPS_READ_PATH: ${{ inputs.read_path }}
       REPO_OPS_REQUEST: ${{ inputs.request }}
+      REPO_OPS_RESUME_FROM: ${{ inputs.resume_from }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:

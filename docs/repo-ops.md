@@ -84,9 +84,40 @@ action in the nugs run ledger. Inspect component outcomes and archived report
 after callback; watcher exit alone is insufficient. Before local native writes,
 catch up to the verified final publication through supported nugs catch-up.
 
+## Explicit native conversation continuation
+
+Successful assessments now also retain a private, byte-verified OpenCode native
+session export at `ci/repo-ops/sessions/RUN_ID-ATTEMPT.json`. Only its versioned
+reference is placed in the report; the export contains conversation/tool data
+and is never uploaded as an Actions artifact.
+
+Pass `resume_from=RUN_ID-ATTEMPT@REPORT_VERSION` to explicitly continue a completed
+assessment. The exact prior report version, workspace, collection, assigned task,
+target repository/branch/commit/path, model and reasoning profile must match.
+The export's exact recorded artifact version is required. Old reports without a
+native export are refused. Session-level permission grants are refused too;
+the current isolated tool policy must remain authoritative.
+
+The fresh runner uses supported OpenCode `import`, re-exports to verify identical
+messages/tool state and the rebound runtime directory, then uses `run --session`
+with the preserved ID. It verifies that the conversation preserves and extends
+old message IDs. The follow-up must recover the previous assessment's nonce from
+native history while also reading the new context/nonce; the old nonce is not
+included in the new prompt or fixture. This distinguishes actual conversation
+continuation from a new assessment supplied only with a summary.
+
+Each dispatch still has a new GC formula and administrative session. This does
+not claim continuation of a previously running GC city/control graph. A fresh
+assessment without `resume_from` intentionally starts a new conversation.
+
+The real-binary local regression exports/imports into a fresh HOME, removes the
+old fixture and verifies that a resumed SDK request carries the old completed
+tool result without repeating its file read. Hosted acceptance requires a new
+seed assessment followed by an explicit continuation dispatch on another runner.
+
 This is the first bounded generic operation. Formula routing is tested locally
 against the real GC/Beads/Dolt/OpenCode binaries and a local streaming provider;
 its hosted acceptance is separate from the earlier two-public-target manual-session
-proof. Private hosted acceptance, explicit later resume and broader editing
-remain acceptance work for the generic repo-ops task. Re-running with a new run ID
-creates a new assessment; it is not native conversation resume.
+proof and has hosted run-specific evidence recorded separately. Private hosted
+acceptance, hosted native continuation and broader editing remain acceptance
+work for the generic repo-ops task.
