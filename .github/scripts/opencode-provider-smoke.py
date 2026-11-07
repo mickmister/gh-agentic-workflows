@@ -91,7 +91,7 @@ def download_binary(base, tool="opencode"):
     return binary, lock
 
 
-def inspect_events(output, fixture, marker):
+def inspect_events(output, fixture, marker, final_validator=None):
     require(len(output) < 1024 * 1024, "OpenCode event stream exceeded the probe limit")
     events = []
     for line in output.decode().splitlines():
@@ -112,7 +112,11 @@ def inspect_events(output, fixture, marker):
         require(actual == fixture.resolve() and marker in part["state"].get("output", ""),
                 "OpenCode read evidence did not match the bounded fixture")
     text = [event.get("part", {}).get("text", "").strip() for event in events if event.get("type") == "text"]
-    require(text and text[-1] == marker, "OpenCode final response did not recover the fixture marker")
+    require(text, "OpenCode final response missing")
+    if final_validator:
+        final_validator(text[-1])
+    else:
+        require(text[-1] == marker, "OpenCode final response did not recover the fixture marker")
     usage = []
     for event in events:
         if event.get("type") != "step_finish":

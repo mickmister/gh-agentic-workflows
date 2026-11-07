@@ -1,0 +1,148 @@
+name: Central read-only repository review
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace:
+        required: true
+        type: string
+      collection_id:
+        required: true
+        type: string
+      dolt_commit:
+        required: true
+        type: string
+      task:
+        required: true
+        type: string
+      target_repository:
+        required: true
+        type: string
+      target_branch:
+        required: true
+        type: string
+      target_sha:
+        required: true
+        type: string
+      read_path:
+        default: README.md
+        type: string
+      request:
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      implementation_ref:
+        required: true
+        type: string
+      workspace:
+        required: true
+        type: string
+      collection_id:
+        required: true
+        type: string
+      dolt_commit:
+        required: true
+        type: string
+      task:
+        required: true
+        type: string
+      target_repository:
+        required: true
+        type: string
+      target_branch:
+        required: true
+        type: string
+      target_sha:
+        required: true
+        type: string
+      read_path:
+        default: README.md
+        type: string
+      request:
+        required: true
+        type: string
+    secrets:
+      NUGS_STORAGE_URL:
+        required: true
+      NUGS_STORAGE_TOKEN:
+        required: true
+      INFERENCE_BASE_URL:
+        required: true
+      INFERENCE_API_KEY:
+        required: true
+      CF_ACCESS_CLIENT_ID:
+        required: true
+      CF_ACCESS_CLIENT_SECRET:
+        required: true
+      TARGET_READ_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: nugs-persistence-${{ inputs.workspace }}
+      cancel-in-progress: false
+    env:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
+      NUGS_WORKSPACE: ${{ inputs.workspace }}
+      NUGS_COLLECTION_ID: ${{ inputs.collection_id }}
+      NUGS_DOLT_COMMIT: ${{ inputs.dolt_commit }}
+      NUGS_EXPECT_ISSUE: ${{ inputs.task }}
+      REPO_OPS_TARGET_REPOSITORY: ${{ inputs.target_repository }}
+      REPO_OPS_TARGET_BRANCH: ${{ inputs.target_branch }}
+      REPO_OPS_TARGET_SHA: ${{ inputs.target_sha }}
+      REPO_OPS_READ_PATH: ${{ inputs.read_path }}
+      REPO_OPS_REQUEST: ${{ inputs.request }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/gh-agentic-workflows
+          ref: ${{ inputs.implementation_ref || github.sha }}
+          persist-credentials: false
+      - name: Install scheduler prerequisites
+        run: sudo apt-get update && sudo apt-get install -y tmux jq lsof
+      - name: Verify pinned native workspace toolchain
+        run: python3 .github/scripts/repo-ops.py bootstrap
+      - name: Restore exact native workspace
+        id: restore
+        run: python3 .github/scripts/repo-ops.py restore
+      - name: GC-managed immutable target review
+        id: worker
+        continue-on-error: true
+        env:
+          TARGET_READ_TOKEN: ${{ secrets.TARGET_READ_TOKEN }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: python3 .github/scripts/repo-ops.py worker
+      - name: Final native publication and independent verification
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        id: persistence
+        env:
+          NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
+        run: python3 .github/scripts/repo-ops.py finalize
+      - name: Retain body-free component receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: repo-ops-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
+            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/restore.json
+          if-no-files-found: warn
+      - name: Check work and persistence independently
+        if: always()
+        env:
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+          PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
+        run: |
+          test "$WORKER_OUTCOME" = success
+          test "$PERSISTENCE_OUTCOME" = success
