@@ -35,3 +35,20 @@ session counts and allowlisted usage, never raw events, prompts or provider logs
 The profile has medium reasoning, 1,536 output tokens per request, three agent
 steps and a 180-second process deadline. This proves OpenCode provider/tool
 execution; it does not prove Gas City scheduling or native session continuation.
+
+The fixture lives in its own empty synthetic Git worktree. The subprocess sets
+both its working directory and `PWD`; OpenCode resolves the workspace from `PWD`
+and checks read permissions against worktree-relative paths. The permission list
+therefore permits only the fixture's absolute and worktree-relative names.
+A fixed session title avoids an extra model request for title generation.
+
+To exercise the real binary's SDK, permissions and event parsing without inference
+credentials, run the local streaming-provider regression with a pinned binary:
+
+```sh
+OPENCODE_TEST_BINARY=/absolute/path/to/opencode python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+```
+
+The offline provider verifies the outgoing exact model, medium reasoning and
+1,536-token limit, and requires the read result to return through the SDK. This
+regression does not substitute for the hosted provider proof.

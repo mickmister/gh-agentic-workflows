@@ -29,7 +29,7 @@ def config_for(fixture):
         "enabled_providers": ["nugs-inference"], "share": "disabled",
         "autoupdate": False, "snapshot": False, "formatter": False, "lsp": False,
         "compaction": {"auto": False}, "plugin": [], "mcp": {},
-        "permission": {"*": "deny", "read": {"*": "deny", str(fixture): "allow"}},
+        "permission": {"*": "deny", "read": {"*": "deny", str(fixture): "allow", fixture.name: "allow"}},
         "agent": {"ci-probe": {"mode": "primary", "model": MODEL, "variant": "medium", "steps": 3,
                   "prompt": "Perform only the requested bounded file-read probe. Do not use other tools or delegate."}},
         "provider": {"nugs-inference": {
@@ -48,7 +48,7 @@ def config_for(fixture):
 
 
 def isolated_environment(base, config, fake=False):
-    env = {key: value for key, value in os.environ.items() if not key.startswith("OPENCODE_")}
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("OPENCODE_", "GIT_"))}
     home = base / "home"
     home.mkdir(mode=0o700, exist_ok=True)
     env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"), XDG_CACHE_HOME=str(home / ".cache"),
@@ -63,7 +63,9 @@ def isolated_environment(base, config, fake=False):
 
 
 def command(args, root, env, timeout=180):
-    result = subprocess.run(args, cwd=root, env=env, stdout=subprocess.PIPE,
+    # OpenCode resolves its workspace from PWD before process.cwd(). subprocess
+    # cwd alone leaves a stale parent PWD and turns our fixture into an external read.
+    result = subprocess.run(args, cwd=root, env={**env, "PWD": str(root)}, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, timeout=timeout, check=False)
     if result.returncode:
         # Never forward raw SDK logs/config/header/error bodies.
@@ -135,6 +137,8 @@ def probe(base, binary=None, validate_only=False):
     config.write_text(json.dumps(config_for(fixture)))
     config.chmod(0o600)
     env = isolated_environment(base, config, validate_only)
+    # Give path-relative read permissions an explicit, synthetic worktree root.
+    command(["git", "init", "--quiet", str(root)], root, env)
     lock = None
     if binary is None:
         binary, lock = download_binary(base)
@@ -151,7 +155,7 @@ def probe(base, binary=None, validate_only=False):
     require(endpoint.scheme == "https" and not endpoint.username and not endpoint.password and
             not endpoint.query and not endpoint.fragment, "invalid inference endpoint")
     prompt = f"Use the read tool to read {fixture}. Reply with exactly its first line, no other text. You must actually invoke read. Do not use other tools."
-    output = command([str(binary), "run", "--pure", "--format", "json", "--model", MODEL,
+    output = command([str(binary), "run", "--pure", "--format", "json", "--title", "Bounded provider probe", "--model", MODEL,
                       "--agent", "ci-probe", "--variant", "medium", prompt], root, env)
     result = {"opencode_version": version, "selected_model": MODEL, "reasoning_effort": "medium",
               "tool_read_and_marker": "passed", "isolated_config_accepted": True,
