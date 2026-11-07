@@ -225,9 +225,9 @@ max_active_sessions = 1
                 log.close()
 
 
-def formula_api(port, bead_id, action="", body=None):
+def formula_api(port, bead_id, action="", body=None, city_name="bounded-provider-probe"):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    url = f"http://127.0.0.1:{port}/v0/city/bounded-provider-probe/bead/{bead_id}"
+    url = f"http://127.0.0.1:{port}/v0/city/{city_name}/bead/{bead_id}"
     if action:
         url += "/" + action
     request = urllib.request.Request(url, data=json.dumps(body or {}).encode() if action else None,
@@ -262,22 +262,36 @@ def worker(launch, prompt):
             formula = config["formula"]
             session_id = os.environ["GC_SESSION_ID"]
             claim = None
-            for _ in range(20):
-                result = subprocess.run([formula["binary"], "--city", formula["city"], "hook", "--claim", "--json"],
-                                        cwd=formula["city"], env=os.environ, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE, timeout=30, check=False)
-                diagnostic = base / "gc-claim-error.txt"
-                diagnostic.write_bytes(result.stdout + result.stderr)
-                diagnostic.chmod(0o600)
-                claim = json.loads(result.stdout)
-                oc.require(claim.get("ok") and (result.returncode == 0 or claim.get("reason") == "no_work"),
-                           "GC formula claim failed; diagnostics retained privately")
-                if claim.get("action") == "work":
-                    break
-                time.sleep(1)
+            if formula.get("beads_provider") == "file":
+                # GC 1.5.1's hook --claim writes via bd even for its file
+                # provider. The serialized event controller instead uses GC's
+                # native API for assignment/status; never edit the store here.
+                current = formula_api(formula["port"], formula["step_id"], city_name=formula["city_name"])
+                oc.require(current.get("status") == "open" and current.get("assignee", "") in
+                           ("", session_id, os.environ["GC_SESSION_NAME"]), "formula work already owned")
+                formula_api(formula["port"], formula["step_id"], "update", {
+                    "status": "in_progress", "assignee": session_id,
+                    "metadata": {"gc.session_id": session_id, "gc.session_name": os.environ["GC_SESSION_NAME"]}},
+                    city_name=formula["city_name"])
+                claim = {"bead_id": formula["step_id"]}
+            else:
+                for _ in range(20):
+                    result = subprocess.run([formula["binary"], "--city", formula["city"], "hook", "--claim", "--json"],
+                                            cwd=formula["city"], env=os.environ, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, timeout=30, check=False)
+                    diagnostic = base / "gc-claim-error.txt"
+                    diagnostic.write_bytes(result.stdout + result.stderr)
+                    diagnostic.chmod(0o600)
+                    claim = json.loads(result.stdout)
+                    oc.require(claim.get("ok") and (result.returncode == 0 or claim.get("reason") == "no_work"),
+                               "GC formula claim failed; diagnostics retained privately")
+                    if claim.get("action") == "work":
+                        break
+                    time.sleep(1)
             oc.require(claim and claim.get("bead_id") == formula["step_id"], "GC did not claim the expected formula step")
             for _ in range(40):
-                assignment = formula_api(formula["port"], formula["step_id"])
+                assignment = formula_api(formula["port"], formula["step_id"],
+                                         city_name=formula.get("city_name", "bounded-provider-probe"))
                 if assignment.get("status") == "in_progress" and assignment.get("metadata", {}).get("gc.session_id") == session_id:
                     break
                 time.sleep(1)

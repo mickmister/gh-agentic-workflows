@@ -1,0 +1,16 @@
+formula = "plan-change"
+description = "Plan a source change, then refine it using a later human follow-up."
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[[steps]]
+id = "assess"
+title = "Produce an implementation plan grounded in repository evidence"
+description = "Return actionable changes and verification steps. The coordinator validates evidence before completion."
+
+[[steps]]
+id = "followup"
+title = "Refine the implementation plan from a subsequent event"
+needs = ["assess"]
+description = "Resume the original worker conversation with the follow-up. Dispatched only on a subsequent accepted event."

@@ -1,0 +1,16 @@
+formula = "investigate"
+description = "Investigate a pinned source snapshot, then incorporate a later human follow-up."
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[[steps]]
+id = "assess"
+title = "Investigate the request using the supplied repository evidence"
+description = "Return cited findings and open questions. The coordinator validates evidence before completion."
+
+[[steps]]
+id = "followup"
+title = "Incorporate a subsequent event into the investigation"
+needs = ["assess"]
+description = "Resume the original worker conversation with the follow-up. Dispatched only on a subsequent accepted event."

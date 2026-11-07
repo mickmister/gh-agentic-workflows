@@ -1,0 +1,122 @@
+name: Gas City event orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      execution:
+        description: Stable execution slug; reuse for follow-ups
+        required: true
+        type: string
+      request:
+        description: Investigation, planning request, or follow-up
+        required: true
+        type: string
+      event_key:
+        description: Optional idempotency key; defaults to run ID and survives reruns
+        default: ''
+        type: string
+      fail_worker:
+        description: Development proof of persistence after ordinary worker failure
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      execution:
+        required: true
+        type: string
+      request:
+        required: true
+        type: string
+      event_key:
+        default: ''
+        type: string
+      fail_worker:
+        default: false
+        type: boolean
+    secrets:
+      NUGS_STORAGE_URL:
+        required: true
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+      INFERENCE_BASE_URL:
+        required: true
+      INFERENCE_API_KEY:
+        required: true
+      CF_ACCESS_CLIENT_ID:
+        required: true
+      CF_ACCESS_CLIENT_SECRET:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: gascity-event-${{ github.repository }}-${{ inputs.execution }}
+      cancel-in-progress: false
+    env:
+      NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      GC_EXECUTION: ${{ inputs.execution }}
+      GC_REQUEST: ${{ inputs.request }}
+      GC_EVENT_KEY: ${{ inputs.event_key }}
+      GC_FAIL_WORKER: ${{ inputs.fail_worker }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/gh-agentic-workflows
+          ref: vk/46e5-vd-multi-instanc
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify controller invariants
+        run: python3 -m unittest discover -s .github/scripts -p 'test_gascity_event.py'
+      - name: Create and verify scoped App tokens
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - name: Install Gas City session prerequisites
+        run: sudo apt-get update && sudo apt-get install -y tmux jq lsof
+      - name: Verify pinned persistence tools
+        run: python3 .github/scripts/gascity-event.py bootstrap
+      - name: Restore seed and synchronize current workspace
+        id: restore
+        run: python3 .github/scripts/gascity-event.py restore
+      - name: Gas City-managed orchestrator and native formula worker
+        id: worker
+        continue-on-error: true
+        env:
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: python3 .github/scripts/gascity-event.py worker
+      - name: Persist and independently recover after success or ordinary failure
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        id: persistence
+        env:
+          NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
+        run: python3 .github/scripts/gascity-event.py finalize
+      - name: Retain event decisions and recovery receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gascity-event-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/event-report.json
+            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/event-receipt.json
+          if-no-files-found: warn
+      - name: Preserve execution and persistence outcomes
+        if: always()
+        env:
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+          PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
+        run: |
+          test "$WORKER_OUTCOME" = success
+          test "$PERSISTENCE_OUTCOME" = success
