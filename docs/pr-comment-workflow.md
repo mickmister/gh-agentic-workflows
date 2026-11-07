@@ -1,5 +1,8 @@
 # PR comment → Gas City workflow
 
+See the [end-to-end sequence diagram](pr-comment-sequence.md) for the repeating
+human-comment, agent-decision, workflow-execution and PR-reporting loop.
+
 The source repository's existing default-branch `agentic.yml` calls the shared
 `agentic-entry.yml`. No browser-extension changes or inference-secret copies are
 required. The reusable entrypoint now recognizes these first-line commands:

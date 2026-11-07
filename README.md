@@ -18,6 +18,7 @@ planning**. Follow-ups restore native conversation history and execution state;
 approval does not add source-editing tools to those profiles.
 
 - [PR comment setup, authorization and reporting](docs/pr-comment-workflow.md)
+- [PR comment and agent workflow sequence diagram](docs/pr-comment-sequence.md)
 - [Gas City runtime and dispatch development harness](docs/gascity-event-orchestrator.md)
 - [Stable source-repository persistence setup](docs/source-repo-persistence.md)
 - [Broader caller configuration proposal](docs/caller-configuration-proposal.md)
