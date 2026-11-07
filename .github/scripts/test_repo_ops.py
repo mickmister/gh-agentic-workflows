@@ -14,6 +14,16 @@ spec.loader.exec_module(ops)
 
 
 class ImmutableTarget(unittest.TestCase):
+    def test_inventory_manifest_refuses_other_collection_and_duplicate_or_floating_revisions(self):
+        manifest = {"workspace": "workspace", "collection_id": "collection", "repositories": [
+            {"name": name, "head_sha": "a" * 40} for name in ("one", "two", "three", "four")]}
+        self.assertEqual(ops.workspace_manifest(manifest, "workspace", "collection"), manifest)
+        for candidate in ({**manifest, "workspace": "other"}, {**manifest, "collection_id": "other"},
+                          {**manifest, "repositories": [manifest["repositories"][0]] * 4},
+                          {**manifest, "repositories": [{"name": str(index), "head_sha": "main"} for index in range(4)]}):
+            with self.assertRaises(RuntimeError):
+                ops.workspace_manifest(candidate, "workspace", "collection")
+
     def test_finalizer_retains_artifact_reference_but_does_not_upload_or_print_private_report(self):
         with tempfile.TemporaryDirectory() as temp:
             review = ops.RepoOps.__new__(ops.RepoOps)

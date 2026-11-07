@@ -84,6 +84,25 @@ action in the nugs run ledger. Inspect component outcomes and archived report
 after callback; watcher exit alone is insufficient. Before local native writes,
 catch up to the verified final publication through supported nugs catch-up.
 
+## Internal workspace-readiness dogfood
+
+`workspace-inventory.yml` is a bounded front door to the same reusable core. It
+reads an explicitly versioned nugs document under `workspace/manifests/`, requires
+the existing workspace/collection binding and four distinct immutable repository
+revisions, and reads only the selected task IDs from the restored native
+collection. Those snapshots become the agent's permitted context file. The
+result must mention every declared repository and selected task ID. Native
+formula execution, read/nonce evidence, versioned report, assigned-task-only run
+notes and checkpoint/final publication use the proven core unchanged.
+
+This operation does not fetch target repositories or need a target-read token.
+Repository revisions are caller-declared manifest evidence; it does not claim
+that the runner independently checked out all four source trees or executed their
+tests. The model's assessment is published by the trusted coordinator through
+nugs. The assigned task is closed locally only after independently inspecting the
+report and recovering the native runner result. Inventory-mode conversation
+continuation is not enabled.
+
 ## Explicit native conversation continuation
 
 Successful assessments now also retain a private, byte-verified OpenCode native

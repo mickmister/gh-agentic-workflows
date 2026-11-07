@@ -38,6 +38,18 @@ def target_spec(repository, branch, expected, path):
     return {"repository": repository, "branch": branch, "sha": expected, "path": path}
 
 
+def workspace_manifest(value, workspace, collection):
+    require(value.get("workspace") == workspace and value.get("collection_id") == collection,
+            "inventory manifest binding does not match restored workspace")
+    repositories = value.get("repositories", [])
+    require(isinstance(repositories, list) and len(repositories) == 4, "inventory requires the declared four-repository manifest")
+    require(len({item.get("name") for item in repositories}) == 4 and all(
+        isinstance(item.get("name"), str) and re.fullmatch(r"[A-Za-z0-9_-]+", item["name"]) and
+        re.fullmatch(r"[0-9a-f]{40}", item.get("head_sha", "")) for item in repositories),
+        "inventory manifest requires distinct repository names and immutable commit IDs")
+    return value
+
+
 def checkout_target(base, spec, token="", runner=subprocess.run):
     url = "https://github.com/" + spec["repository"] + ".git"
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
@@ -80,6 +92,38 @@ class RepoOps(native.Proof):
                                                 "rev-parse", "HEAD"]).decode().strip()
         native.RESOURCE = f"ci/repo-ops/reports/{self.run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}.json"
 
+    def assignment_target(self):
+        operation = os.environ.get("REPO_OPS_OPERATION", "repository-review")
+        require(operation in ("repository-review", "workspace-inventory"), "unsupported bounded operation")
+        if operation == "workspace-inventory":
+            require(not os.environ.get("REPO_OPS_RESUME_FROM"), "inventory continuation is not enabled")
+            name = os.environ["REPO_OPS_MANIFEST_NAME"]
+            expected = os.environ["REPO_OPS_MANIFEST_VERSION"]
+            require(name.startswith("workspace/manifests/") and re.fullmatch(r"[0-9a-f]{40}", expected),
+                    "inventory requires an explicit versioned workspace manifest")
+            document = self.nugs("documents", "read", "--name", name)["document"]
+            require(document["version"] == expected, "inventory manifest version changed; read before dispatch")
+            self.manifest = workspace_manifest(json.loads(document["text"]), self.workspace, os.environ["NUGS_COLLECTION_ID"])
+            return {"kind": "workspace-manifest", "name": name, "version": expected}
+        return target_spec(os.environ["REPO_OPS_TARGET_REPOSITORY"], os.environ["REPO_OPS_TARGET_BRANCH"],
+                           os.environ["REPO_OPS_TARGET_SHA"], os.environ["REPO_OPS_READ_PATH"])
+
+    def assignment_content(self, target):
+        if target.get("kind") != "workspace-manifest":
+            return checkout_target(self.base, target, os.environ.get("TARGET_READ_TOKEN", ""))
+        identifiers = os.environ["REPO_OPS_SELECTED_TASKS"].split(",")
+        require(1 <= len(identifiers) <= 8 and len(set(identifiers)) == len(identifiers) and
+                all(re.fullmatch(r"task-[A-Za-z0-9.-]+", value) for value in identifiers), "invalid selected inventory task IDs")
+        tasks = []
+        for identifier in identifiers:
+            rows = self.bd(self.root, "show", identifier, "--readonly")
+            require(isinstance(rows, list) and len(rows) == 1 and rows[0]["id"] == identifier,
+                    "selected task missing from restored workspace")
+            tasks.append({key: str(rows[0].get(key, ""))[:2000] for key in
+                          ("id", "title", "description", "acceptance_criteria", "status")})
+        return json.dumps({"manifest": self.manifest, "selected_restored_tasks": tasks,
+                           "evidence_scope": "Caller-declared immutable repository revisions; task states read from restored native collection. Repository source trees are not cloned by inventory mode."}, indent=2)
+
     def record(self, proof, version=""):
         artifact = self.nugs("documents", "upsert", "--name", native.RESOURCE, "--expected", version,
                              content=json.dumps(proof).encode())["receipt"]
@@ -99,13 +143,13 @@ class RepoOps(native.Proof):
                  ("id", "title", "description", "acceptance_criteria", "status")}
         request = os.environ["REPO_OPS_REQUEST"]
         require(1 <= len(request) <= 2000, "review request must contain 1 to 2000 characters")
-        target = target_spec(os.environ["REPO_OPS_TARGET_REPOSITORY"], os.environ["REPO_OPS_TARGET_BRANCH"],
-                             os.environ["REPO_OPS_TARGET_SHA"], os.environ["REPO_OPS_READ_PATH"])
+        target = self.assignment_target()
         proof["target"] = target
+        proof["operation"] = os.environ.get("REPO_OPS_OPERATION", "repository-review")
         artifact = self.record(proof, artifact["version"])
         self.bd(self.root, "update", issue_id, "--append-notes", "Read-only centralized review started: run " + self.run_id)
         self.checkpoint(issue_id)
-        content = checkout_target(self.base, target, os.environ.get("TARGET_READ_TOKEN", ""))
+        content = self.assignment_content(target)
         agent = self.base / "agent"
         agent.mkdir(mode=0o700)
         root = agent / "workspace"
@@ -157,6 +201,10 @@ class RepoOps(native.Proof):
                     isinstance(parsed["summary"], str) and 1 <= len(parsed["summary"]) <= 2500,
                     "agent review did not match the bounded assignment")
             require(not resume or parsed["prior_nonce"] == prior_nonce, "resumed model did not recover native conversation history")
+            if target.get("kind") == "workspace-manifest":
+                require(all(item["name"] in parsed["summary"] for item in self.manifest["repositories"]) and
+                        all(identifier in parsed["summary"] for identifier in os.environ["REPO_OPS_SELECTED_TASKS"].split(",")),
+                        "readiness inventory omitted a declared repository or selected task ID")
             answer.update(parsed)
 
         launcher = gc.GasCityLauncher(gc_binary, formula=True,

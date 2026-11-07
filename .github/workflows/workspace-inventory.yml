@@ -1,0 +1,57 @@
+name: Bounded native workspace readiness inventory
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace:
+        type: string
+        required: true
+      collection_id:
+        type: string
+        required: true
+      dolt_commit:
+        type: string
+        required: true
+      task:
+        type: string
+        required: true
+      manifest_name:
+        type: string
+        required: true
+      manifest_version:
+        type: string
+        required: true
+      selected_tasks:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    uses: ./.github/workflows/repo-ops.yml
+    with:
+      implementation_ref: ${{ github.sha }}
+      operation: workspace-inventory
+      workspace: ${{ inputs.workspace }}
+      collection_id: ${{ inputs.collection_id }}
+      dolt_commit: ${{ inputs.dolt_commit }}
+      task: ${{ inputs.task }}
+      manifest_name: ${{ inputs.manifest_name }}
+      manifest_version: ${{ inputs.manifest_version }}
+      selected_tasks: ${{ inputs.selected_tasks }}
+      request: >-
+        Produce a concise workspace-readiness inventory covering every declared
+        repository and selected task. Distinguish demonstrated capability from
+        pending work. Mention every repository by name and every selected task by
+        ID. Identify blockers and one actionable next step, and state
+        the limits of the supplied evidence. Use only the supplied immutable
+        manifest and native task snapshot. Do not modify source or publish a PR.
+    secrets:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
+      INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+      INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

@@ -36,6 +36,18 @@ on:
         type: string
   workflow_call:
     inputs:
+      operation:
+        default: repository-review
+        type: string
+      manifest_name:
+        default: ''
+        type: string
+      manifest_version:
+        default: ''
+        type: string
+      selected_tasks:
+        default: ''
+        type: string
       implementation_ref:
         required: true
         type: string
@@ -52,13 +64,10 @@ on:
         required: true
         type: string
       target_repository:
-        required: true
         type: string
       target_branch:
-        required: true
         type: string
       target_sha:
-        required: true
         type: string
       read_path:
         default: README.md
@@ -107,6 +116,10 @@ jobs:
       REPO_OPS_TARGET_SHA: ${{ inputs.target_sha }}
       REPO_OPS_READ_PATH: ${{ inputs.read_path }}
       REPO_OPS_REQUEST: ${{ inputs.request }}
+      REPO_OPS_OPERATION: ${{ inputs.operation || 'repository-review' }}
+      REPO_OPS_MANIFEST_NAME: ${{ inputs.manifest_name }}
+      REPO_OPS_MANIFEST_VERSION: ${{ inputs.manifest_version }}
+      REPO_OPS_SELECTED_TASKS: ${{ inputs.selected_tasks }}
       REPO_OPS_RESUME_FROM: ${{ inputs.resume_from }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
