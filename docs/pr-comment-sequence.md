@@ -43,7 +43,7 @@ sequenceDiagram
             Runner->>Runner: Check whether this event/response was already handled
 
             alt Duplicate of a successful request
-                Runner->>Runner: Record no-op; preserve execution checkpoint
+                Runner->>Runner: Record no-op and preserve execution checkpoint
                 Note over Runner,Worker: No new orchestrator or worker inference.
             else New request
                 Runner->>GC: Start runner-owned supervisor and orchestrator session
@@ -59,7 +59,7 @@ sequenceDiagram
                     end
                     Worker-->>Runner: Return result and execution evidence
                     Runner->>PR: Re-check request/form bindings and PR head
-                    Runner->>GC: Close validated step; finalize workflow when ready
+                    Runner->>GC: Close validated step and finalize workflow when ready
                 else Await human or no-op
                     Runner->>Runner: Record question, explanation or no-work decision
                 end
