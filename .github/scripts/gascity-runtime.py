@@ -247,7 +247,12 @@ max_active_sessions = 1
 
     def run_agent(self, role, assignment, prompt, validator, step=None, prior=None):
         folder, root, fixture, env, template = self.roles[role]
-        fixture.write_text(json.dumps(assignment, indent=2))
+        rendered = json.loads(json.dumps(assignment))
+        if isinstance(rendered.get("source", {}).get("text"), str):
+            # The provider's read tool truncates individual long lines. A JSON
+            # string with escaped newlines hid most of the source snapshot.
+            rendered["source"]["text"] = rendered["source"]["text"].splitlines()
+        fixture.write_text(json.dumps(rendered, indent=2))
         previous = None
         args = [str(self.opencode), "run", "--pure", "--format", "json", "--title", "GitHub event " + role,
                 "--model", oc.MODEL, "--agent", "ci-probe", "--variant", "medium"]

@@ -131,7 +131,8 @@ class NativeRecovery(unittest.TestCase):
                     with city:
                         for role in ("orchestrator", "worker"):
                             current.update(nonce=role + "-nonce", path=str(city.roles[role][2]))
-                            assignment = {"nonce": current["nonce"]}
+                            assignment = {"nonce": current["nonce"],
+                                          "source": {"text": ("source line " + "x" * 120 + "\n") * 30 + "END_SOURCE_MARKER"}}
                             step = None
                             if role == "worker":
                                 cooked = city.command("formula", "cook", "investigate", "--json")
@@ -140,6 +141,11 @@ class NativeRecovery(unittest.TestCase):
                                 lambda text: self.assertEqual(json.loads(text)["nonce"], current["nonce"]), step=step)
                             self.assertEqual(evidence["gc_template"], role)
                             self.assertTrue(session["session_id"].startswith("ses_"))
+                            native = json.loads(base64.b64decode(session["content_base64"]))
+                            reads = [part["state"].get("output", "") for message in native["messages"]
+                                     for part in message.get("parts", []) if part.get("type") == "tool" and part.get("tool") == "read"]
+                            self.assertTrue(any("END_SOURCE_MARKER" in output for output in reads),
+                                            "native read tool lost the end of the source snapshot")
                             if step:
                                 self.assertEqual(city.bead(step)["status"], "in_progress")
                                 city.close_step(cooked["root_id"], step)
