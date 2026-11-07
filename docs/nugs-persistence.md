@@ -5,12 +5,19 @@ The reusable workflow declares required `NUGS_STORAGE_URL` and
 `NUGS_STORAGE_TOKEN` **secrets**; the central caller maps them explicitly. Neither
 value is a dispatch input, receipt field, or logged subprocess diagnostic.
 
-Supply workspace, collection ID, Dolt commit and an existing issue ID from a
-verified local publication. Source implementation SHA and native data checkpoint
+Supply `workspace_context` (the endpoint-free `handoff` object), workspace,
+collection ID, Dolt commit and an existing issue ID from a verified **bound** local
+publication. Source implementation SHA and native data checkpoint
 are independent. The workflow restores the exact checkpoint before work; it
 never initializes an empty replacement. A missing or advanced checkpoint fails.
-The selected workspace becomes the helper's fixed operation context. Full
-machine-registry/stable-reference routing remains separate implementation work.
+Trusted bootstrap uses `nugs workspace restore` once to verify the exact native
+checkpoint and import the original stable reference, engagement and namespace
+into the fresh runner's private registry. Binding publication follows native
+verification; missing/mismatched/unpublished context blocks the worker. The
+storage URL is supplied only at this setup boundary. All normal nugs calls then
+use the attachment context without remote/workspace selectors. Peer and final
+verification roots are explicitly restored with the same identity and updated
+verified checkpoint, not implicitly routed using global defaults.
 
 The bounded synthetic worker creates one fixture issue, publishes a native
 checkpoint while it is still open, then closes it and CAS-updates a proof
@@ -54,7 +61,9 @@ configuration only; ordinary writers must be quiesced by the caller.
 
 ## Automated local handoff
 
-From the central checkout, use the workspace's existing nugs configuration:
+Use nugs 0.1.1+ and the workspace's existing persistent attachment. The helper
+runs source operations from the explicit root, so a member-repository cwd is not
+used to infer the namespace:
 
 ```sh
 python3 .github/scripts/nugs-handoff.py --nugs /path/to/nugs \
@@ -63,23 +72,32 @@ python3 .github/scripts/nugs-handoff.py --nugs /path/to/nugs \
 ```
 
 The adapter checkpoints/publishes/verifies native state before dispatch, obtains
-the central source revision, and passes the returned collection/revision directly
-to Actions. Unverified state blocks dispatch. It saves the returned run identity
+the central source revision, and passes the returned endpoint-free handoff and
+collection/revision directly to Actions. Unbound publications (without a stable
+handoff) and unverified state block dispatch. It saves the returned run identity
 locally under the user state directory and through nugs before returning it.
 If receipt publication fails after dispatch, recover that saved run instead of
 blindly redispatching. The callback watcher/run ledger remains the caller's
 continuation responsibility. No storage URL or token is required as a routine
 handoff argument, and no implicit binding change or local fallback occurs.
 
-## Pinned native tools
+## Pinned npm nugs and native tools
 
-`.github/nugs-toolchain.lock.json` identifies three gzip binary artifacts in the
-private store, an exact Git snapshot, compressed/uncompressed sizes and SHA-256
-digests. Bootstrap uses Git directly, so obtaining nugs does not require nugs
-to be preinstalled. It verifies every digest before executing binaries, uses a
-private runner HOME, and restricts its credential helper to the exact storage
-repository. The Beads binary excludes the local VD routing wrapper. Tools are
-Linux amd64 artifacts: nugs source `c4f9bc1`, Beads 1.2.2 commit
+`.github/nugs-toolchain.lock.json` pins **`@mickmister/nugs@0.1.1` from npm**,
+its exact public tarball URL, SHA-512 package integrity, native executable size
+and SHA-256, and source revision `681ae84`. Bootstrap verifies the package bytes,
+name/version, and selected regular `package/binaries/linux-x64/nugs` member before
+running it; no npm lifecycle scripts execute and no additional Node runtime is
+needed by the Go worker. Archive expansion is bounded and archive members are
+read directly, never extracted by arbitrary paths. There is no `latest` lookup,
+redirect, private nugs-artifact fallback or source compilation on the runner.
+
+The **Beads and Dolt pins are unchanged**: two gzip artifacts in the private store,
+exact Git snapshot, compressed/uncompressed sizes and SHA-256 digests. Bootstrap
+uses Git and the public npm tarball directly, without needing nugs preinstalled.
+It uses a private HOME and a helper scoped to the exact storage repository. The
+Beads binary excludes the local VD routing wrapper. Linux amd64 tools use Beads
+1.2.2 commit
 `6c124203e771433a3550c348771a5b5e27fd3c21`, and the locally verified Dolt 2.3.1
 binary. Dolt source reproducibility is not claimed; its artifact is digest-pinned.
 Actual native restore/publication, rather than version strings, proves required

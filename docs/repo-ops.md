@@ -12,6 +12,10 @@ the explicitly assigned workspace task.
 - `workspace`, `collection_id`, `dolt_commit`, `task`: exact existing native
   workspace checkpoint and assigned task. Publish local workspace changes before
   dispatch; quiesce its other native writers until handoff completes.
+- `workspace_context`: endpoint-free `handoff` object from that verified bound
+  publication, including the stable workspace reference and engagement. It must
+  match the independently supplied namespace/collection/checkpoint. Only trusted
+  coordinator dispatch input may supply it; target/source/agent text cannot.
 - `target_repository`, `target_branch`, `target_sha`: independent target identity.
   The branch must still advertise the expected 40-character commit. Fetch uses
   that immutable commit and verifies it again. `read_path` defaults to README.md.
@@ -33,7 +37,8 @@ changed branch SHA fail with actionable, body-free diagnostics.
 
 ## Lifecycle and results
 
-The pinned native nugs/Beads/Dolt toolchain restores the existing collection,
+The pinned npm `@mickmister/nugs@0.1.1` and unchanged native Beads/Dolt toolchain
+restore the existing collection and stable registry attachment once at setup,
 records a started report, appends the assigned task's run note, and publishes a
 native checkpoint before agent work. Pinned GC/OpenCode use the verified isolated
 tmux execution path and exact `gpt-6.1-sol` medium profile. GC administrative
@@ -74,6 +79,7 @@ and verify the resulting run's actual `headSha` against the intended source SHA:
 ```sh
 gh workflow run repo-ops.yml --repo mickmister/gh-agentic-workflows \
   --ref CENTRAL_BRANCH -f workspace=WORKSPACE -f collection_id=COLLECTION \
+  -f workspace_context="$(jq -c '.handoff' VERIFIED_PUBLICATION.json)" \
   -f dolt_commit=DOLT_HASH -f task=TASK_ID \
   -f target_repository=OWNER/REPO -f target_branch=BRANCH -f target_sha=COMMIT \
   -f read_path=README.md -f request='Summarize readiness and one useful next step.'

@@ -7,6 +7,10 @@ on:
         description: Workspace handle from the verified handoff
         required: true
         type: string
+      workspace_context:
+        description: Endpoint-free trusted workspace handoff JSON
+        required: true
+        type: string
       collection_id:
         description: Exact native collection identity
         required: true
@@ -38,6 +42,7 @@ jobs:
     with:
       implementation_ref: ${{ github.sha }}
       workspace: ${{ inputs.workspace }}
+      workspace_context: ${{ inputs.workspace_context }}
       collection_id: ${{ inputs.collection_id }}
       dolt_commit: ${{ inputs.dolt_commit }}
       expect_issue: ${{ inputs.expect_issue }}

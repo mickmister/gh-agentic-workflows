@@ -9,6 +9,10 @@ on:
       workspace:
         type: string
         required: true
+      workspace_context:
+        description: Endpoint-free handoff from a verified bound native publication
+        type: string
+        required: true
       collection_id:
         type: string
         required: true
@@ -44,6 +48,7 @@ jobs:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
       NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
       NUGS_WORKSPACE: ${{ inputs.workspace }}
+      NUGS_WORKSPACE_CONTEXT: ${{ inputs.workspace_context }}
       NUGS_COLLECTION_ID: ${{ inputs.collection_id }}
       NUGS_DOLT_COMMIT: ${{ inputs.dolt_commit }}
       NUGS_EXPECT_ISSUE: ${{ inputs.expect_issue }}

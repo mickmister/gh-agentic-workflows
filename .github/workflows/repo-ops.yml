@@ -3,6 +3,10 @@ name: Central read-only repository review
 on:
   workflow_dispatch:
     inputs:
+      workspace_context:
+        description: Endpoint-free trusted workspace handoff JSON
+        required: true
+        type: string
       workspace:
         required: true
         type: string
@@ -36,6 +40,9 @@ on:
         type: string
   workflow_call:
     inputs:
+      workspace_context:
+        required: true
+        type: string
       operation:
         default: repository-review
         type: string
@@ -108,6 +115,7 @@ jobs:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
       NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
       NUGS_WORKSPACE: ${{ inputs.workspace }}
+      NUGS_WORKSPACE_CONTEXT: ${{ inputs.workspace_context }}
       NUGS_COLLECTION_ID: ${{ inputs.collection_id }}
       NUGS_DOLT_COMMIT: ${{ inputs.dolt_commit }}
       NUGS_EXPECT_ISSUE: ${{ inputs.task }}

@@ -11,9 +11,9 @@ from urllib.parse import quote
 REPOSITORY = "mickmister/gh-agentic-workflows"
 
 
-def execute(args, *, content=None, json_output=False):
+def execute(args, *, content=None, json_output=False, cwd=None):
     result = subprocess.run(args, input=content, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, check=False, timeout=180)
+                            stderr=subprocess.PIPE, check=False, timeout=180, cwd=cwd)
     if result.returncode:
         raise RuntimeError(f"{Path(args[0]).name} handoff operation failed (exit {result.returncode})")
     return json.loads(result.stdout) if json_output else result.stdout
@@ -22,18 +22,25 @@ def execute(args, *, content=None, json_output=False):
 def handoff(args, call=execute):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", args.workspace):
         raise RuntimeError("invalid workspace")
-    publication = call([args.nugs, "beads", "publish", "--workspace", args.workspace,
-                        "--root", args.root], json_output=True)
+    publication = call([args.nugs, "beads", "publish", "--root", args.root],
+                       cwd=args.root, json_output=True)
     receipt = publication.get("publication", {})
     if (publication.get("error") or not receipt.get("verified") or
             receipt.get("ref") != "refs/dolt/" + args.workspace or
             not all(receipt.get(key) for key in ("collection_id", "dolt_commit", "git_commit"))):
         raise RuntimeError("native workspace publication not verified; dispatch blocked")
+    context = publication.get("handoff", {})
+    if (set(context) != {"schema_version", "workspace_ref", "engagement", "workspace", "collection_id", "dolt_commit"} or
+            context.get("schema_version") != 1 or not re.fullmatch(r"ws-[0-9a-f]{32}", context.get("workspace_ref", "")) or
+            not context.get("engagement") or context.get("workspace") != args.workspace or
+            context.get("collection_id") != receipt["collection_id"] or context.get("dolt_commit") != receipt["dolt_commit"]):
+        raise RuntimeError("bound stable workspace handoff missing or mismatched; dispatch blocked")
     source = call(["gh", "api", f"repos/{REPOSITORY}/commits/{quote(args.source_ref, safe='')}"], json_output=True)
     if not re.fullmatch(r"[0-9a-f]{40}", source.get("sha", "")):
         raise RuntimeError("central workflow source revision unavailable; dispatch blocked")
     command = ["gh", "workflow", "run", "nugs-persistence-smoke.yml", "--repo", REPOSITORY,
                "--ref", args.source_ref, "-f", "workspace=" + args.workspace,
+               "-f", "workspace_context=" + json.dumps(context, separators=(",", ":")),
                "-f", "collection_id=" + receipt["collection_id"],
                "-f", "dolt_commit=" + receipt["dolt_commit"],
                "-f", "expect_issue=" + args.expect_issue,
@@ -47,6 +54,7 @@ def handoff(args, call=execute):
     result = {"repository": REPOSITORY, "workflow": "nugs-persistence-smoke.yml",
               "workspace": args.workspace, "source_ref": args.source_ref, "source_sha": source["sha"],
               "run_id": int(match[1]), "url": match[0], "native_handoff": receipt,
+              "workspace_context": context,
               "worker_mode": args.worker_mode, "expect_previous_run": args.expect_previous_run}
     # Save recovery metadata before the remote receipt write. Never redispatch
     # blindly if receipt publication fails after GitHub accepted the run.
@@ -64,9 +72,9 @@ def handoff(args, call=execute):
                        "--json", "headSha"], json_output=True)
         if actual.get("headSha") != source["sha"]:
             raise RuntimeError("central source advanced during dispatch")
-        artifact = call([args.nugs, "documents", "upsert", "--workspace", args.workspace,
+        artifact = call([args.nugs, "documents", "upsert",
                          "--name", "operations/ci-handoffs/" + match[1] + ".json"],
-                        content=json.dumps(result).encode(), json_output=True)
+                        content=json.dumps(result).encode(), json_output=True, cwd=args.root)
         if artifact.get("error") or not artifact.get("receipt"):
             raise RuntimeError("handoff receipt publication failed")
     except Exception:

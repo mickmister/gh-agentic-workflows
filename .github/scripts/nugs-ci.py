@@ -120,11 +120,11 @@ def download_npm_binary(item):
 
 def validate_handoff(value, workspace, collection, commit):
     keys = {"schema_version", "workspace_ref", "engagement", "workspace", "collection_id", "dolt_commit"}
-    require(isinstance(value, dict) and set(value) == keys and value["schema_version"] == 1 and
+    require(isinstance(value, dict) and set(value) == keys and type(value["schema_version"]) is int and value["schema_version"] == 1 and
             isinstance(value["workspace_ref"], str) and re.fullmatch(r"ws-[0-9a-f]{32}", value["workspace_ref"]) and
             isinstance(value["engagement"], str) and 1 <= len(value["engagement"]) <= 200 and
             value["workspace"] == workspace and value["collection_id"] == collection and value["dolt_commit"] == commit and
-            re.fullmatch(r"[0-9a-v]{32}", commit), "workspace handoff does not match authorized native pins")
+            isinstance(commit, str) and re.fullmatch(r"[0-9a-v]{32}", commit), "workspace handoff does not match authorized native pins")
     return value
 
 
@@ -286,7 +286,6 @@ class Proof:
         """A controlled second writer creates real non-fast-forward divergence."""
         peer = self.base / "peer-workspace"
         peer.mkdir(mode=0o700)
-        publication = checkpoint["publication"]
         self.restore_into(peer, self.base / "peer-collection", checkpoint["handoff"])
         issue = self.bd(peer, "create", "CI concurrent writer " + self.run_id,
                         "--description", "Synthetic native non-fast-forward fixture")
