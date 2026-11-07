@@ -71,6 +71,23 @@ class Decisions(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 event.validate_state(invalid, self.trigger, event.runtime.catalog())
 
+    def test_report_updates_use_observed_document_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = object.__new__(event.EventProof)
+            proof.base, proof.report_name = Path(directory), "ci/gascity/runs/1-1.json"
+            expected = ""
+
+            def nugs(*args, content):
+                nonlocal expected
+                self.assertEqual(args[args.index("--expected") + 1], expected)
+                expected = "v1" if not expected else "v2"
+                return {"receipt": {"version": expected}}
+
+            proof.nugs = nugs
+            proof.write_report({"outcome": "failure"})
+            proof.write_report({"outcome": "success"})
+            self.assertEqual(json.loads((proof.base / "event-report.json").read_text())["outcome"], "success")
+
 
 @unittest.skipUnless(os.environ.get("GASCITY_NATIVE_TEST_TOOLS"), "set GASCITY_NATIVE_TEST_TOOLS for real GC recovery")
 class NativeRecovery(unittest.TestCase):

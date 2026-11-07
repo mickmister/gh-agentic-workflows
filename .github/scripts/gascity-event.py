@@ -1,5 +1,4 @@
 """GitHub event -> GC-managed orchestrator -> validated native formula operation."""
-import copy
 import importlib.util
 import json
 import os
@@ -96,9 +95,12 @@ class EventProof(source.SourceProof):
         return json.loads(document["text"]), document["version"]
 
     def write_report(self, report):
+        local = self.base / "event-report.json"
+        expected = json.loads(local.read_text())["artifact"]["version"] if local.exists() else ""
         receipt = self.nugs("documents", "upsert", "--name", self.report_name,
+                            "--expected", expected,
                             content=json.dumps(report).encode())["receipt"]
-        ci.write_json(self.base / "event-report.json", {**report, "artifact": receipt})
+        ci.write_json(local, {**report, "artifact": receipt})
 
     def worker(self):
         state, revision = self.read_state()
@@ -142,15 +144,19 @@ class EventProof(source.SourceProof):
                 if decision["action"] == "start":
                     cooked = city.command("formula", "cook", decision["formula"], "--json")
                     require(cooked.get("ok") and cooked.get("root_id"), "Gas City did not instantiate the formula")
-                    snapshot = ci.run(["git", "show", self.event["source_sha"] + ":README.md"],
-                                      cwd=Path(__file__).resolve().parents[2]).decode()[:16000]
+                    paths = ("README.md", "docs/caller-configuration-proposal.md",
+                             ".github/workflows/gascity-event.yml", ".github/workflows/nugs-source.yml")
+                    snapshot = "\n\n".join("SOURCE " + path + "\n" + ci.run(
+                        ["git", "show", self.event["source_sha"] + ":" + path],
+                        cwd=Path(__file__).resolve().parents[2]).decode() for path in paths)
+                    require(len(snapshot.encode()) <= 32000, "source snapshot exceeds its bounded context limit")
                     state = {"schema_version": 1, "repository": self.event["repository"],
                              "execution_id": self.event["execution_id"], "catalog": catalog,
                              "formula": decision["formula"], "root_id": cooked["root_id"],
                              "steps": {name: cooked["id_mapping"][decision["formula"] + "." + name]
                                        for name in ("assess", "followup")},
                              "phase": "ready", "events": [], "results": [],
-                             "source": {"sha": self.event["source_sha"], "path": "README.md", "text": snapshot}}
+                             "source": {"sha": self.event["source_sha"], "path": ", ".join(paths), "text": snapshot}}
                     changed = True
                 if decision["action"] in ("start", "resume", "update"):
                     changed = True
@@ -158,6 +164,7 @@ class EventProof(source.SourceProof):
                                if city.bead(identifier).get("status") != "closed"]
                     require(pending, "no pending native formula work")
                     step = pending[0]
+                    city.prepare_step(step)
                     report.update(root_id=state["root_id"], step_id=step, formula=state["formula"])
                     if os.environ.get("GC_FAIL_WORKER") == "true":
                         raise RuntimeError("intentional worker failure after native formula selection")

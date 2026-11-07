@@ -89,7 +89,11 @@ shutdown_timeout = "5s"
             root.mkdir(mode=0o700)
             fixture = root / "assignment.json"
             config_path = folder / "opencode.json"
-            config_path.write_text(json.dumps(oc.config_for(fixture)))
+            provider_config = oc.config_for(fixture)
+            provider_config["agent"]["ci-probe"]["prompt"] = (
+                "Perform the assigned bounded workflow orchestration or source assessment. "
+                "Read only the supplied assignment file; return the requested JSON. Do not delegate.")
+            config_path.write_text(json.dumps(provider_config))
             config_path.chmod(0o600)
             env = oc.isolated_environment(folder, config_path)
             oc.command(["git", "init", "--quiet", str(root)], root, env)
@@ -173,7 +177,14 @@ max_active_sessions = 1
     def __exit__(self, *_):
         try:
             if self.supervisor is not None:
-                self.command("stop", str(self.city), raw=True)
+                try:
+                    # Close failed/idle provider sessions too, so restoring the
+                    # graph never resurrects an old runner's assignment process.
+                    for role in self.roles:
+                        for session in self.command("session", "list", "--template", role, "--json")["sessions"]:
+                            self.command("session", "close", session["id"], "--json")
+                finally:
+                    self.command("stop", str(self.city), raw=True)
         finally:
             if self.supervisor is not None:
                 self.supervisor.terminate()
@@ -200,9 +211,22 @@ max_active_sessions = 1
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if self.bead(step).get("status") == "closed":
+                # A session close releases unfinished claims, so only release
+                # its runtime after the validated work is durably closed.
+                (self.roles["worker"][0] / "worker-release").write_text("validated")
                 return
             time.sleep(1)
         raise RuntimeError("Gas City did not close the validated step")
+
+    def prepare_step(self, step):
+        current = self.bead(step)
+        require(current.get("status") in ("open", "in_progress"), "native step is not pending")
+        if current.get("status") == "in_progress" or current.get("assignee"):
+            previous = current.get("metadata", {}).get("gc.session_id")
+            require(previous and self.bead(previous).get("status") == "closed",
+                    "cannot recover work still owned by an open Gas City session")
+            gc.formula_api(self.port, step, "update", {"status": "open", "assignee": "",
+                "metadata": {"gc.session_id": "", "gc.session_name": ""}}, city_name=CITY)
 
     def run_agent(self, role, assignment, prompt, validator, step=None, prior=None):
         folder, root, fixture, env, template = self.roles[role]
@@ -228,6 +252,7 @@ max_active_sessions = 1
             self.command("sling", role, step, "--no-formula", "--no-convoy", "--json")
         else:
             self.command("session", "new", role, "--title", "GitHub event orchestrator", "--no-attach", "--json")
+        successful = False
         try:
             deadline = time.monotonic() + 240
             while time.monotonic() < deadline:
@@ -254,13 +279,16 @@ max_active_sessions = 1
                         assigned = json.loads((folder / "formula-assignment.json").read_text())
                         require(assigned["id"] == step, "wrong native formula step")
                         evidence["gc_formula_step"] = step
-                    (folder / "worker-release").write_text("observed")
-                    self.command("session", "close", identity["session_id"], "--json")
+                    if not step:
+                        (folder / "worker-release").write_text("observed")
+                        self.command("session", "close", identity["session_id"], "--json")
+                    successful = True
                     return evidence, {"session_id": identifier, "content_base64": base64.b64encode(exported).decode()}
                 time.sleep(1)
             raise RuntimeError("Gas City agent exceeded its execution deadline")
         finally:
-            (folder / "worker-release").write_text("release")
+            if not successful:
+                (folder / "worker-release").write_text("release")
 
 
 if __name__ == "__main__":

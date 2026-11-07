@@ -40,7 +40,8 @@ request text is rejected. A failed event remains retryable.
 ## State and evidence
 
 - Two native v2 formulas are installed and digest-pinned: `investigate` and
-  `plan-change`. They perform read-only work grounded in a pinned README snapshot.
+  `plan-change`. They perform read-only work grounded in a pinned source snapshot:
+  README, caller configuration proposal, event workflow and persistence workflow.
 - The execution graph uses **Gas City's built-in file provider**, not the workspace's
   native Dolt collection. Its exact stopped `.gc/beads.json` is retained, including
   formula root/step IDs, dependencies, revisions and closed session records.
