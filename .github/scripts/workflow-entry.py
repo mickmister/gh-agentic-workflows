@@ -6,6 +6,16 @@ import sys
 import urllib.request
 
 
+FORM_COMMENT_MARKER = "<!-- github-ultimate:form:"
+
+
+def is_form_comment(event, payload):
+    body = payload.get("comment", {}).get("body")
+    # Match GitHub Actions contains(), which is case-insensitive.
+    return (event == "issue_comment" and isinstance(body, str)
+            and FORM_COMMENT_MARKER in body.lower())
+
+
 def permission(repository, login):
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repository}/collaborators/{login}/permission",
@@ -23,6 +33,8 @@ def route(event, repository, payload, access=permission):
         raise RuntimeError("invalid caller repository")
     if payload.get("repository", {}).get("full_name") != repository:
         raise RuntimeError("caller event repository mismatch")
+    if is_form_comment(event, payload):
+        return "none"
     if event == "workflow_dispatch":
         return "persistence"
     if event != "issue_comment" or payload.get("action") != "created":
