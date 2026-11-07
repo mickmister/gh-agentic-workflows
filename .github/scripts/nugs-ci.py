@@ -4,6 +4,7 @@ Only trusted central workflow code runs with storage credentials. This is a
 synthetic worker, not a general command runner or an inference/agent proof.
 """
 import gzip
+import base64
 import hashlib
 import io
 import json
@@ -14,6 +15,8 @@ import re
 import shlex
 import subprocess
 import sys
+import tarfile
+import urllib.request
 from urllib.parse import urlsplit
 
 
@@ -78,12 +81,63 @@ def verified_binary(compressed, item):
     return data
 
 
+def verified_npm_binary(compressed, item):
+    require(item.get("package") == "@mickmister/nugs" and
+            re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", item.get("version", "")),
+            "invalid pinned npm package/version")
+    require(0 < item["compressed_bytes"] <= 32 * 1024 * 1024 and
+            len(compressed) == item["compressed_bytes"] and
+            "sha512-" + base64.b64encode(hashlib.sha512(compressed).digest()).decode() == item["integrity"],
+            "npm tarball integrity mismatch")
+    with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as stream:
+        expanded = stream.read(128 * 1024 * 1024 + 1)
+    require(len(expanded) <= 128 * 1024 * 1024, "npm tarball exceeds expansion limit")
+    with tarfile.open(fileobj=io.BytesIO(expanded), mode="r:") as archive:
+        def member(name, limit):
+            matches = [m for m in archive.getmembers() if m.name == name]
+            require(len(matches) == 1 and matches[0].isfile() and matches[0].size <= limit,
+                    "invalid npm package member")
+            return archive.extractfile(matches[0]).read(limit + 1)
+        metadata = json.loads(member("package/package.json", 65536))
+        require(metadata.get("name") == item["package"] and metadata.get("version") == item["version"],
+                "npm package identity mismatch")
+        data = member("package/binaries/linux-x64/nugs", 16 * 1024 * 1024)
+    require(len(data) == item["binary_bytes"] and data.startswith(b"\x7fELF") and
+            hashlib.sha256(data).hexdigest() == item["binary_sha256"], "npm binary digest mismatch")
+    return data
+
+
+def download_npm_binary(item):
+    url = f"https://registry.npmjs.org/@mickmister/nugs/-/nugs-{item['version']}.tgz"
+    require(item.get("tarball") == url, "npm tarball URL does not match pinned package/version")
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            raise RuntimeError("npm tarball redirect refused")
+    with urllib.request.build_opener(NoRedirect).open(url, timeout=90) as response:
+        packed = response.read(32 * 1024 * 1024 + 1)
+    return verified_npm_binary(packed, item)
+
+
+def validate_handoff(value, workspace, collection, commit):
+    keys = {"schema_version", "workspace_ref", "engagement", "workspace", "collection_id", "dolt_commit"}
+    require(isinstance(value, dict) and set(value) == keys and value["schema_version"] == 1 and
+            isinstance(value["workspace_ref"], str) and re.fullmatch(r"ws-[0-9a-f]{32}", value["workspace_ref"]) and
+            isinstance(value["engagement"], str) and 1 <= len(value["engagement"]) <= 200 and
+            value["workspace"] == workspace and value["collection_id"] == collection and value["dolt_commit"] == commit and
+            re.fullmatch(r"[0-9a-v]{32}", commit), "workspace handoff does not match authorized native pins")
+    return value
+
+
 class Proof:
     def __init__(self):
         storage_location(os.environ.get("NUGS_STORAGE_URL", ""))
         require(os.environ.get("NUGS_STORAGE_TOKEN"), "storage credential missing")
         self.workspace = os.environ["NUGS_WORKSPACE"]
         require(re.fullmatch(r"[A-Za-z0-9_-]{1,200}", self.workspace), "invalid workspace")
+        raw = os.environ.get("NUGS_WORKSPACE_CONTEXT", "")
+        require(0 < len(raw.encode()) <= 8192, "trusted workspace context is required")
+        self.handoff = validate_handoff(json.loads(raw), self.workspace,
+                                       os.environ["NUGS_COLLECTION_ID"], os.environ["NUGS_DOLT_COMMIT"])
         require(os.environ.get("NUGS_WORKER_MODE", "success") in ("success", "fail-worker", "reject-push"),
                 "invalid bounded worker mode")
         run_id, attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
@@ -116,9 +170,9 @@ class Proof:
         (self.home / ".gitconfig").write_text(config)
         (self.home / ".gitconfig").chmod(0o600)
 
-    def nugs(self, *args, content=None, allow_failure=False):
-        result = run([str(self.bin / "nugs"), *args, "--workspace", self.workspace],
-                     cwd=self.root, content=content, json_output=not allow_failure,
+    def nugs(self, *args, content=None, allow_failure=False, root=None):
+        result = run([str(self.bin / "nugs"), *args],
+                     cwd=root or self.root, content=content, json_output=not allow_failure,
                      allow_failure=allow_failure)
         if not allow_failure:
             require("error" not in result, "nugs operation reported failure")
@@ -132,7 +186,7 @@ class Proof:
         require(platform.system() == "Linux" and platform.machine() == "x86_64",
                 "toolchain requires Linux amd64")
         lock = json.loads(LOCK.read_text())
-        require(lock["schema_version"] == 1 and lock["platform"] == "linux-amd64" and
+        require(lock["schema_version"] == 2 and lock["platform"] == "linux-amd64" and
                 re.fullmatch(r"[0-9a-f]{40}", lock["storage_commit"]), "invalid toolchain lock")
         repo = self.base / "tools.git"
         run(["git", "init", "--bare", str(repo)])
@@ -143,25 +197,37 @@ class Proof:
         head = run(["git", "--git-dir", str(repo), "rev-parse", "FETCH_HEAD"]).decode().strip()
         require(head == lock["storage_commit"], "toolchain ref no longer matches locked commit")
         require(set(lock["tools"]) == {"nugs", "bd", "dolt"}, "invalid toolchain members")
-        for name, item in lock["tools"].items():
+        for name in ("bd", "dolt"):
+            item = lock["tools"][name]
             require(re.fullmatch(r"toolchain/[A-Za-z0-9_.-]+", item["resource"]), "invalid tool resource")
             packed = run(["git", "--git-dir", str(repo), "show", head + ":documents/" + item["resource"]])
             (self.bin / name).write_bytes(verified_binary(packed, item))
             (self.bin / name).chmod(0o700)
-        config = self.home / ".config/nugs"
-        config.mkdir(parents=True, mode=0o700, exist_ok=True)
-        write_json(config / "config.json", {"remote": os.environ["NUGS_STORAGE_URL"]})
+        npm = lock["tools"]["nugs"]
+        (self.bin / "nugs").write_bytes(download_npm_binary(npm))
+        (self.bin / "nugs").chmod(0o700)
+        require(run([str(self.bin / "nugs"), "--version"]).decode().strip() == "nugs " + npm["version"],
+                "installed npm nugs version mismatch")
         run([str(self.bin / "bd"), "--version"])
         run([str(self.bin / "dolt"), "version"])
         # Real restore below is the capability proof, not version strings alone.
         write_json(self.base / "toolchain.json", lock)
-        print("Verified pinned nugs, native Beads and Dolt binary digests.")
+        print("Verified npm nugs integrity/version and pinned native Beads/Dolt digests.")
+
+    def restore_into(self, root, data_dir, handoff):
+        validate_handoff(handoff, self.workspace, self.handoff["collection_id"], handoff["dolt_commit"])
+        require(all(handoff[key] == self.handoff[key] for key in ("workspace_ref", "engagement")),
+                "restore would switch workspace identity or engagement")
+        result = run([str(self.bin / "nugs"), "workspace", "restore", "--root", str(root),
+                      "--data-dir", str(data_dir), "--remote", os.environ["NUGS_STORAGE_URL"]],
+                     cwd=root, content=json.dumps(handoff).encode(), json_output=True)
+        require(not result.get("error") and result.get("restoration", {}).get("verified") and
+                result.get("workspace_ref") == self.handoff["workspace_ref"] and
+                result.get("engagement") == self.handoff["engagement"], "trusted context restore failed")
+        return result
 
     def restore(self):
-        result = self.nugs("beads", "restore", "--root", str(self.root),
-                           "--data-dir", str(self.base / "collection"),
-                           "--collection-id", os.environ["NUGS_COLLECTION_ID"],
-                           "--dolt-commit", os.environ["NUGS_DOLT_COMMIT"])
+        result = self.restore_into(self.root, self.base / "collection", self.handoff)
         require(result["restoration"]["verified"], "native restore was not verified")
         self.bd(self.root, "show", os.environ["NUGS_EXPECT_ISSUE"], "--readonly")
         write_json(self.base / "restore.json", result)
@@ -205,9 +271,10 @@ class Proof:
                 "intentional worker failure after durable artifact/native changes")
 
     def checkpoint(self, issue_id):
-        publication = self.nugs("beads", "publish", "--root", str(self.root))["publication"]
+        result = self.nugs("beads", "publish", "--root", str(self.root))
+        publication = result["publication"]
         require(publication["verified"], "intermediate native checkpoint was not verified")
-        checkpoint = {"run_id": self.run_id, "issue_id": issue_id, "publication": publication}
+        checkpoint = {"run_id": self.run_id, "issue_id": issue_id, "publication": publication, "handoff": result["handoff"]}
         write_json(self.base / "checkpoint.json", checkpoint)
         self.nugs("documents", "upsert", "--name",
                   f"ci/persistence/checkpoints/{self.run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}.json",
@@ -220,14 +287,11 @@ class Proof:
         peer = self.base / "peer-workspace"
         peer.mkdir(mode=0o700)
         publication = checkpoint["publication"]
-        self.nugs("beads", "restore", "--root", str(peer),
-                  "--data-dir", str(self.base / "peer-collection"),
-                  "--collection-id", publication["collection_id"],
-                  "--dolt-commit", publication["dolt_commit"])
+        self.restore_into(peer, self.base / "peer-collection", checkpoint["handoff"])
         issue = self.bd(peer, "create", "CI concurrent writer " + self.run_id,
                         "--description", "Synthetic native non-fast-forward fixture")
         self.bd(peer, "close", issue["id"], "--reason", "Synthetic concurrent writer fixture")
-        advanced = self.nugs("beads", "publish", "--root", str(peer))["publication"]
+        advanced = self.nugs("beads", "publish", "--root", str(peer), root=peer)["publication"]
         require(advanced["verified"], "concurrent writer publication was not verified")
         write_json(self.base / "peer.json", {"issue_id": issue["id"], "publication": advanced})
         print("Controlled peer advanced the native ref; the stale final push must be rejected.")
@@ -275,16 +339,14 @@ class Proof:
             if path.exists():
                 receipt[name] = json.loads(path.read_text())
         try:
-            receipt["publication"] = self.nugs("beads", "publish", "--root", str(self.root))["publication"]
+            published = self.nugs("beads", "publish", "--root", str(self.root))
+            receipt["publication"], receipt["handoff"] = published["publication"], published["handoff"]
             require(receipt["publication"]["verified"], "native final publication not verified")
             # A separate local clone verifies the final checkpoint and changed
             # issue. The next Actions run proves independent-runner recovery.
             verify = self.base / "verify-workspace"
             verify.mkdir(mode=0o700)
-            self.nugs("beads", "restore", "--root", str(verify),
-                      "--data-dir", str(self.base / "verify-collection"),
-                      "--collection-id", receipt["publication"]["collection_id"],
-                      "--dolt-commit", receipt["publication"]["dolt_commit"])
+            self.restore_into(verify, self.base / "verify-collection", receipt["handoff"])
             work = json.loads((self.base / "work.json").read_text())
             self.bd(verify, "show", work["proof"]["issue_id"], "--readonly")
             recovered = self.nugs("documents", "read", "--name", RESOURCE)
