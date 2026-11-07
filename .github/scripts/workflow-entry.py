@@ -1,4 +1,5 @@
-"""Route caller events centrally. Only model-free plumbing is enabled here."""
+"""Trusted caller routing: explicit slash requests, never form/output comments."""
+import hashlib
 import json
 import os
 import re
@@ -7,6 +8,30 @@ import urllib.request
 
 
 FORM_COMMENT_MARKER = "<!-- github-ultimate:form:"
+
+
+def command(body):
+    if not isinstance(body, str) or FORM_COMMENT_MARKER in body.lower():
+        return None
+    first = body.splitlines()[0] if body.splitlines() else ""
+    if first in ("/github-ultimate discuss", "/github-ultimate approve"):
+        return "response"
+    if re.fullmatch(r"/agentic(?:[ \t]+.*)?", first):
+        return "plumbing" if body.strip() == "/agentic plumbing" else "request"
+    return None
+
+
+def comment_reference(repository, payload):
+    comment, issue = payload.get("comment", {}), payload.get("issue", {})
+    if not issue.get("pull_request"):
+        raise RuntimeError("agent requests require a PR conversation comment")
+    if not isinstance(comment.get("id"), int) or not isinstance(issue.get("number"), int):
+        raise RuntimeError("invalid PR comment identity")
+    result = {"repository": repository, "number": issue["number"], "comment_id": comment["id"],
+              "body_sha256": hashlib.sha256(comment["body"].encode()).hexdigest()}
+    if os.environ.get("GITHUB_RUN_ID", "").isdigit():
+        result["source_run_id"] = os.environ["GITHUB_RUN_ID"]
+    return result
 
 
 def is_form_comment(event, payload):
@@ -40,14 +65,18 @@ def route(event, repository, payload, access=permission):
     if event != "issue_comment" or payload.get("action") != "created":
         return "none"
     comment = payload.get("comment", {})
-    if not isinstance(comment.get("body"), str) or comment["body"].strip() != "/agentic plumbing":
+    selected = command(comment.get("body"))
+    if selected is None:
         return "none"
     login = comment.get("user", {}).get("login", "")
     if not re.fullmatch(r"[A-Za-z0-9-]{1,100}", login):
         return "none"
     if access(repository, login) not in ("write", "maintain", "admin"):
-        raise RuntimeError("plumbing requests require repository write access")
-    return "persistence"
+        raise RuntimeError("agent requests require repository write access")
+    if selected == "plumbing":
+        return "persistence"
+    comment_reference(repository, payload)
+    return "comment"
 
 
 if __name__ == "__main__":
@@ -59,6 +88,8 @@ if __name__ == "__main__":
         selected = route(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REPOSITORY"], json.loads(data))
         with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
             stream.write("route=" + selected + "\n")
+            if selected == "comment":
+                stream.write("comment_reference=" + json.dumps(comment_reference(os.environ["GITHUB_REPOSITORY"], json.loads(data))) + "\n")
         print("Selected workflow route: " + selected)
     except Exception as error:
         print(str(error) if type(error) is RuntimeError else "caller routing failed", file=sys.stderr)

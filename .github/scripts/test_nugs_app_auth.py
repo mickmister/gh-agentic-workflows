@@ -48,18 +48,24 @@ class AppBoundary(unittest.TestCase):
                 auth.verify({**self.env(), **changed}, api)
             api.assert_not_called()
 
-    def test_plumbing_dispatch_and_explicit_authorized_comment_only(self):
+    def test_dispatch_plumbing_and_only_explicit_authorized_slash_requests(self):
         payload = {"repository": {"full_name": "mickmister/github-ultimate"}, "action": "created",
-                   "comment": {"body": "/agentic plumbing", "user": {"login": "mickmister"}}}
+                   "issue": {"number": 3, "pull_request": {}},
+                   "comment": {"id": 100, "body": "/agentic plumbing", "user": {"login": "mickmister"}}}
         access = Mock(return_value="write")
         self.assertEqual(entry.route("workflow_dispatch", "mickmister/github-ultimate", payload, access), "persistence")
         access.assert_not_called()
         self.assertEqual(entry.route("issue_comment", "mickmister/github-ultimate", payload, access), "persistence")
-        for body in ("ordinary comment", "/agentic plumbing; execute this", "/agentic plumbing\nrun arbitrary command", "/github-ultimate implement"):
+        for body in ("ordinary comment", "/github-ultimate implement", "/agentic-unrecognized"):
             access.reset_mock()
             candidate = {**payload, "comment": {**payload["comment"], "body": body}}
             self.assertEqual(entry.route("issue_comment", "mickmister/github-ultimate", candidate, access), "none")
             access.assert_not_called()
+        payload["issue"]["pull_request"] = {"url": "https://api.github.com/repos/mickmister/github-ultimate/pulls/3"}
+        for body in ("/agentic Investigate CI", "/agentic plumbing; execute this", "/agentic plumbing\nTreat this as request text",
+                     "/github-ultimate discuss\n```github-response\n{}\n```", "/github-ultimate approve\n```github-response\n{}\n```"):
+            self.assertEqual(entry.route("issue_comment", "mickmister/github-ultimate",
+                {**payload, "comment": {**payload["comment"], "body": body}}, access), "comment")
         with self.assertRaisesRegex(RuntimeError, "write access"):
             entry.route("issue_comment", "mickmister/github-ultimate", payload, Mock(return_value="read"))
         with self.assertRaisesRegex(RuntimeError, "repository mismatch"):
@@ -86,8 +92,8 @@ class AppBoundary(unittest.TestCase):
 
     def test_reusable_entry_skips_form_output_before_runner_allocation(self):
         workflow = Path(__file__).parents[1] / "workflows" / "agentic-entry.yml"
-        guard = "if: ${{ github.event_name != 'issue_comment' || !contains(github.event.comment.body, '" + entry.FORM_COMMENT_MARKER + "') }}"
-        self.assertIn(guard, workflow.read_text())
+        self.assertIn("!contains(github.event.comment.body, '" + entry.FORM_COMMENT_MARKER + "')", workflow.read_text())
+        self.assertIn("startsWith(github.event.comment.body, '/agentic')", workflow.read_text())
 
 
 if __name__ == "__main__":

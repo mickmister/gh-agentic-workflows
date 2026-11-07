@@ -19,13 +19,17 @@ on:
         description: Exercise ordinary worker failure recovery
         default: false
         type: boolean
+      comment_reference:
+        description: Trusted source caller comment identity; central runner independently verifies it
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   gascity:
-    if: ${{ inputs.execution == '' }}
+    if: ${{ inputs.execution == '' && inputs.comment_reference == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -48,13 +52,14 @@ jobs:
           path: ${{ runner.temp }}/gascity-provider/receipt.json
           if-no-files-found: error
   event:
-    if: ${{ inputs.execution != '' }}
+    if: ${{ inputs.execution != '' || inputs.comment_reference != '' }}
     uses: ./.github/workflows/gascity-event.yml
     with:
       execution: ${{ inputs.execution }}
       request: ${{ inputs.request }}
       event_key: ${{ inputs.event_key }}
       fail_worker: ${{ inputs.fail_worker }}
+      comment_reference: ${{ inputs.comment_reference }}
     secrets:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
       AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}

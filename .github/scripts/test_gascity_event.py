@@ -31,7 +31,7 @@ class Decisions(unittest.TestCase):
                 event.validate_decision({**self.decision, key: value}, self.assignment, None)
 
     def test_followup_cannot_duplicate_graph_or_change_formula(self):
-        state = {"formula": "investigate", "phase": "awaiting_followup"}
+        state = {"formula": "investigate", "phase": "awaiting_followup", "root_id": "gc-1"}
         with self.assertRaises(RuntimeError):
             event.validate_decision(self.decision, self.assignment, state)
         for action in ("resume", "update"):
@@ -42,6 +42,15 @@ class Decisions(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 event.validate_decision(decision, self.assignment, {**state, "phase": "completed"})
 
+    def test_new_formula_can_follow_completion_but_stale_source_cannot_resume(self):
+        state = {"formula": "investigate", "phase": "completed", "root_id": "gc-1"}
+        event.validate_decision(self.decision, self.assignment, state)
+        state["phase"] = "awaiting_followup"
+        assignment = {**self.assignment, "source_changed": True}
+        event.validate_decision(self.decision, assignment, state)
+        with self.assertRaises(RuntimeError):
+            event.validate_decision({**self.decision, "action": "resume"}, assignment, state)
+
     def test_duplicate_success_is_noop_but_failure_is_retryable(self):
         state = {"events": [{"event": self.trigger, "outcome": "failure"}]}
         self.assertFalse(event.already_handled(state, self.trigger))
@@ -49,6 +58,15 @@ class Decisions(unittest.TestCase):
         self.assertTrue(event.already_handled(state, self.trigger))
         with self.assertRaises(RuntimeError):
             event.already_handled(state, {**self.trigger, "request": "Different request"})
+
+    def test_same_form_response_cannot_execute_twice_or_change_under_its_id(self):
+        response = {"response_id": "answer1", "answers": {"goal": "Investigate"}}
+        original = {**self.trigger, "form_response": {"response": response}}
+        state = {"events": [{"event": original, "outcome": "success"}]}
+        copied = {**original, "id": "repo:e:second-comment"}
+        self.assertTrue(event.already_handled(state, copied))
+        with self.assertRaises(RuntimeError):
+            event.already_handled(state, {**copied, "form_response": {"response": {**response, "answers": {"goal": "Changed"}}}})
 
     def test_rerun_retains_default_event_identity(self):
         env = {"GC_EXECUTION": "demo", "GC_REQUEST": "Plan a change", "GITHUB_RUN_ID": "123",

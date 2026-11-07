@@ -61,8 +61,9 @@ class City:
         self.city.mkdir(mode=0o700)
         self.home = base / "gc-home"
         self.home.mkdir(mode=0o700)
-        self.env = {key: value for key, value in os.environ.items()
-                    if not key.startswith(("GC_", "BEADS_"))}
+        self.env = {key: value for key, value in os.environ.items() if key in (
+            "PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL",
+            "INFERENCE_BASE_URL", "INFERENCE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET")}
         self.env["PATH"] = str(self.binary.parent) + os.pathsep + self.env["PATH"]
         self.env.update(GC_HOME=str(self.home), GC_BEADS="file", GC_SESSION="tmux",
                         GC_SUPERVISOR_ENV="INFERENCE_BASE_URL INFERENCE_API_KEY CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET")
@@ -247,11 +248,17 @@ max_active_sessions = 1
 
     def run_agent(self, role, assignment, prompt, validator, step=None, prior=None):
         folder, root, fixture, env, template = self.roles[role]
-        rendered = json.loads(json.dumps(assignment))
-        if isinstance(rendered.get("source", {}).get("text"), str):
-            # The provider's read tool truncates individual long lines. A JSON
-            # string with escaped newlines hid most of the source snapshot.
-            rendered["source"]["text"] = rendered["source"]["text"].splitlines()
+        def readable(value):
+            if isinstance(value, dict):
+                return {key: readable(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [readable(item) for item in value]
+            if isinstance(value, str) and ("\n" in value or len(value) > 1200):
+                # Keep long comment/answer/source text visible to the real read
+                # tool. Canonical event data stays unchanged in durable records.
+                return [line[start:start + 1200] for line in value.splitlines() for start in range(0, max(1, len(line)), 1200)]
+            return value
+        rendered = readable(assignment)
         fixture.write_text(json.dumps(rendered, indent=2))
         previous = None
         args = [str(self.opencode), "run", "--pure", "--format", "json", "--title", "GitHub event " + role,
