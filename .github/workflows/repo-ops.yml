@@ -88,7 +88,9 @@ on:
     secrets:
       NUGS_STORAGE_URL:
         required: true
-      NUGS_STORAGE_TOKEN:
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
         required: true
       INFERENCE_BASE_URL:
         required: true
@@ -113,7 +115,6 @@ jobs:
       cancel-in-progress: false
     env:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
-      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
       NUGS_WORKSPACE: ${{ inputs.workspace }}
       NUGS_WORKSPACE_CONTEXT: ${{ inputs.workspace_context }}
       NUGS_COLLECTION_ID: ${{ inputs.collection_id }}
@@ -135,6 +136,13 @@ jobs:
           repository: mickmister/gh-agentic-workflows
           ref: ${{ inputs.implementation_ref || github.sha }}
           persist-credentials: false
+      - name: Create and verify scoped App installation tokens
+        id: app-auth
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
       - name: Install scheduler prerequisites
         run: sudo apt-get update && sudo apt-get install -y tmux jq lsof
       - name: Verify pinned native workspace toolchain
@@ -146,7 +154,7 @@ jobs:
         id: worker
         continue-on-error: true
         env:
-          TARGET_READ_TOKEN: ${{ secrets.TARGET_READ_TOKEN }}
+          TARGET_READ_TOKEN: ${{ secrets.TARGET_READ_TOKEN || steps.app-auth.outputs.source-token }}
           INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
           INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}

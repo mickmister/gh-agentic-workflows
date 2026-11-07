@@ -337,6 +337,9 @@ class Proof:
         receipt = {"run_id": self.run_id, "source_sha": os.environ["GITHUB_SHA"],
                    "workspace": self.workspace, "worker_outcome": os.environ["NUGS_WORKER_OUTCOME"],
                    "persistence_outcome": "failure"}
+        authentication = self.base.parent / "nugs-app-auth.json"
+        if authentication.exists():
+            receipt["authentication"] = json.loads(authentication.read_text())
         for name in ("checkpoint", "peer"):
             path = self.base / f"{name}.json"
             if path.exists():

@@ -1,0 +1,39 @@
+name: Source repository agentic entrypoint
+
+on:
+  workflow_call:
+    secrets:
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+      NUGS_STORAGE_URL:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      route: ${{ steps.route.outputs.route }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/gh-agentic-workflows
+          ref: vk/46e5-vd-multi-instanc
+          persist-credentials: false
+      - id: route
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/workflow-entry.py
+  workspace:
+    needs: route
+    if: ${{ needs.route.outputs.route == 'persistence' }}
+    uses: mickmister/gh-agentic-workflows/.github/workflows/nugs-source.yml@vk/46e5-vd-multi-instanc
+    secrets:
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}

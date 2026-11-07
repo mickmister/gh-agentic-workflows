@@ -55,7 +55,8 @@ jobs:
         manifest and native task snapshot. Do not modify source or publish a PR.
     secrets:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
-      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
       INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
       INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}

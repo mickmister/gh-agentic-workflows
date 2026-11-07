@@ -5,9 +5,12 @@ no required workflow arguments, one-time workspace seed, and current native
 history resolved internally. `nugs-persistence-smoke.yml` defaults to that path.
 Its `invocation_mode=checkpoint` retains the explicit `nugs-persistence.yml` proof
 described below for development and diagnostics.
-The reusable workflow declares required `NUGS_STORAGE_URL` and
-`NUGS_STORAGE_TOKEN` **secrets**; the central caller maps them explicitly. Neither
-value is a dispatch input, receipt field, or logged subprocess diagnostic.
+The reusable workflow declares required `AGENT_APP_ID`, `AGENT_APP_PRIVATE_KEY`
+and `NUGS_STORAGE_URL` **secrets**; the caller maps them explicitly. The shared
+authentication action generates separate source/storage installation tokens from
+the existing App. `NUGS_STORAGE_TOKEN` is an internal generated environment value,
+not a caller PAT secret. Credentials and the storage URL are not dispatch inputs,
+receipt fields, or logged subprocess diagnostics.
 
 Supply `workspace_context` (the endpoint-free `handoff` object), workspace,
 collection ID, Dolt commit and an existing issue ID from a verified **bound** local

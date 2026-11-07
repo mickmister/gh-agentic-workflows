@@ -31,7 +31,9 @@ on:
     secrets:
       NUGS_STORAGE_URL:
         required: true
-      NUGS_STORAGE_TOKEN:
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
         required: true
 
 permissions:
@@ -46,7 +48,6 @@ jobs:
       cancel-in-progress: false
     env:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
-      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
       NUGS_WORKSPACE: ${{ inputs.workspace }}
       NUGS_WORKSPACE_CONTEXT: ${{ inputs.workspace_context }}
       NUGS_COLLECTION_ID: ${{ inputs.collection_id }}
@@ -60,6 +61,12 @@ jobs:
           repository: mickmister/gh-agentic-workflows
           ref: ${{ inputs.implementation_ref }}
           persist-credentials: false
+      - name: Create and verify scoped App installation tokens
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
       - name: Fetch and verify pinned native tools
         run: python3 .github/scripts/nugs-ci.py bootstrap
       - name: Restore exact workspace before work

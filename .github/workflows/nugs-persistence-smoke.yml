@@ -56,7 +56,8 @@ jobs:
       worker_mode: ${{ inputs.worker_mode }}
     secrets:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
-      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
   source-proof:
     if: ${{ inputs.invocation_mode == 'source' }}
     uses: ./.github/workflows/nugs-source.yml
@@ -65,4 +66,5 @@ jobs:
       expect_previous_run: ${{ inputs.expect_previous_run }}
     secrets:
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
-      NUGS_STORAGE_TOKEN: ${{ secrets.NUGS_STORAGE_TOKEN }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
