@@ -8,6 +8,11 @@ gh workflow run gascity-event.yml --ref vk/46e5-vd-multi-instanc \
   -f request='Investigate the workflow architecture described in README.md. Identify remaining gaps.'
 ```
 
+Until GitHub registers that new workflow on the default branch, use the existing
+`gascity-provider-smoke.yml` dispatch with the same inputs. A nonempty `execution`
+selects its reusable event-orchestrator job; an empty execution retains the
+original scheduling probe.
+
 After it completes, dispatch again with the **same execution** and a new event
 key/request. The first invocation performs `assess` and checkpoints the native
 formula with `followup` pending. The next resumes the original worker conversation,

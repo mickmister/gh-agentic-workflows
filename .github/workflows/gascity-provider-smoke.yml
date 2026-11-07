@@ -2,12 +2,30 @@ name: Pinned Gas City OpenCode scheduling smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      execution:
+        description: Optional execution slug to exercise the event orchestrator instead of the provider probe
+        default: ''
+        type: string
+      request:
+        description: Request or follow-up for the event orchestrator
+        default: ''
+        type: string
+      event_key:
+        description: Optional event idempotency key
+        default: ''
+        type: string
+      fail_worker:
+        description: Exercise ordinary worker failure recovery
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   gascity:
+    if: ${{ inputs.execution == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -29,3 +47,19 @@ jobs:
           name: gascity-provider-${{ github.run_id }}
           path: ${{ runner.temp }}/gascity-provider/receipt.json
           if-no-files-found: error
+  event:
+    if: ${{ inputs.execution != '' }}
+    uses: ./.github/workflows/gascity-event.yml
+    with:
+      execution: ${{ inputs.execution }}
+      request: ${{ inputs.request }}
+      event_key: ${{ inputs.event_key }}
+      fail_worker: ${{ inputs.fail_worker }}
+    secrets:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+      INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+      INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
