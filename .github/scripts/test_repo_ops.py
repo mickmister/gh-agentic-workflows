@@ -14,6 +14,29 @@ spec.loader.exec_module(ops)
 
 
 class ImmutableTarget(unittest.TestCase):
+    def test_review_reply_preserves_valid_and_continuation_contracts(self):
+        value = {"nonce": "current", "summary": "x" * 2500}
+        self.assertEqual(ops.review_reply(json.dumps(value), "current"), value)
+        continued = {**value, "prior_nonce": "previous"}
+        self.assertEqual(ops.review_reply(json.dumps(continued), "current", "previous"), continued)
+
+    def test_review_reply_failure_categories_are_specific_and_content_free(self):
+        private = "private-source-content"
+        cases = [
+            (private, "structured review JSON", None),
+            (json.dumps([private]), "fields or shape", None),
+            (json.dumps({"nonce": "current", "summary": private, "extra": private}), "fields or shape", None),
+            (json.dumps({"nonce": private, "summary": private}), "nonce does not match", None),
+            (json.dumps({"nonce": "current", "summary": ""}), "nonempty text", None),
+            (json.dumps({"nonce": "current", "summary": [private]}), "nonempty text", None),
+            (json.dumps({"nonce": "current", "summary": private * 200}), "exceeds 2500 characters", None),
+            (json.dumps({"nonce": "current", "summary": private, "prior_nonce": private}), "conversation history", "previous"),
+        ]
+        for text, diagnostic, prior in cases:
+            with self.subTest(diagnostic=diagnostic), self.assertRaisesRegex(RuntimeError, diagnostic) as failure:
+                ops.review_reply(text, "current", prior)
+            self.assertNotIn(private, str(failure.exception))
+
     def test_inventory_manifest_refuses_other_collection_and_duplicate_or_floating_revisions(self):
         manifest = {"workspace": "workspace", "collection_id": "collection", "repositories": [
             {"name": name, "head_sha": "a" * 40} for name in ("one", "two", "three", "four")]}
