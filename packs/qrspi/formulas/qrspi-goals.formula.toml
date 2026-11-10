@@ -10,25 +10,26 @@ formula_compiler = ">=2.0.0"
 [[steps]]
 id = "goals"
 title = "Capture and validate confirmed problem-framed goals"
-description_file = "../assets/goals.md"
-metadata = { "gc.run_target" = "goals" }
+description_file = "../agents/goals/prompt.template.md"
+metadata = { "gc.run_target" = "workflow.goals", "gc.routed_to" = "workflow.goals" }
 
 [[steps]]
 id = "quality"
 title = "Review goal clarity and coverage in isolated context"
 needs = ["goals"]
-description_file = "../assets/quality.md"
-metadata = { "gc.run_target" = "quality" }
+description_file = "../agents/quality/prompt.template.md"
+metadata = { "gc.run_target" = "workflow.quality", "gc.routed_to" = "workflow.quality" }
 
 [[steps]]
 id = "scope"
 title = "Review Goals altitude and independent scope in isolated context"
 needs = ["goals"]
-description_file = "../assets/scope.md"
-metadata = { "gc.run_target" = "scope" }
+description_file = "../agents/scope/prompt.template.md"
+metadata = { "gc.run_target" = "workflow.scope", "gc.routed_to" = "workflow.scope" }
 
 [[steps]]
 id = "human-review"
 title = "Await an exact-revision accepted decision; never self-approve"
 needs = ["quality", "scope"]
 description = "No agent owns this step. A trusted acceptance adapter must validate the submitted candidate/config/review versions before acknowledging the gate. The initial pilot stops here."
+metadata = { "run.gate" = "assets/gates/goals.json" }

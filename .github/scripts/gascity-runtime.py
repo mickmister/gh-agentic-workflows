@@ -10,11 +10,11 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import shlex
 import socket
 import subprocess
 import sys
 import time
+import tomllib
 
 
 def load(name, filename):
@@ -52,7 +52,7 @@ def decode_store(checkpoint):
 
 
 class City:
-    def __init__(self, base, checkpoint=None, *, roles=("orchestrator", "worker"), formula_directory=None, formula_names=None):
+    def __init__(self, base, checkpoint=None):
         self.base = base
         base.mkdir(mode=0o700)
         self.binary, _ = oc.download_binary(base, "gas_city")
@@ -69,22 +69,12 @@ class City:
                         GC_SUPERVISOR_ENV="INFERENCE_BASE_URL INFERENCE_API_KEY CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET")
         self.roles = {}
         quote = json.dumps
-        config = f'''[workspace]
-name = "{CITY}"
-install_agent_hooks = []
-[workspace.env]
-PATH = {quote(self.env['PATH'])}
-HOME = {quote(str(base / 'runtime-home'))}
-GC_HOME = {quote(str(self.home))}
-[beads]
-provider = "file"
-[session]
-provider = "tmux"
-[daemon]
-patrol_interval = "1s"
-shutdown_timeout = "5s"
-'''
-        for role in roles:
+        config = (Path(__file__).resolve().parent.parent / "gascity/event-city.toml").read_text()
+        for key, value in {"BASE": str(base), "PYTHON": sys.executable,
+                           "PATH": self.env["PATH"], "GC": str(self.binary)}.items():
+            config = config.replace("__" + key + "__", json.dumps(value)[1:-1])
+        for agent in tomllib.loads(config)["agent"]:
+            role = agent["name"]
             folder = base / role
             folder.mkdir(mode=0o700)
             root = folder / "workspace"
@@ -105,31 +95,6 @@ shutdown_timeout = "5s"
                 f"runpy.run_path({quote(str(Path(__file__).resolve()))}, run_name='__main__')\n")
             prompt = folder / "prompt.md"
             self.roles[role] = (folder, root, fixture, env, prompt)
-            config += f'''[providers.event-{role}]
-base = ""
-command = {quote(sys.executable)}
-args = [{quote(str(entrypoint))}]
-prompt_mode = "arg"
-[providers.event-{role}.env]
-OPENCODE_CONFIG = {quote(str(config_path))}
-OPENCODE_PURE = "1"
-OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
-OPENCODE_DISABLE_PROJECT_CONFIG = "1"
-OPENCODE_DISABLE_EXTERNAL_SKILLS = "1"
-OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = "1"
-OPENCODE_DISABLE_MODELS_FETCH = "1"
-[[agent]]
-name = "{role}"
-provider = "event-{role}"
-work_dir = {quote(str(root))}
-prompt_template = {quote(str(prompt))}
-lifecycle = "one_shot"
-attach = true
-max_active_sessions = 1
-'''
-            if role == "worker":
-                config += "work_query = " + quote(shlex.join([str(self.binary), "--city", str(self.city),
-                    "ready", "--metadata-field", "gc.routed_to=worker", "--unassigned", "--json"])) + "\n"
         source = base / "city-input.toml"
         source.write_text(config)
         self.command("init", "--file", str(source), "--name", CITY, "--no-start", "--skip-provider-readiness", str(self.city), raw=True)
@@ -138,13 +103,9 @@ max_active_sessions = 1
             (self.city / ".gc/beads.json").write_bytes(decode_store(checkpoint))
         formulas = self.city / "formulas"
         formulas.mkdir(exist_ok=True)
-        for name in (formula_names if formula_names is not None else catalog()):
+        for name in catalog():
             (formulas / (name + ".toml")).write_bytes(
-                (Path(formula_directory) / (name + ".formula.toml") if formula_directory else
-                 Path(__file__).resolve().parent.parent / "formulas" / (name + ".toml")).read_bytes())
-        if formula_directory:
-            import shutil
-            shutil.copytree(Path(formula_directory).parent / "assets", self.city / "assets", dirs_exist_ok=True)
+                (Path(__file__).resolve().parent.parent / "formulas" / (name + ".toml")).read_bytes())
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]

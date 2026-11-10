@@ -77,19 +77,21 @@ jobs:
     env:
       NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
-      QRSPI_RUN: ${{ inputs.run }}
-      QRSPI_PURPOSE: ${{ inputs.purpose }}
-      QRSPI_PIPELINE: ${{ inputs.pipeline }}
-      QRSPI_TURN: ${{ inputs.turn }}
-      QRSPI_REQUEST: ${{ inputs.request }}
-      QRSPI_FINISHED: ${{ inputs.finished }}
-      QRSPI_NUGS_BINARY: ${{ github.workspace }}/nugs-run
+      GC_PACK: packs/qrspi
+      GC_FORMULA: qrspi-goals
+      GC_RUN: ${{ inputs.run }}
+      GC_PURPOSE: ${{ inputs.purpose }}
+      GC_PIPELINE: ${{ inputs.pipeline }}
+      GC_TURN: ${{ inputs.turn }}
+      GC_REQUEST: ${{ inputs.request }}
+      GC_FINISHED: ${{ inputs.finished }}
+      GC_NUGS: ${{ github.workspace }}/nugs-run
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Verify Goals boundaries
-        run: python3 -m unittest discover -s .github/scripts -p 'test_qrspi_goals.py'
+      - name: Verify pack transport and artifact checks
+        run: node --test .github/scripts/test_gascity_pack.mjs
       - id: app-auth
         uses: ./.github/actions/nugs-app-auth
         with:
@@ -109,14 +111,30 @@ jobs:
           go-version-file: nugs-source/go.mod
       - name: Build pilot run helpers from pinned source
         working-directory: nugs-source
-        run: go build -o "$QRSPI_NUGS_BINARY" ./cmd/nugs
+        run: go build -o "$GC_NUGS" ./cmd/nugs
       - name: Install session prerequisites
         run: sudo apt-get update && sudo apt-get install -y tmux jq lsof
       - name: Install existing pinned persistence toolchain
-        run: python3 .github/scripts/qrspi-goals.py bootstrap
+        run: python3 .github/scripts/nugs-source.py bootstrap
+      - name: Install locked native GC and fresh-session provider tools
+        run: |
+          python3 - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("tools", ".github/scripts/opencode-provider-smoke.py")
+          tools = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(tools)
+          directory = Path(os.environ["RUNNER_TEMP"]) / ("nugs-ci-" + os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]) / "bin"
+          tools.download_binary(directory, "gas_city")
+          tools.download_binary(directory)
+          with open(os.environ["GITHUB_ENV"], "a") as stream:
+              stream.write("GC_BINARY=" + str(directory / "gc") + "\n")
+              stream.write("OPENCODE_BINARY=" + str(directory / "opencode") + "\n")
+          tools.command([str(directory / "gc"), "lint", "packs/qrspi", "--json"], Path.cwd(), os.environ)
+          PY
       - id: restore
         name: Restore and synchronize workspace
-        run: python3 .github/scripts/qrspi-goals.py restore
+        run: python3 .github/scripts/nugs-source.py restore
       - id: worker
         name: Run one bounded Goals turn
         continue-on-error: true
@@ -125,18 +143,29 @@ jobs:
           INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: python3 .github/scripts/qrspi-goals.py worker
+        run: node .github/scripts/gascity-pack.mjs run
       - id: persistence
         name: Verify published receipt recovery
         if: ${{ always() && steps.restore.outcome == 'success' }}
-        run: python3 .github/scripts/qrspi-goals.py finalize
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json
+          spec = importlib.util.spec_from_file_location("source", ".github/scripts/nugs-source.py")
+          source = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(source)
+          proof = source.SourceProof()
+          assert proof.nugs("beads", "sync")["publication"]["verified"]
+          report = json.loads((proof.base / "pack-report.json").read_text())
+          recovered = proof.nugs("documents", "read", "--name", report["receipt"]["name"])["document"]
+          assert recovered["version"] == report["receipt"]["version"]
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: qrspi-goals-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/goals-report.json
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/goals-recovery.json
+            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/pack-report.json
+            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/pack-recovery.json
           if-no-files-found: warn
       - name: Preserve worker and persistence outcomes
         if: always()

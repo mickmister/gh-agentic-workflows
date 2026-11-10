@@ -1,4 +1,13 @@
 [pack]
 name = "qrspi"
-version = "0.1.0"
+version = "0.2.0"
 schema = 2
+
+[agent_defaults]
+provider = "artifact"
+
+[providers.artifact]
+base = ""
+command = "bash"
+args = ["-c", "exec node \"$GC_PACK_DRIVER\" provider \"$@\"", "artifact-provider"]
+prompt_mode = "arg"

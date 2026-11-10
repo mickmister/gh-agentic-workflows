@@ -1,0 +1,5 @@
+{
+  "inputs": ["goals.md"],
+  "outputs": ["reviews/goals/scope.json"],
+  "validator": "assets/checks/review.mjs"
+}

@@ -1,0 +1,11 @@
+description = "Incremental problem-framed Goals dialogue"
+scope = "city"
+install_agent_hooks = []
+lifecycle = "one_shot"
+attach = true
+min_active_sessions = 0
+max_active_sessions = 1
+work_query = "gc ready --metadata-field gc.routed_to=workflow.goals --unassigned --json"
+scale_check = "gc ready --metadata-field gc.routed_to=workflow.goals --unassigned --json | jq length"
+on_boot = "true"
+on_death = "true"

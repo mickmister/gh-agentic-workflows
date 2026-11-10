@@ -1,0 +1,61 @@
+[workspace]
+name = "event-orchestrator"
+install_agent_hooks = []
+[workspace.env]
+PATH = "__PATH__"
+HOME = "__BASE__/runtime-home"
+GC_HOME = "__BASE__/gc-home"
+[beads]
+provider = "file"
+[session]
+provider = "tmux"
+[daemon]
+patrol_interval = "1s"
+shutdown_timeout = "5s"
+
+[providers.event-orchestrator]
+base = ""
+command = "__PYTHON__"
+args = ["__BASE__/orchestrator/entry.py"]
+prompt_mode = "arg"
+[providers.event-orchestrator.env]
+OPENCODE_CONFIG = "__BASE__/orchestrator/opencode.json"
+OPENCODE_PURE = "1"
+OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
+OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+OPENCODE_DISABLE_EXTERNAL_SKILLS = "1"
+OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = "1"
+OPENCODE_DISABLE_MODELS_FETCH = "1"
+
+[providers.event-worker]
+base = ""
+command = "__PYTHON__"
+args = ["__BASE__/worker/entry.py"]
+prompt_mode = "arg"
+[providers.event-worker.env]
+OPENCODE_CONFIG = "__BASE__/worker/opencode.json"
+OPENCODE_PURE = "1"
+OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
+OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+OPENCODE_DISABLE_EXTERNAL_SKILLS = "1"
+OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = "1"
+OPENCODE_DISABLE_MODELS_FETCH = "1"
+
+[[agent]]
+name = "orchestrator"
+provider = "event-orchestrator"
+work_dir = "__BASE__/orchestrator/workspace"
+prompt_template = "__BASE__/orchestrator/prompt.md"
+lifecycle = "one_shot"
+attach = true
+max_active_sessions = 1
+
+[[agent]]
+name = "worker"
+provider = "event-worker"
+work_dir = "__BASE__/worker/workspace"
+prompt_template = "__BASE__/worker/prompt.md"
+lifecycle = "one_shot"
+attach = true
+max_active_sessions = 1
+work_query = "'__GC__' --city '__BASE__/city' ready --metadata-field gc.routed_to=worker --unassigned --json"
