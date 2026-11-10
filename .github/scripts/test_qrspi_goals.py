@@ -123,6 +123,7 @@ class TurnRecovery(unittest.TestCase):
     def test_clarification_restart_review_isolation_and_duplicate_turn(self):
         store, assignments = MemoryDocuments(), []
         class City:
+            fail_next_ack = False
             def __init__(self, base, checkpoint=None):
                 self.status = copy.deepcopy(checkpoint or {role: "open" for role in ("goals", "quality", "scope", "human-review")})
             def __enter__(self):
@@ -144,6 +145,9 @@ class TurnRecovery(unittest.TestCase):
             def prepare_step(self, step):
                 pass
             def close_step(self, root, step, role):
+                if City.fail_next_ack:
+                    City.fail_next_ack = False
+                    raise RuntimeError("lost runner before graph acknowledgement")
                 self.status[step] = "closed"
             def run_agent(self, role, assignment, brief, validator, step):
                 assignments.append((role, assignment))
@@ -166,6 +170,10 @@ class TurnRecovery(unittest.TestCase):
                 proof.worker()
                 self.assertEqual(json.loads(store.read("receipts/turn-first.json")["text"])["phase"], "awaiting_input")
                 os.environ.update(QRSPI_TURN="second", QRSPI_REQUEST="All users; that completes my Goals", QRSPI_FINISHED="true")
+                City.fail_next_ack = True
+                with self.assertRaises(RuntimeError):
+                    proof.worker()
+                self.assertEqual(json.loads(store.read("runtime/gascity.json")["text"])["phase"], "failed")
                 proof.worker()
                 self.assertEqual(json.loads(store.read("receipts/turn-second.json")["text"])["phase"], "awaiting_human_acceptance")
                 self.assertEqual([role for role, _ in assignments], ["goals", "goals", "quality", "scope"])
