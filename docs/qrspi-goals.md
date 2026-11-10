@@ -7,6 +7,13 @@ only when explicitly finished articulating Goals. Reuse the same run/purpose/rou
 for the next answer. Repeating the same turn and payload recovers its receipt;
 changing a payload under an existing turn ID fails.
 
+Before the new workflow is registered on the default branch, dispatch the existing
+`repo-ops.yml` on the feature branch with an optional `goals` JSON object containing
+`run`, `purpose`, `pipeline`, `turn`, and boolean `finished`; `request` supplies the
+turn text. Its ordinary required workspace/target inputs remain required by the
+existing dispatch schema but the opt-in Goals job uses the configured workspace
+seed. With no `goals` object the existing repository-review path runs as before.
+
 The workflow uses existing App-scoped storage authentication, native workspace
 restore/sync and pinned persistence tools. It separately builds the new run APIs
 from the source revision pinned in the workflow; it does not change the shared

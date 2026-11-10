@@ -28,6 +28,41 @@ on:
         description: Explicitly finished articulating Goals
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      run:
+        required: true
+        type: string
+      purpose:
+        required: true
+        type: string
+      pipeline:
+        required: true
+        type: string
+      turn:
+        required: true
+        type: string
+      request:
+        required: true
+        type: string
+      finished:
+        default: false
+        type: boolean
+    secrets:
+      NUGS_STORAGE_URL:
+        required: true
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+      INFERENCE_BASE_URL:
+        required: true
+      INFERENCE_API_KEY:
+        required: true
+      CF_ACCESS_CLIENT_ID:
+        required: true
+      CF_ACCESS_CLIENT_SECRET:
+        required: true
 
 permissions:
   contents: read

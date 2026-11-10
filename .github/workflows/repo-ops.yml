@@ -3,6 +3,10 @@ name: Central read-only repository review
 on:
   workflow_dispatch:
     inputs:
+      goals:
+        description: 'Optional Goals pilot JSON: run, purpose, pipeline, turn, finished; request supplies the turn text'
+        default: ''
+        type: string
       workspace_context:
         description: Endpoint-free trusted workspace handoff JSON
         required: true
@@ -107,7 +111,19 @@ permissions:
   contents: read
 
 jobs:
+  goals:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.goals != '' }}
+    uses: ./.github/workflows/qrspi-goals.yml
+    with:
+      run: ${{ fromJSON(inputs.goals).run }}
+      purpose: ${{ fromJSON(inputs.goals).purpose }}
+      pipeline: ${{ fromJSON(inputs.goals).pipeline }}
+      turn: ${{ fromJSON(inputs.goals).turn }}
+      finished: ${{ fromJSON(inputs.goals).finished }}
+      request: ${{ inputs.request }}
+    secrets: inherit
   review:
+    if: ${{ inputs.goals == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     concurrency:
