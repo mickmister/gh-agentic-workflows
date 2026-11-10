@@ -52,7 +52,7 @@ def decode_store(checkpoint):
 
 
 class City:
-    def __init__(self, base, checkpoint=None):
+    def __init__(self, base, checkpoint=None, *, roles=("orchestrator", "worker"), formula_directory=None, formula_names=None):
         self.base = base
         base.mkdir(mode=0o700)
         self.binary, _ = oc.download_binary(base, "gas_city")
@@ -84,7 +84,7 @@ provider = "tmux"
 patrol_interval = "1s"
 shutdown_timeout = "5s"
 '''
-        for role in ("orchestrator", "worker"):
+        for role in roles:
             folder = base / role
             folder.mkdir(mode=0o700)
             root = folder / "workspace"
@@ -138,9 +138,13 @@ max_active_sessions = 1
             (self.city / ".gc/beads.json").write_bytes(decode_store(checkpoint))
         formulas = self.city / "formulas"
         formulas.mkdir(exist_ok=True)
-        for name in catalog():
+        for name in (formula_names if formula_names is not None else catalog()):
             (formulas / (name + ".toml")).write_bytes(
-                (Path(__file__).resolve().parent.parent / "formulas" / (name + ".toml")).read_bytes())
+                (Path(formula_directory) / (name + ".formula.toml") if formula_directory else
+                 Path(__file__).resolve().parent.parent / "formulas" / (name + ".toml")).read_bytes())
+        if formula_directory:
+            import shutil
+            shutil.copytree(Path(formula_directory).parent / "assets", self.city / "assets", dirs_exist_ok=True)
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]
@@ -211,14 +215,14 @@ max_active_sessions = 1
         # by another gc process may be committed before that cache refreshes.
         return self.command("beads", "show", identifier, "--format=json", direct=True)
 
-    def close_step(self, root, step):
+    def close_step(self, root, step, role="worker"):
         gc.formula_api(self.port, step, "close", city_name=CITY)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if self.bead(step).get("status") == "closed":
                 # A session close releases unfinished claims, so only release
                 # its runtime after the validated work is durably closed.
-                (self.roles["worker"][0] / "worker-release").write_text("validated")
+                (self.roles[role][0] / "worker-release").write_text("validated")
                 return
             time.sleep(1)
         raise RuntimeError("Gas City did not close the validated step")
