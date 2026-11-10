@@ -182,12 +182,15 @@ export async function provider() {
     const expected = Object.fromEntries(contract.outputs.map(name => [name, store.optional(name)?.version ?? '']));
     const work = path.join(city, '.gc', 'providers', process.env.GC_SESSION_ID);
     fs.mkdirSync(work, {recursive: true, mode: 0o700});
+    // OpenCode resolves relative reads from its project root. A nested private
+    // repository keeps that root here instead of the surrounding GC city.
+    execute('git', ['init', '--quiet', work], {raw: true});
     const assignment = {step: bead.id, inputs, output_names: contract.outputs};
     const fixture = path.join(work, 'assignment.json');
     save(fixture, {...assignment, inputs: Object.fromEntries(Object.entries(inputs).map(([name, doc]) =>
       [name, {version: doc.version, text_lines: doc.text.split('\n')}]))});
     const modelConfig = json(path.join(path.dirname(script), '../gascity/opencode-artifact.json'));
-    modelConfig.permission.read = {'*': 'deny', [fixture]: 'allow'};
+    modelConfig.permission.read = {'*': 'deny', [fixture]: 'allow', 'assignment.json': 'allow'};
     const config = path.join(work, 'opencode.json'); save(config, modelConfig);
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
       ['PATH', 'LANG', 'INFERENCE_BASE_URL', 'INFERENCE_API_KEY', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'].includes(key)));
@@ -202,6 +205,9 @@ export async function provider() {
     require(model.status === 0, 'bounded provider failed');
     const events = model.stdout.trim().split('\n').map(line => JSON.parse(line));
     require(!events.some(e => e.type === 'error'), 'provider session error');
+    const reads = events.filter(e => e.type === 'tool_use').map(e => e.part);
+    require(reads.length > 0 && reads.every(part => part.tool === 'read' && part.state?.status === 'completed' &&
+      path.resolve(work, part.state.input.filePath) === fixture), 'provider did not read its permitted assignment');
     const text = events.filter(e => e.type === 'text').at(-1)?.part?.text;
     const output = JSON.parse(text);
     require(['complete', 'awaiting_input'].includes(output.disposition) && output.outputs &&
@@ -211,11 +217,11 @@ export async function provider() {
     execute(process.execPath, [validator], {input: JSON.stringify({assignment, output})});
     result = {step: bead.id, template, input_versions: Object.fromEntries(Object.entries(inputs).map(([n, d]) => [n, d.version])),
       expected, ...output, evidence: {gc_session_id: process.env.GC_SESSION_ID,
-        model_session_ids: [...new Set(events.map(e => e.sessionID).filter(Boolean))], fresh: true}};
+        model_session_ids: [...new Set(events.map(e => e.sessionID).filter(Boolean))], fresh: true, read_verified: true}};
     require(result.evidence.model_session_ids.length === 1, 'expected one fresh provider session');
     store.record(operation, result);
   }
-  require(result.step === bead.id && result.template === template &&
+  require(result.step === bead.id && result.template === template && result.evidence.read_verified === true &&
     Object.keys(result.outputs).every(name => contract.outputs.includes(name)), 'saved result binding changed');
   await applyResult(store, native, bead.id, result);
 }

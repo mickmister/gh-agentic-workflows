@@ -111,7 +111,7 @@ test('native pack schedules roles and resumes exact graph after human gate with 
     }
     if (ready) requests.push(assignment.step);
     const delta = ready ? {content: JSON.stringify(result)} : {tool_calls: [{index: 0, id: 'read-input', type: 'function',
-      function: {name: 'read', arguments: JSON.stringify({filePath: fixture})}}]};
+      function: {name: 'read', arguments: JSON.stringify({filePath: 'assignment.json'})}}]};
     res.writeHead(200, {'Content-Type': 'text/event-stream'});
     for (const [change, finish] of [[delta, null], [{}, ready ? 'stop' : 'tool_calls']]) {
       res.write('data: ' + JSON.stringify({id: 'fixture', object: 'chat.completion.chunk', created: 1,
