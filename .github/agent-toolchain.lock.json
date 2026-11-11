@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "hermes": {
+    "version": "0.21.5",
+    "repository": "NousResearch/hermes-agent",
+    "source_commit": "f97608f178d1ffeca59860195ab7da295f7c8e5f"
+  },
   "opencode": {
     "version": "1.19.4",
     "url": "https://github.com/anomalyco/opencode/releases/download/v1.19.4/opencode-linux-x64-baseline.tar.gz",
