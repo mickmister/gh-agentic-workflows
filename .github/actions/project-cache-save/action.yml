@@ -1,0 +1,31 @@
+name: Save clean project cache
+description: Explicit pre-agent clean-init publication; never a post-agent automatic save
+inputs:
+  spec:
+    description: Same host-resolved specification used by restore
+    required: true
+  members:
+    description: Same source member map used by restore
+    required: true
+  cache-root:
+    description: Host-owned download cache root
+    required: true
+  receipt:
+    description: Restore receipt with original input binding and cache mode
+    required: true
+outputs:
+  status:
+    description: saved, existing, conflict, rejected, unavailable or disabled
+    value: ${{ steps.save.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: save
+      shell: bash
+      env:
+        CACHE_SCRIPT: ${{ github.action_path }}/../../scripts/project-cache.py
+        SPEC: ${{ inputs.spec }}
+        MEMBERS: ${{ inputs.members }}
+        CACHE_ROOT: ${{ inputs.cache-root }}
+        RECEIPT: ${{ inputs.receipt }}
+      run: python3 "$CACHE_SCRIPT" save --spec "$SPEC" --members "$MEMBERS" --cache-root "$CACHE_ROOT" --receipt "$RECEIPT" --producer-stage clean-init
