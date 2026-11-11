@@ -1,0 +1,71 @@
+name: Agentic workflow observability
+description: Start CargoWall before Thoth, with configurable job telemetry and automatic reverse-order cleanup
+inputs:
+  profile:
+    description: 'Thoth tracing profile: light (shell/step telemetry) or full (deep injection and subprocess/signal observation)'
+    default: light
+  service-name:
+    description: OpenTelemetry service name
+    default: '${{ github.event.repository.name }}-ci'
+  network-mode:
+    description: 'CargoWall mode: audit or enforce'
+    default: audit
+  allowed-hosts:
+    description: Allowed network hostnames, one per line (used in enforce mode)
+    default: ''
+  allowed-cidrs:
+    description: Allowed network CIDRs, one per line (used in enforce mode)
+    default: ''
+  fail-on-unsupported:
+    description: Fail if CargoWall cannot run on this runner
+    default: 'true'
+  telemetry-cache:
+    description: Cache Thoth instrumentation and dependencies
+    default: 'true'
+  shutdown-timeout:
+    description: Thoth shutdown budget in seconds
+    default: '60'
+outputs:
+  network-supported:
+    description: Whether CargoWall activated successfully
+    value: ${{ steps.network.outputs.supported }}
+runs:
+  using: composite
+  steps:
+    # A remote composite's nested pre-hooks retain this order. Do not use
+    # ./path invocation: local actions cannot run their pre-hooks.
+    - name: Audit job network traffic
+      id: network
+      uses: mickmister/cargowall-action@a561148bc2fde00ab8667080ed54d2ef717e44b1
+      with:
+        start-phase: pre
+        mode: ${{ inputs.network-mode }}
+        offline: 'true'
+        fail-on-unsupported: ${{ inputs.fail-on-unsupported }}
+        allowed-hosts: ${{ inputs.allowed-hosts }}
+        allowed-cidrs: ${{ inputs.allowed-cidrs }}
+    - name: Capture Thoth telemetry
+      uses: plengauer/Thoth/actions/instrument/job@60ff0df1106176453b5ec87f96f927233759caea
+      with:
+        self_monitoring: 'false'
+        cache: ${{ inputs.telemetry-cache }}
+      env:
+        OTEL_SERVICE_NAME: ${{ inputs.service-name }}
+        OTEL_TRACES_EXPORTER: deferred
+        OTEL_METRICS_EXPORTER: deferred
+        OTEL_LOGS_EXPORTER: deferred
+        OTEL_GITHUB_JOB_SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+        OTEL_SHELL_CONFIG_INJECT_DEEP: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
+        OTEL_SHELL_CONFIG_OBSERVE_SUBPROCESSES: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
+        OTEL_SHELL_CONFIG_OBSERVE_SIGNALS: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
+    - name: Validate observability inputs
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+      run: |
+        case "$PROFILE" in
+          light|full) ;;
+          *) echo "::error::profile must be light or full"; exit 1 ;;
+        esac
+        [[ "$SHUTDOWN_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "::error::shutdown-timeout must be a positive integer"; exit 1; }

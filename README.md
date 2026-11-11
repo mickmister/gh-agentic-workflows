@@ -3,6 +3,15 @@
 GitHub-native agent workflows using Gas City for orchestration and nugs for
 durable workspace, execution-graph and conversation state.
 
+## Shared observability action
+
+The [observability action](.github/actions/observability/README.md) combines
+CargoWall network auditing with configurable Thoth OpenTelemetry tracing.
+Use it from workflows in this repository or other repositories via
+`mickmister/gh-agentic-workflows/.github/actions/observability@<ref>`.
+The action documents workflow inputs, light/full profiles, required permissions,
+pre/post-hook ordering, and the same-repository/cross-repository adoption path.
+
 ## PR comment workflow
 
 A source repository's thin default-branch caller invokes the shared entrypoint.

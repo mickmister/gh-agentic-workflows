@@ -1,0 +1,52 @@
+name: Observability action smoke
+on:
+  push:
+    branches: ['**']
+    paths:
+      - .github/actions/observability/**
+      - .github/workflows/observability-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [light, full]
+    steps:
+      # Same-repository callers still use remote syntax to preserve pre-hooks.
+      - name: Observe smoke test
+        id: observe
+        uses: mickmister/gh-agentic-workflows/.github/actions/observability@vk/46e5-vd-multi-instanc
+        timeout-minutes: 2
+        with:
+          profile: ${{ matrix.profile }}
+          service-name: agentic-observability-smoke-${{ matrix.profile }}
+      - name: Verify profile survives into caller steps
+        env:
+          PROFILE: ${{ matrix.profile }}
+          NETWORK_SUPPORTED: ${{ steps.observe.outputs.network-supported }}
+        run: |
+          test "$NETWORK_SUPPORTED" = true
+          test "$OTEL_SERVICE_NAME" = "agentic-observability-smoke-$PROFILE"
+          expected=FALSE
+          if [ "$PROFILE" = full ]; then expected=TRUE; fi
+          test "$OTEL_SHELL_CONFIG_INJECT_DEEP" = "$expected"
+          test "$OTEL_SHELL_CONFIG_OBSERVE_SUBPROCESSES" = "$expected"
+          test "$OTEL_SHELL_CONFIG_OBSERVE_SIGNALS" = "$expected"
+          curl --fail --silent --show-error https://api.github.com/zen
+          test -s /tmp/cargowall.log
+      - name: Preserve network evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cargowall-smoke-${{ matrix.profile }}-${{ github.run_attempt }}
+          path: |
+            /tmp/cargowall-audit.json
+            /tmp/cargowall.log
+          retention-days: 7
+          if-no-files-found: error
