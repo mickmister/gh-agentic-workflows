@@ -21,6 +21,8 @@ function fixture(t) {
   }
   git(repo, 'add', '.'); git(repo, 'commit', '-qm', 'fixture');
   const sha = git(repo, 'rev-parse', 'HEAD');
+  git(repo,'checkout','-qb','project/other');git(repo,'rm','-qr','projects');git(repo,'commit','-qm','separate project branch');
+  const branchSha=git(repo,'rev-parse','HEAD');git(repo,'checkout','-q','main');
   const workspace = path.join(root,'workspace');
   fs.mkdirSync(path.join(workspace,'sources'),{recursive:true});
   const sources = {};
@@ -30,11 +32,13 @@ function fixture(t) {
   }
   const launch = {schema:1,installation:'fixture',projects:[{id:'demo',repository:'fixture/config',sha,path:'projects/demo',recipe:'js-checks',members:['app','contracts']}],
     sources:['app','contracts'].map(id=>({id,repository:`fixture/${id}`,sha,access:id==='app'?'write':'read'}))};
-  return {root,repo,sha,workspace,sources,launch};
+  return {root,repo,sha,branchSha,workspace,sources,launch};
 }
 test('same bytes in main-directory and branch-root layouts have equal effective identity',t=>{
   const f=fixture(t);
   assert.equal(snapshot(f.repo,f.sha,'projects/demo').digest,snapshot(f.repo,f.sha,'.agentic').digest);
+  assert.notEqual(f.sha,f.branchSha);
+  assert.equal(snapshot(f.repo,f.sha,'projects/demo').digest,snapshot(f.repo,f.branchSha,'.agentic').digest);
   fs.writeFileSync(path.join(f.repo,'projects/demo/initialization.json'),'{"generation":2}');
   fs.writeFileSync(path.join(f.repo,'unrelated.txt'),'another project');
   git(f.repo,'add','.');git(f.repo,'commit','-qm','bookkeeping');
@@ -45,7 +49,7 @@ test('same bytes in main-directory and branch-root layouts have equal effective 
 });
 test('mixed layouts produce distinct preserved slots and a two-member source vector',t=>{
   const f=fixture(t);
-  f.launch.projects.push({...f.launch.projects[0],id:'other',path:'.agentic',members:['contracts']});
+  f.launch.projects.push({...f.launch.projects[0],id:'other',sha:f.branchSha,path:'.agentic',members:['contracts']});
   const result=materialize(f.launch,f.workspace,{projects:{demo:f.repo,other:f.repo},sources:f.sources});
   assert.deepEqual(Object.keys(result.sources),['app','contracts']);
   assert.equal(result.phase,'materialized-not-executed');
