@@ -187,6 +187,17 @@ class CacheTests(unittest.TestCase):
             with self.subTest(invalid=key), self.assertRaises(ValueError):
                 cache.S3({**settings, key: value})
 
+    def test_s3_download_range_matches_verified_object_length(self):
+        client = cache.S3(self.s3_settings())
+        def request(operation, key, extra=()):
+            if operation == 'head-object':
+                return {'ContentLength': 3}
+            self.assertEqual(extra[:2], ['--range', 'bytes=0-2'])
+            Path(extra[-1]).write_bytes(b'abc')
+            return {}
+        with patch.object(client, 'command', side_effect=request):
+            self.assertEqual(client.get('checks/small', 1024), b'abc')
+
     def test_s3_passes_configured_url_region_bucket_prefix_and_addressing_to_signer(self):
         for region, style in [('auto', 'true'), ('us-west-004', 'false')]:
             settings = {**self.s3_settings(), 'S3_CACHE_REGION': region, 'S3_CACHE_PATH_STYLE': style,

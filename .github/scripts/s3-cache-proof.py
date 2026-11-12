@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import tarfile
@@ -49,6 +50,9 @@ def main(report):
                   namespace='configured-prefix/proofs/run-attempt (value withheld)',
                   provider_denial_test='not-applicable-bucket-wide-token', measurements={})
     checks = report['checks']
+    client = subprocess.run(['aws', '--version'], capture_output=True, timeout=15)
+    found = re.search(rb'aws-cli/[0-9.]+', client.stdout + client.stderr)
+    report['s3_client'] = found[0].decode() if found else 'version-unavailable'
 
     report['stage'] = 'checksum-roundtrip'
     payload = b'agentic hosted S3 cache checksum proof\n'
@@ -170,6 +174,8 @@ if __name__ == '__main__':
         report['failure_type'] = type(error).__name__
         if isinstance(error, cache.Unavailable):
             report['failure_code'] = error.code
+            report['failure_operation'] = error.operation
+            report['client_exit_code'] = error.client_exit
         report['failure'] = 'Hosted S3 proof failed; no success is claimed.'
     destination = Path(sys.argv[1])
     destination.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -17,9 +18,15 @@ class HostedProofTests(unittest.TestCase):
                 self.assertEqual(settings['S3_CACHE_PREFIX'], 'private-namespace/proofs/123-1')
                 return store
             report = {'accepted': False}
+            native_run = subprocess.run
+            def run_command(args, **kwargs):
+                if args == ['aws', '--version']:
+                    return subprocess.CompletedProcess(args, 0, stdout=b'aws-cli/2.0.0', stderr=b'')
+                return native_run(args, **kwargs)
             with patch.dict(proof.os.environ, {'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1',
                                               'GITHUB_SHA': 'a' * 40, 'S3_CACHE_PREFIX': 'private-namespace'}), \
-                    patch.object(proof.cache, 'S3', side_effect=scoped_store):
+                    patch.object(proof.cache, 'S3', side_effect=scoped_store), \
+                    patch.object(proof.subprocess, 'run', side_effect=run_command):
                 proof.main(report)
             self.assertTrue(report['accepted'])
             self.assertEqual(report['stage'], 'complete')

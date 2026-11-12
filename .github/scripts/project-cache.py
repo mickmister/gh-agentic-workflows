@@ -51,9 +51,11 @@ class Missing(Exception):
 
 
 class Unavailable(Exception):
-    def __init__(self, message='S3 unavailable', code='unavailable'):
+    def __init__(self, message='S3 unavailable', code='unavailable', operation=None, client_exit=None):
         super().__init__(message)
         self.code = code
+        self.operation = operation
+        self.client_exit = client_exit
 
 
 class S3:
@@ -110,18 +112,28 @@ class S3:
                 codes = ('AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'AuthorizationHeaderMalformed',
                          'InvalidRequest', 'InvalidArgument', 'NotImplemented', 'UnsupportedHeader', 'MissingContentLength',
                          'NoSuchBucket', 'RequestTimeout', 'SlowDown', 'ServiceUnavailable', 'InternalError',
-                         'XAmzContentSHA256Mismatch', 'InvalidBucketName', 'InvalidToken', 'ExpiredToken')
+                         'XAmzContentSHA256Mismatch', 'InvalidBucketName', 'InvalidToken', 'ExpiredToken', 'InvalidRange')
                 code = next((code for code in codes if f'({code})' in error), 'operation_failed')
-                raise Unavailable('S3 operation failed', code=code)
+                status = re.search(r'An error occurred \(([45][0-9]{2})\)', error)
+                if status:
+                    code = 'http_' + status[1]
+                for text, category in (('SSL validation failed', 'tls_validation'), ('Could not connect to the endpoint URL', 'endpoint_connection'),
+                                       ('Unknown options:', 'cli_options'), ('Parameter validation failed', 'cli_parameters')):
+                    if text in error:
+                        code = category
+                raise Unavailable('S3 operation failed', code=code, operation=operation, client_exit=result.returncode)
             return json.loads(result.stdout or b'{}')
 
     def get(self, key, limit):
         metadata = self.command('head-object', key)
-        if metadata['ContentLength'] > limit:
+        size = metadata['ContentLength']
+        if not isinstance(size, int) or size < 0 or size > limit:
             raise ValueError('object size limit')
+        if size == 0:
+            return b''
         with tempfile.TemporaryDirectory(prefix='agentic-read-') as temporary:
             target = Path(temporary) / 'object'
-            self.command('get-object', key, ['--range', f'bytes=0-{limit}', str(target)])
+            self.command('get-object', key, ['--range', f'bytes=0-{size - 1}', str(target)])
             data = target.read_bytes()
             if len(data) > limit:
                 raise ValueError('object size limit')
