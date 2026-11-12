@@ -1,0 +1,62 @@
+name: Cross-organization target App authentication
+run-name: Target App ${{ inputs.target_repository }} (${{ inputs.access }})
+on:
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: Approved owner/repository with the automation App installed
+        default: vibe-dashboard/vibe-dashboard
+        required: true
+        type: string
+      access:
+        description: Permissions to request; verification never mutates the repository
+        default: write
+        type: choice
+        options: [read, comments, write]
+  workflow_call:
+    inputs:
+      implementation_ref:
+        description: Trusted commit of gh-agentic-workflows containing the target action and policy
+        required: true
+        type: string
+      target_repository:
+        required: true
+        type: string
+      access:
+        default: read
+        type: string
+    secrets:
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/gh-agentic-workflows
+          ref: ${{ inputs.implementation_ref || github.sha }}
+          persist-credentials: false
+      - name: Create and verify target installation token
+        id: target-auth
+        uses: ./.github/actions/target-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          repository: ${{ inputs.target_repository }}
+          access: ${{ inputs.access }}
+      - name: Verify authenticated repository, Issues and PR API access
+        env:
+          GH_TOKEN: ${{ steps.target-auth.outputs.token }}
+          TARGET_REPOSITORY: ${{ inputs.target_repository }}
+        run: |
+          gh api "repos/$TARGET_REPOSITORY" --jq '{repository: .full_name, default_branch: .default_branch}'
+          gh api "repos/$TARGET_REPOSITORY/issues?per_page=1" --silent
+          gh api "repos/$TARGET_REPOSITORY/pulls?per_page=1" --silent
+          gh api "repos/$TARGET_REPOSITORY/branches?per_page=1" --silent
+          printf '%s\n' 'Target API access verified. Requested write permissions, when selected, were accepted during token issuance; no push or issue/PR mutation was performed.' >> "$GITHUB_STEP_SUMMARY"

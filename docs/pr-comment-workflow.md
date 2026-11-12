@@ -32,9 +32,11 @@ workflow name, shell command or provider endpoint.
 
 The central runner uses its existing inference secrets and stable workspace seed.
 It independently re-fetches and verifies the source repository, open PR, comment,
-author permission and exact comment body. The currently installed source allowlist
-is the three repositories already configured for the automation App. Storage
-credentials remain storage-scoped. Source/publishing tokens do not enter the GC
+author permission and exact comment body. The target allowlist is maintained in
+`.github/agent-targets.json`, including `vibe-dashboard/vibe-dashboard`. The runner
+mints a separate token for the target organization's installation with Contents
+read and Issues/PR write. See [multi-org authentication](multi-org-authentication.md).
+Storage credentials remain storage-scoped. Target/publishing tokens do not enter the GC
 supervisor or coding-provider environment.
 
 For a form response, the runner reads GitHub's rendered `<pre>` text just as the

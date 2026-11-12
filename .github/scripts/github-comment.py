@@ -24,6 +24,7 @@ def load(name, filename):
 
 entry = load("comment_entry", "workflow-entry.py")
 auth = load("comment_auth", "nugs-app-auth.py")
+targets = load("comment_targets", "target-app-auth.py")
 require = auth.require
 
 
@@ -33,7 +34,7 @@ def reference(raw):
     require(isinstance(value, dict) and set(value) in (keys, keys | {"source_run_id"}), "invalid comment reference")
     require("source_run_id" not in value or isinstance(value["source_run_id"], str) and value["source_run_id"].isdigit(),
             "invalid source workflow run identity")
-    require(value["repository"] in auth.SOURCES and type(value["number"]) is int and value["number"] > 0 and
+    require(value["repository"] in targets.approved_repositories() and type(value["number"]) is int and value["number"] > 0 and
             type(value["comment_id"]) is int and value["comment_id"] > 0 and
             isinstance(value["body_sha256"], str) and re.fullmatch(r"[a-f0-9]{64}", value["body_sha256"]),
             "comment reference outside configured source scope")

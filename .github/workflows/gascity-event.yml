@@ -90,6 +90,15 @@ jobs:
           app-id: ${{ secrets.AGENT_APP_ID }}
           private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
           storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - name: Authenticate the comment target installation
+        if: ${{ inputs.comment_reference != '' }}
+        id: target-auth
+        uses: ./.github/actions/target-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          repository: ${{ fromJSON(inputs.comment_reference).repository }}
+          access: comments
       - name: Checkout pinned shared form protocol
         if: ${{ inputs.comment_reference != '' }}
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -117,7 +126,7 @@ jobs:
         if: ${{ inputs.comment_reference != '' }}
         continue-on-error: true
         env:
-          GITHUB_SOURCE_TOKEN: ${{ steps.app-auth.outputs.source-token }}
+          GITHUB_TARGET_TOKEN: ${{ steps.target-auth.outputs.token }}
           GITHUB_ULTIMATE_PROTOCOL_ROOT: ${{ github.workspace }}/protocol-runtime
         run: python3 .github/scripts/gascity-event.py prepare
       - name: Gas City-managed orchestrator and native formula worker
@@ -125,7 +134,7 @@ jobs:
         continue-on-error: true
         if: ${{ inputs.comment_reference == '' || steps.prepare.outcome == 'success' }}
         env:
-          GITHUB_SOURCE_TOKEN: ${{ steps.app-auth.outputs.source-token }}
+          GITHUB_TARGET_TOKEN: ${{ steps.target-auth.outputs.token }}
           INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
           INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -138,9 +147,9 @@ jobs:
           NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
         run: python3 .github/scripts/gascity-event.py finalize
       - name: Publish correlated status to the originating PR
-        if: ${{ always() && inputs.comment_reference != '' && steps.app-auth.outcome == 'success' }}
+        if: ${{ always() && inputs.comment_reference != '' && steps.target-auth.outcome == 'success' }}
         env:
-          GITHUB_SOURCE_TOKEN: ${{ steps.app-auth.outputs.source-token }}
+          GITHUB_TARGET_TOKEN: ${{ steps.target-auth.outputs.token }}
           NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
           NUGS_PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
         run: python3 .github/scripts/gascity-event.py publish

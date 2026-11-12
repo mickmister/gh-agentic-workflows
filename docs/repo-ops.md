@@ -28,8 +28,10 @@ the explicitly assigned workspace task.
   the actual checked-out central SHA, not the caller's repository SHA.
 
 The existing storage and inference secrets are explicit reusable secrets.
-`TARGET_READ_TOKEN` is a separate optional target-read capability: public targets
-can be fetched anonymously, private targets need repository access. The Git
+Approved review targets receive an independent, repository-scoped App token with
+the `read` profile from [target authentication](multi-org-authentication.md),
+including targets in other organizations where the same App is installed.
+`TARGET_READ_TOKEN` remains an optional caller-managed override. The Git
 credential helper is disabled for target reads, and its optional auth header is
 scoped to the exact target URL. Neither storage credentials nor central
 `GITHUB_TOKEN` are reused for target access. Missing/inadequate credentials and

@@ -118,7 +118,7 @@ class EventProof(source.SourceProof):
         self.report_name = f"ci/gascity/runs/{self.run_id}-{os.environ['GITHUB_RUN_ATTEMPT']}.json"
 
     def api(self):
-        return comments.API(os.environ.get("GITHUB_SOURCE_TOKEN", ""))
+        return comments.API(os.environ.get("GITHUB_TARGET_TOKEN", ""))
 
     def prepare(self):
         ref = self.event["comment_reference"]

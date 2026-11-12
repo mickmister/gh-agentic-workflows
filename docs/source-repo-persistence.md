@@ -61,6 +61,10 @@ timeout, shorter than the approximately one-hour token lifetime. Future longer
 agent jobs must mint/refresh near authenticated operations before expiry; this
 bounded proof does not claim a long-running refresh daemon.
 
+Target-repository operations use an additional, independent installation token;
+the source/storage scopes above do not expand when another organization is added.
+See [multi-organization target authentication](multi-org-authentication.md).
+
 Configure these settings in each repository that **calls** the workflow. Editing
 a repository does not require copying the App key into that repository. The central
 development harness is also configured as a caller; its source and checkpoint

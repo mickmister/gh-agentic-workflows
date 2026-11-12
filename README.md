@@ -30,6 +30,7 @@ approval does not add source-editing tools to those profiles.
 - [PR comment and agent workflow sequence diagram](docs/pr-comment-sequence.md)
 - [Gas City runtime and dispatch development harness](docs/gascity-event-orchestrator.md)
 - [Stable source-repository persistence setup](docs/source-repo-persistence.md)
+- [Multi-organization App installation and target authentication](docs/multi-org-authentication.md)
 - [Broader caller configuration proposal](docs/caller-configuration-proposal.md)
 
 Workflows use ordinary GitHub Actions and native Gas City packs/formulas.
