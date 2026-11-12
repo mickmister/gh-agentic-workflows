@@ -22,8 +22,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Verify offline package proof before remote writes
-        run: python3 -m unittest discover -s .github/scripts -p test_s3_cache_proof.py -v
+      - name: Verify cache contract and offline package proof before remote writes
+        run: |
+          python3 -m unittest discover -s .github/scripts -p test_project_cache.py -v
+          python3 -m unittest discover -s .github/scripts -p test_s3_cache_proof.py -v
       - name: Verify real provider without exposing destination values
         env:
           S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}

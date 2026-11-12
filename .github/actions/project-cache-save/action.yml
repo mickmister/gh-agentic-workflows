@@ -15,7 +15,7 @@ inputs:
     required: true
 outputs:
   status:
-    description: saved, existing, conflict, rejected, unavailable or disabled
+    description: saved (replaceable manifest), existing (verified without upload), rejected, unavailable or disabled
     value: ${{ steps.save.outputs.status }}
 runs:
   using: composite

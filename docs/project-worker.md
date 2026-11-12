@@ -64,10 +64,8 @@ distinguish materialization, setup execution and coding acceptance (not provided
 ## Core cache actions
 
 `project-cache-restore` and `project-cache-save` wrap `project-cache.py`, using
-Python's standard library, AWS CLI for reads/diagnostics, and curl's standard
-SigV4 signer for conditional PUTs. The conditional signer avoids SDK-specific
-Expect/streaming behavior while preserving `If-None-Match: *`; secret signer
-inputs live only in a mode-0600 temporary configuration, never process arguments.
+Python's standard library and AWS CLI for signed reads and ordinary PUTs.
+Credentials are supplied through the dedicated signing environment, never argv.
 Activate/verify tools before restore and run recipe readiness even on exact hits.
 Save explicitly after clean install/readiness and **before** agent work. There is
 no post-agent automatic save. Producer-stage labels alone cannot prove an arbitrary
@@ -110,12 +108,12 @@ use exact compatibility; no broad installed-output fallback. Modes:
 
 | Mode | Reads | Writes |
 | --- | --- | --- |
-| `normal` | Exact compatible restore | Immutable publish/reconcile |
-| `rebuild` | Skip restore | Publish only if absent or identical; conflicts remain explicit |
+| `normal` | Exact compatible restore | Skip writes for a verified existing entry; otherwise publish |
+| `rebuild` | Skip restore | Publish a replacement complete manifest for the same input key |
 | `disabled` | None | None |
 
 Persistent bust changes `generation` via the configured project promotion path;
-this script does not edit project defaults or delete immutable entries.
+this script does not edit project defaults or delete cache objects.
 
 S3 configuration is installation-owned and **all values come from Actions
 secrets**, including routing and namespace settings:
@@ -143,15 +141,32 @@ do not use `--no-verify-ssl`. Project code and the cache process are not isolate
 from one another merely because credentials are step-scoped; use trusted recipe
 producers and scoped cache-only credentials.
 
-Objects: immutable `blobs/<sha256>` then conditional `manifests/<compatibility>.json`.
+Objects: content-addressed `blobs/<sha256>` then replaceable
+`manifests/<compatibility>.json`, using ordinary PUTs. A prepublication lookup is
+an upload optimization, not a lock. Concurrent compatible producers may both
+succeed; either complete seed can become current. Save success acknowledges an
+upload, not exclusive ownership or continued selection of that producer's seed.
+All permitted producers sharing a key must produce usable seeds. Hashes verify
+payload integrity, not producer trust or completeness of the declared inputs.
+This cache is never an authoritative claim, approval record or compare-and-swap.
+
+Repeated normal saves verify the existing manifest/payload and avoid uploads.
+Rebuild replaces the manifest after ensuring its payload exists; a corrupt
+digest-named payload is rejected rather than silently reused. Blob-first ordering
+can leave orphans on interruption. Missing references become misses. Backblaze B2
+retains old versions on repeated PUTs, so lifecycle planning must cover old
+versions and orphan blobs without aging out shared blobs before live manifests.
+The action does not change bucket lifecycle settings.
+
 Single PUT limit 256 MiB compressed, extraction limit 1 GiB and 50,000 entries;
 larger seeds/multipart are explicitly outside this slice. Checksums, output-root
 allowlists, no tracked-source overlap, no escaping links/hardlink extraction,
 staging and bounded extraction protect cold source. Internal pnpm-style symlinks
 and executable modes survive; package hardlinks serialize as ordinary files.
 Corrupt/unavailable caches fall back to installation; malformed local specs fail
-explicitly. Conflicting immutable entries require a generation bump/review, not
-silent replacement. Outputs must be absent on restore; existing trees are not
+explicitly. Incompatible results for the same key require an input/recipe fix or
+disabling that recipe, not reliance on first-writer arbitration.
+Outputs must be absent on restore; existing trees are not
 merged/deleted. Save/input revalidation rejects changed locks/policies/patches.
 
 ## Proof and observations
@@ -168,7 +183,7 @@ exercise cold/save/new-workspace-hit, input changes, corruption, concurrent
 publication and lost acknowledgments using a test-only local object adapter.
 They do not establish hosted S3 reachability, signing/provider compatibility or
 permission denial. Real S3 acceptance requires a configured destination, hosted
-upload/read/hash/conditional-race/forbidden-prefix checks and cold-vs-hit timing.
+upload/read/hash/overwrite-race/client-path checks and cold-vs-hit timing.
 Task `task-3vt.50.20` tracks that external prerequisite.
 
 `s3-cache-proof.yml` exercises the actual configured provider with repository-level
@@ -176,13 +191,16 @@ Task `task-3vt.50.20` tracks that external prerequisite.
 `proofs/<run>-<attempt>/`; it never probes writes outside that namespace. The
 operator intentionally selected bucket-wide credentials, so client path rejection
 is checked and provider-enforced prefix denial is explicitly not claimed. Small
-immutable proof objects remain in that nested namespace for configured lifecycle
+proof objects remain in that nested namespace for configured lifecycle
 cleanup; the workflow does not delete user objects or change bucket settings.
 
-This proof checks checksum roundtrip, duplicate conditional create, concurrent
-single-winner publication, real offline npm install/clean-seed save, idempotent
-save reconciliation, restore into a fresh checkout, executed readiness, unchanged
-source identity and lock-input invalidation. Metadata-only receipts withhold the
+This proof checks checksum roundtrip, sequential overwrite, concurrent ordinary
+PUTs, same-byte duplicate uploads and distinct valid seed publishers forced to
+the manifest boundary. Both publishers succeed and either whole seed must restore
+with executed readiness. It also checks interrupted blob-only publication,
+missing/corrupt payload rejection, real offline npm install/clean-seed save,
+repeat-save reconciliation, fresh-checkout restore, unchanged source identity
+and lock-input invalidation. Metadata-only receipts withhold the
 endpoint, bucket, prefix and credentials. Cold-install/readiness and warm-restore/
 readiness times describe this small fixture only, not actual project speedups.
 

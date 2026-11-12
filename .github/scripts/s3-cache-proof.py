@@ -9,11 +9,13 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
+import threading
 
 module = importlib.util.spec_from_file_location('project_cache', Path(__file__).with_name('project-cache.py'))
 cache = importlib.util.module_from_spec(module)
@@ -54,7 +56,7 @@ def main(report):
     found = re.search(rb'aws-cli/[0-9.]+', client.stdout + client.stderr)
     report['s3_client'] = found[0].decode() if found else 'version-unavailable'
 
-    # Isolate endpoint/read/write transport from conditional-header support.
+    # Isolate endpoint/read/write transport from the cache protocol.
     # The diagnostic PUT has its own fresh run-scoped key, never a cache key.
     if hasattr(store, 'command'):
         probes = report['transport_probes'] = {}
@@ -81,21 +83,24 @@ def main(report):
     checks['checksum_roundtrip'] = True
     report['roundtrip_sha256'] = hashlib.sha256(payload).hexdigest()
 
-    report['stage'] = 'conditional-create'
-    require(store.put('checks/conditional', b'first'), 'initial conditional create failed')
-    require(not store.put('checks/conditional', b'second'), 'provider did not enforce conditional create')
-    require(store.get('checks/conditional', 1024) == b'first', 'conditional conflict overwrote existing object')
-    checks['conditional_conflict_preserves_object'] = True
+    report['stage'] = 'ordinary-overwrite'
+    store.put('checks/overwrite', b'first')
+    store.put('checks/overwrite', b'second')
+    require(store.get('checks/overwrite', 1024) == b'second', 'sequential overwrite mismatch')
+    checks['sequential_overwrite'] = True
 
-    report['stage'] = 'conditional-race'
+    report['stage'] = 'ordinary-race'
     def publish(value):
         return value, store.put('checks/race', value)
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(publish, [b'candidate-a', b'candidate-b']))
-    winners = [value for value, won in results if won]
-    require(len(winners) == 1, 'conditional race did not have exactly one winner')
-    require(store.get('checks/race', 1024) == winners[0], 'race winner content mismatch')
-    checks['concurrent_conditional_single_winner'] = True
+    require(all(ack for _, ack in results), 'ordinary race upload failed')
+    require(store.get('checks/race', 1024) in [value for value, _ in results], 'race returned mixed content')
+    checks['concurrent_ordinary_puts'] = True
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        require(all(pool.map(lambda _: store.put('checks/same-bytes', payload), range(2))), 'duplicate upload failed')
+    require(store.get('checks/same-bytes', 1024) == payload, 'duplicate upload changed bytes')
+    checks['same_bytes_duplicate_upload'] = True
 
     report['stage'] = 'prefix-confinement'
     for invalid in ('../outside', '/outside', 'checks/../../outside'):
@@ -154,7 +159,7 @@ def main(report):
         require(saved['status'] == 'saved', 'clean seed publication failed')
         repeated = cache.save(spec, members, root / 'downloads', store, cold, 'clean-init')
         require(repeated['status'] == 'existing', 'repeated seed publication did not reconcile')
-        checks['immutable_blob_manifest_publication'] = True
+        checks['blob_then_manifest_publication'] = True
         checks['repeat_save_reconciles'] = True
 
         report['stage'] = 'fresh-checkout-restore'
@@ -170,6 +175,65 @@ def main(report):
         checks['new_checkout_exact_restore_and_readiness'] = True
         require(command(['git', 'rev-parse', 'HEAD'], warm) == source_sha, 'restoration changed source identity')
         checks['source_identity_preserved'] = True
+
+        report['stage'] = 'distinct-seed-publication-race'
+        # Force both complete, valid candidates to the manifest PUT boundary.
+        barrier = threading.Barrier(2)
+        class ScopedStore:
+            def __init__(self, scope, rendezvous=False, interrupt=False):
+                self.scope, self.rendezvous, self.interrupt = scope, rendezvous, interrupt
+            def get(self, key, limit):
+                return store.get(f'cases/{self.scope}/{key}', limit)
+            def put(self, key, data):
+                if key.startswith('manifests/'):
+                    if self.interrupt:
+                        raise cache.Unavailable()
+                    if self.rendezvous:
+                        barrier.wait(timeout=90)
+                return store.put(f'cases/{self.scope}/{key}', data)
+        race_store = ScopedStore('seed-race', rendezvous=True)
+        candidates = []
+        for name in ('a', 'b'):
+            candidate = root / f'candidate-{name}'
+            command(['git', 'clone', '-q', '--no-hardlinks', str(app), str(candidate)], root)
+            shutil.copytree(app / 'node_modules', candidate / 'node_modules')
+            (candidate / 'node_modules/proof-marker').write_text(name)
+            candidate_members = {'app': {**members['app'], 'directory': str(candidate)}}
+            receipt = cache.restore(spec, candidate_members, root / 'downloads', race_store, 'rebuild')
+            candidates.append((candidate_members, receipt))
+        def save_candidate(candidate):
+            candidate_members, receipt = candidate
+            return cache.save(spec, candidate_members, root / 'downloads', race_store, receipt, 'clean-init')
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            publications = list(pool.map(save_candidate, candidates))
+        require(all(p['status'] == 'saved' for p in publications), 'concurrent seed publication failed')
+        require(len({p['blob'] for p in publications}) == 2, 'seed race did not use distinct payloads')
+        shutil.rmtree(warm / 'node_modules')
+        raced = cache.restore(spec, members, root / 'downloads', race_store)
+        require(raced['status'] == 'exact' and raced['blob'] in {p['blob'] for p in publications}, 'race restore mismatch')
+        require((warm / 'node_modules/proof-marker').read_text() in ('a', 'b'), 'race seed marker invalid')
+        command(readiness, warm, tool_env)
+        checks['distinct_seed_race_both_publish_either_restores_ready'] = True
+        report['race'] = {'publisher_statuses': [p['status'] for p in publications],
+                          'candidate_blobs': [p['blob'] for p in publications], 'restored_blob': raced['blob']}
+
+        report['stage'] = 'partial-and-corrupt-publication'
+        partial = ScopedStore('interrupted', interrupt=True)
+        first_members, first_receipt = candidates[0]
+        interrupted = cache.save(spec, first_members, root / 'downloads', partial, first_receipt, 'clean-init')
+        require(interrupted['status'] == 'unavailable', 'interrupted publish unexpectedly succeeded')
+        require(partial.get(f'blobs/{interrupted["blob"]}', cache.MAX_ARCHIVE), 'interrupted publish did not upload blob')
+        shutil.rmtree(warm / 'node_modules')
+        require(cache.restore(spec, members, root / 'downloads', partial)['status'] == 'miss', 'orphan blob became a hit')
+        checks['blob_without_manifest_is_miss'] = True
+        broken = ScopedStore('corrupt')
+        broken.put(f'manifests/{saved["key"]}.json', cache.canonical({
+            'schema': 1, 'key': saved['key'], 'blob': saved['blob'], 'bytes': saved['bytes'], 'producer_stage': 'clean-init'}))
+        require(cache.restore(spec, members, root / 'downloads', broken)['status'] == 'miss', 'missing blob became a hit')
+        broken.put(f'blobs/{saved["blob"]}', b'corrupt')
+        require(cache.restore(spec, members, root / 'downloads', broken)['status'] == 'rejected', 'corrupt blob was accepted')
+        require(not (warm / 'node_modules').exists(), 'rejected payload materialized outputs')
+        checks['missing_and_corrupt_payloads_not_restored'] = True
 
         report['stage'] = 'input-invalidation'
         (warm / 'package-lock.json').write_text((warm / 'package-lock.json').read_text() + '\n')

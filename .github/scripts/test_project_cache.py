@@ -112,14 +112,15 @@ class CacheTests(unittest.TestCase):
         self.populate()
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(lambda _: self.save(receipt), range(2)))
-        self.assertEqual(sorted(r['status'] for r in results), ['existing', 'saved'])
+        self.assertTrue(all(r['status'] in ('existing', 'saved') for r in results))
+        self.assertTrue(any(r['status'] == 'saved' for r in results))
         class LostAck:
             def put(inner, key, data):
                 self.store.put(key, data)
                 raise cache.Unavailable()
             def get(inner, key, limit):
                 return self.store.get(key, limit)
-        result = cache.save(self.spec, self.members, self.root / 'downloads', LostAck(), receipt, 'clean-init')
+        result = cache.save(self.spec, self.members, self.root / 'downloads', LostAck(), {**receipt, 'mode': 'rebuild'}, 'clean-init')
         self.assertEqual(result['status'], 'unavailable')
         self.assertEqual(self.save(receipt)['status'], 'existing')
 
@@ -200,20 +201,47 @@ class CacheTests(unittest.TestCase):
         with patch.object(client, 'command', side_effect=request):
             self.assertEqual(client.get('checks/small', 1024), b'abc')
 
-    def test_conditional_put_preserves_header_and_hides_signer_inputs_from_argv(self):
+    def test_ordinary_put_has_no_conditional_header_or_credentials_in_argv(self):
         client = cache.S3(self.s3_settings())
         payload = self.root / 'payload'
         payload.write_bytes(b'first')
         def request(command, **kwargs):
-            self.assertEqual(command[:3], ['curl', '-q', '--config'])
-            config = Path(command[-1])
-            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
-            self.assertIn('header = "If-None-Match: *"', config.read_text())
-            self.assertIn('header = "Expect:"', config.read_text())
+            self.assertIn('put-object', command)
+            self.assertNotIn('--if-none-match', command)
             self.assertNotIn('cache-secret', ' '.join(command))
-            return subprocess.CompletedProcess(command, 0, stdout=b'412', stderr=b'')
+            self.assertEqual(Path(command[command.index('--body') + 1]).read_bytes(), b'second')
+            return subprocess.CompletedProcess(command, 0, stdout=b'{}', stderr=b'')
         with patch.object(cache.subprocess, 'run', side_effect=request):
-            self.assertFalse(client.put('checks/conditional', b'second'))
+            self.assertTrue(client.put('checks/ordinary', b'second'))
+
+    def test_hit_avoids_writes_and_rebuild_replaces_complete_manifest(self):
+        receipt = self.restore()
+        self.populate()
+        first = self.save(receipt)
+        with patch.object(self.store, 'put', side_effect=AssertionError('hit must not upload')):
+            self.assertEqual(self.save(receipt)['status'], 'existing')
+        (self.output / 'extra').write_text('another usable candidate')
+        second = self.save({**receipt, 'mode': 'rebuild'})
+        self.assertEqual(second['status'], 'saved')
+        self.assertNotEqual(first['blob'], second['blob'])
+        shutil.rmtree(self.output)
+        self.assertEqual(self.restore()['blob'], second['blob'])
+        self.assertEqual((self.output / 'extra').read_text(), 'another usable candidate')
+
+    def test_capture_rechecks_inputs_and_lookup_outage_does_not_publish(self):
+        receipt = self.restore()
+        self.populate()
+        native_archive = cache.archive
+        def changed_archive(outputs):
+            data = native_archive(outputs)
+            (self.root / 'app/lock.json').write_text('changed during capture')
+            return data
+        with patch.object(cache, 'archive', side_effect=changed_archive), self.assertRaises(ValueError):
+            self.save(receipt)
+        receipt = self.restore()
+        with patch.object(self.store, 'get', side_effect=cache.Unavailable()), \
+                patch.object(self.store, 'put', side_effect=AssertionError('outage must not upload')):
+            self.assertEqual(self.save(receipt)['status'], 'unavailable')
 
     def test_s3_passes_configured_url_region_bucket_prefix_and_addressing_to_signer(self):
         for region, style in [('auto', 'true'), ('us-west-004', 'false')]:

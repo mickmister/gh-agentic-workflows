@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Immutable core seed caches. AWS CLI signs requests; no credentials enter receipts."""
+"""Input-keyed seed caches with content-addressed payloads and replaceable manifests."""
 import argparse
 import hashlib
 import gzip
@@ -14,7 +14,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import urlparse
 
 MAX_ARCHIVE = 256 * 1024 * 1024
 MAX_EXPANDED = 1024 * 1024 * 1024
@@ -59,7 +59,7 @@ class Unavailable(Exception):
 
 
 class S3:
-    """Small immutable-object adapter; bounded single PUTs, no multipart promises."""
+    """Small object adapter; ordinary single PUTs, no exclusive-publisher promise."""
     def __init__(self, env=os.environ):
         required = ('URL', 'REGION', 'BUCKET', 'PREFIX', 'PATH_STYLE', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY')
         if any(not env.get('S3_CACHE_' + name) for name in required):
@@ -94,8 +94,6 @@ class S3:
 
     def command(self, operation, key, extra=()):
         relative(key)
-        if operation == 'put-object' and '--if-none-match' in extra:
-            return self.conditional_put(key, extra[extra.index('--body') + 1])
         with tempfile.TemporaryDirectory(prefix='agentic-s3-') as temporary:
             config = Path(temporary) / 'config'
             config.write_text('[default]\nregion = ' + self.region + '\ns3 =\n    addressing_style = ' + ('path' if self.path_style else 'virtual') + '\n')
@@ -111,8 +109,6 @@ class S3:
                 error = result.stderr.decode(errors='replace')
                 if '(NoSuchKey)' in error or '(404)' in error:
                     raise Missing()
-                if '(PreconditionFailed)' in error or '(412)' in error:
-                    return False
                 # Report only known protocol codes, never arbitrary provider text.
                 codes = ('AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'AuthorizationHeaderMalformed',
                          'InvalidRequest', 'InvalidArgument', 'NotImplemented', 'UnsupportedHeader', 'MissingContentLength',
@@ -133,46 +129,6 @@ class S3:
                 raise Unavailable('S3 operation failed', code=code, operation=operation, client_exit=result.returncode)
             return json.loads(result.stdout or b'{}')
 
-    def conditional_put(self, key, body):
-        """Use curl's standard SigV4 signer without SDK Expect/streaming behavior."""
-        relative(key)
-        endpoint = urlparse(self.endpoint)
-        object_path = quote(f'{self.prefix}/{key}', safe='/')
-        if self.path_style:
-            host, uri = endpoint.netloc, f'/{quote(self.bucket, safe="")}/{object_path}'
-        else:
-            host, uri = f'{self.bucket}.{endpoint.netloc}', f'/{object_path}'
-        url = urlunparse((endpoint.scheme, host, uri, '', '', ''))
-        def escaped(value):
-            if any(ord(c) < 32 for c in value):
-                raise ValueError('invalid control character in S3 configuration')
-            return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
-        with tempfile.TemporaryDirectory(prefix='agentic-signed-put-') as temporary:
-            config = Path(temporary) / 'curl.conf'
-            lines = [f'url = {escaped(url)}', f'aws-sigv4 = {escaped("aws:amz:" + self.region + ":s3")}',
-                     f'user = {escaped(self.env["AWS_ACCESS_KEY_ID"] + ":" + self.env["AWS_SECRET_ACCESS_KEY"])}',
-                     f'upload-file = {escaped(str(body))}', 'header = "If-None-Match: *"', 'header = "Expect:"',
-                     f'output = {escaped(str(Path(temporary) / "response"))}', 'write-out = "%{http_code}"',
-                     'connect-timeout = 10', 'max-time = 45', 'max-filesize = 16384', 'silent', 'show-error']
-            if self.env.get('AWS_SESSION_TOKEN'):
-                lines.append('header = ' + escaped('x-amz-security-token: ' + self.env['AWS_SESSION_TOKEN']))
-            # Signer input is a private ephemeral file, not argv or Actions output.
-            with open(config, 'x', opener=lambda name, flags: os.open(name, flags, 0o600)) as stream:
-                stream.write('\n'.join(lines) + '\n')
-            try:
-                result = subprocess.run(['curl', '-q', '--config', str(config)], env=self.env, capture_output=True, timeout=60)
-            except (OSError, subprocess.TimeoutExpired) as error:
-                raise Unavailable('conditional signing client unavailable', code='signing_client', operation='put-object') from error
-            if result.returncode:
-                raise Unavailable('conditional transport failed', code='conditional_transport', operation='put-object', client_exit=result.returncode)
-            status = result.stdout.decode().strip()
-            if status == '412':
-                return False
-            if status in ('200', '201', '204'):
-                return {}
-            code = 'http_' + status if re.fullmatch(r'[1-5][0-9]{2}', status) else 'conditional_response'
-            raise Unavailable('conditional request rejected', code=code, operation='put-object')
-
     def get(self, key, limit):
         metadata = self.command('head-object', key)
         size = metadata['ContentLength']
@@ -192,7 +148,8 @@ class S3:
         with tempfile.TemporaryDirectory(prefix='agentic-put-') as temporary:
             target = Path(temporary) / 'object'
             target.write_bytes(data)
-            return self.command('put-object', key, ['--body', str(target), '--if-none-match', '*']) is not False
+            self.command('put-object', key, ['--body', str(target)])
+            return True
 
 
 class DirectoryStore:
@@ -215,11 +172,8 @@ class DirectoryStore:
             candidate = Path(temporary) / 'candidate'
             with candidate.open('wb') as stream:
                 stream.write(data)
-            try:
-                os.link(candidate, target)
-                return True
-            except FileExistsError:
-                return False
+            os.replace(candidate, target)
+            return True
 
 
 def resolve_spec(spec, members, cache_root):
@@ -371,6 +325,20 @@ def extract(data, outputs):
             raise
 
 
+def read_entry(store, key):
+    """Read one manifest snapshot and verify its complete payload before use."""
+    manifest = json.loads(store.get(f'manifests/{key}.json', 16384))
+    if (manifest['schema'] != 1 or manifest['key'] != key
+            or manifest['producer_stage'] != 'clean-init'
+            or not isinstance(manifest['blob'], str) or not re.fullmatch(r'[a-f0-9]{64}', manifest['blob'])
+            or type(manifest['bytes']) is not int or not 0 < manifest['bytes'] <= MAX_ARCHIVE):
+        raise ValueError('invalid manifest')
+    data = store.get(f'blobs/{manifest["blob"]}', MAX_ARCHIVE)
+    if digest(data) != manifest['blob'] or len(data) != manifest['bytes']:
+        raise ValueError('corrupt blob')
+    return manifest, data
+
+
 def restore(spec, members, cache_root, store, mode='normal'):
     started = time.monotonic()
     key, outputs = resolve_spec(spec, members, cache_root)
@@ -381,12 +349,7 @@ def restore(spec, members, cache_root, store, mode='normal'):
         result['status'] = 'disabled' if mode == 'disabled' else 'rebuild'
     else:
         try:
-            manifest = json.loads(store.get(f'manifests/{key}.json', 16384))
-            if manifest['schema'] != 1 or manifest['key'] != key or not re.fullmatch(r'[a-f0-9]{64}', manifest['blob']):
-                raise ValueError('invalid manifest')
-            data = store.get(f'blobs/{manifest["blob"]}', MAX_ARCHIVE)
-            if digest(data) != manifest['blob'] or len(data) != manifest['bytes']:
-                raise ValueError('corrupt blob')
+            manifest, data = read_entry(store, key)
             extract(data, outputs)
             result.update(status='exact', ready_seed=spec['class'] == 'installed-seed', bytes=len(data), blob=manifest['blob'])
         except Missing:
@@ -407,19 +370,29 @@ def save(spec, members, cache_root, store, receipt, producer_stage):
     if receipt['mode'] == 'disabled':
         return {'status': 'disabled', 'key': key}
     data = archive(outputs)
+    if resolve_spec(spec, members, cache_root)[0] != key:
+        raise ValueError('seed inputs changed during capture')
     blob = digest(data)
     manifest = {'schema': 1, 'key': key, 'blob': blob, 'bytes': len(data), 'producer_stage': producer_stage}
     try:
+        # An exact usable entry avoids repeat writes/versions, not concurrent writers.
+        if receipt['mode'] == 'normal':
+            try:
+                existing, _ = read_entry(store, key)
+                return {'status': 'existing', 'key': key, 'blob': existing['blob'], 'bytes': existing['bytes'],
+                        'save_ms': round((time.monotonic() - started) * 1000)}
+            except Missing:
+                pass
         blob_key = f'blobs/{blob}'
-        if not store.put(blob_key, data) and store.get(blob_key, MAX_ARCHIVE) != data:
-            raise ValueError('immutable blob conflict/corruption')
+        try:
+            if store.get(blob_key, MAX_ARCHIVE) != data:
+                raise ValueError('content-addressed blob corruption')
+        except Missing:
+            store.put(blob_key, data)
         # Manifest publication is the only point where an entry becomes discoverable.
-        manifest_key = f'manifests/{key}.json'
-        if store.put(manifest_key, canonical(manifest)):
-            status = 'saved'
-        else:
-            existing = json.loads(store.get(manifest_key, 16384))
-            status = 'existing' if existing == manifest else 'conflict'
+        # Another compatible producer may replace this complete manifest immediately.
+        store.put(f'manifests/{key}.json', canonical(manifest))
+        status = 'saved'
     except (Unavailable, Missing):
         status = 'unavailable'
     except (ValueError, KeyError, TypeError):
