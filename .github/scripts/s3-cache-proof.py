@@ -54,6 +54,26 @@ def main(report):
     found = re.search(rb'aws-cli/[0-9.]+', client.stdout + client.stderr)
     report['s3_client'] = found[0].decode() if found else 'version-unavailable'
 
+    # Isolate endpoint/read/write transport from conditional-header support.
+    # The diagnostic PUT has its own fresh run-scoped key, never a cache key.
+    if hasattr(store, 'command'):
+        probes = report['transport_probes'] = {}
+        try:
+            store.command('head-object', 'checks/absent-transport-probe')
+            probes['head'] = 'object-present'
+        except cache.Missing:
+            probes['head'] = 'reachable-object-missing'
+        except cache.Unavailable as error:
+            probes['head'] = error.code
+        with tempfile.NamedTemporaryFile(prefix='s3-transport-') as body:
+            body.write(b'isolated transport diagnostic\n')
+            body.flush()
+            try:
+                store.command('put-object', 'checks/unconditional-transport-probe', ['--body', body.name])
+                probes['unconditional_put'] = 'success'
+            except cache.Unavailable as error:
+                probes['unconditional_put'] = error.code
+
     report['stage'] = 'checksum-roundtrip'
     payload = b'agentic hosted S3 cache checksum proof\n'
     require(store.put('checks/roundtrip', payload), 'fresh proof object already exists')
