@@ -168,6 +168,8 @@ class CacheTests(unittest.TestCase):
     def test_s3_client_uses_only_dedicated_credentials(self):
         client = cache.S3({**self.s3_settings(), 'AWS_ACCESS_KEY_ID': 'unrelated-id', 'AWS_SECRET_ACCESS_KEY': 'unrelated-secret'})
         self.assertEqual(client.env['AWS_ACCESS_KEY_ID'], 'cache-id')
+        self.assertEqual(client.env['AWS_REQUEST_CHECKSUM_CALCULATION'], 'when_required')
+        self.assertEqual(client.env['AWS_RESPONSE_CHECKSUM_VALIDATION'], 'when_required')
         with self.assertRaises(cache.Unavailable):
             cache.S3({'AWS_ACCESS_KEY_ID': 'unrelated-id', 'AWS_SECRET_ACCESS_KEY': 'unrelated-secret'})
 
