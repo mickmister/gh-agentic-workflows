@@ -114,11 +114,27 @@ use exact compatibility; no broad installed-output fallback. Modes:
 Persistent bust changes `generation` via the configured project promotion path;
 this script does not edit project defaults or delete immutable entries.
 
-S3 configuration is installation-owned: `AGENTIC_CACHE_ENDPOINT` (optional for
-AWS), `AGENTIC_CACHE_REGION`, `AGENTIC_CACHE_BUCKET`, nonempty
-`AGENTIC_CACHE_PREFIX`, `AGENTIC_CACHE_PATH_STYLE` (`true`/`false`). Dedicated
-`AGENTIC_CACHE_ACCESS_KEY_ID`, `AGENTIC_CACHE_SECRET_ACCESS_KEY`, optional
-`AGENTIC_CACHE_SESSION_TOKEN` are passed only to the signing CLI. Ambient AWS
+S3 configuration is installation-owned and **all values come from Actions
+secrets**, including routing and namespace settings:
+
+| Secret | Meaning |
+| --- | --- |
+| `S3_CACHE_URL` | Full S3-compatible service endpoint URL |
+| `S3_CACHE_REGION` | Provider's signing region |
+| `S3_CACHE_BUCKET` | Cache bucket |
+| `S3_CACHE_PREFIX` | Explicit nonempty cache-only key prefix |
+| `S3_CACHE_PATH_STYLE` | Explicit `true` for path-style or `false` for virtual-hosted addressing |
+| `S3_CACHE_ACCESS_KEY_ID` | Scoped access key ID |
+| `S3_CACHE_SECRET_ACCESS_KEY` | Scoped secret access key |
+| `S3_CACHE_SESSION_TOKEN` | Optional temporary-credential session token |
+
+There are no hardcoded account IDs, endpoints, buckets, regions, prefixes or
+addressing-style defaults. Cloudflare R2, Backblaze B2, AWS and other compatible
+services use the same interface; obtain every value from the chosen provider's
+configuration. No vendor selector or automatic AWS endpoint fallback is used.
+Missing required settings report unavailable/cold fallback; malformed configured
+settings fail validation. The former `AGENTIC_CACHE_*` interface is superseded.
+Dedicated credentials are passed only to the signing CLI. Ambient AWS
 credentials/profiles are not reused. TLS is required except loopback fixtures;
 do not use `--no-verify-ssl`. Project code and the cache process are not isolated
 from one another merely because credentials are step-scoped; use trusted recipe

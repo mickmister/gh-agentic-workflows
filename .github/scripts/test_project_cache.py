@@ -9,6 +9,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('project_cache', Path(__file__).with_name('project-cache.py'))
 cache = importlib.util.module_from_spec(spec)
@@ -165,12 +166,43 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(self.restore()['status'], 'miss')
 
     def test_s3_client_uses_only_dedicated_credentials(self):
-        client = cache.S3({'AGENTIC_CACHE_BUCKET': 'test-cache', 'AGENTIC_CACHE_PREFIX': 'cache/test',
-                           'AGENTIC_CACHE_ACCESS_KEY_ID': 'cache-id', 'AGENTIC_CACHE_SECRET_ACCESS_KEY': 'cache-secret',
-                           'AWS_ACCESS_KEY_ID': 'unrelated-id', 'AWS_SECRET_ACCESS_KEY': 'unrelated-secret'})
+        client = cache.S3({**self.s3_settings(), 'AWS_ACCESS_KEY_ID': 'unrelated-id', 'AWS_SECRET_ACCESS_KEY': 'unrelated-secret'})
         self.assertEqual(client.env['AWS_ACCESS_KEY_ID'], 'cache-id')
         with self.assertRaises(cache.Unavailable):
-            cache.S3({'AGENTIC_CACHE_BUCKET': 'test-cache', 'AGENTIC_CACHE_PREFIX': 'cache/test', 'AWS_ACCESS_KEY_ID': 'unrelated-id'})
+            cache.S3({'AWS_ACCESS_KEY_ID': 'unrelated-id', 'AWS_SECRET_ACCESS_KEY': 'unrelated-secret'})
+
+    @staticmethod
+    def s3_settings():
+        return {'S3_CACHE_URL': 'https://objects.example.invalid', 'S3_CACHE_REGION': 'auto',
+                'S3_CACHE_BUCKET': 'test-cache', 'S3_CACHE_PREFIX': 'cache/test', 'S3_CACHE_PATH_STYLE': 'true',
+                'S3_CACHE_ACCESS_KEY_ID': 'cache-id', 'S3_CACHE_SECRET_ACCESS_KEY': 'cache-secret'}
+
+    def test_s3_requires_explicit_destination_without_provider_defaults(self):
+        settings = self.s3_settings()
+        for key in settings:
+            with self.subTest(missing=key), self.assertRaises(cache.Unavailable):
+                cache.S3({name: value for name, value in settings.items() if name != key})
+        for key, value in [('S3_CACHE_URL', 'not-a-url'), ('S3_CACHE_URL', 'https://user:password@example.invalid'),
+                           ('S3_CACHE_REGION', 'region\nconfiguration'), ('S3_CACHE_PATH_STYLE', 'guess'), ('S3_CACHE_PREFIX', '/')]:
+            with self.subTest(invalid=key), self.assertRaises(ValueError):
+                cache.S3({**settings, key: value})
+
+    def test_s3_passes_configured_url_region_bucket_prefix_and_addressing_to_signer(self):
+        for region, style in [('auto', 'true'), ('us-west-004', 'false')]:
+            settings = {**self.s3_settings(), 'S3_CACHE_REGION': region, 'S3_CACHE_PATH_STYLE': style,
+                        'S3_CACHE_SESSION_TOKEN': 'temporary-token', 'S3_CACHE_BUCKET': 'Configured-Bucket'}
+            def signed_command(command, **kwargs):
+                self.assertEqual(command[command.index('--endpoint-url') + 1], settings['S3_CACHE_URL'])
+                self.assertEqual(command[command.index('--region') + 1], region)
+                self.assertEqual(command[command.index('--bucket') + 1], settings['S3_CACHE_BUCKET'])
+                self.assertEqual(command[command.index('--key') + 1], 'cache/test/manifests/test.json')
+                self.assertEqual(kwargs['env']['AWS_SESSION_TOKEN'], 'temporary-token')
+                config = Path(kwargs['env']['AWS_CONFIG_FILE']).read_text()
+                self.assertIn('addressing_style = ' + ('path' if style == 'true' else 'virtual'), config)
+                self.assertNotIn('cache-secret', config)
+                return subprocess.CompletedProcess(command, 0, stdout=b'{}', stderr=b'')
+            with self.subTest(region=region, style=style), patch.object(cache.subprocess, 'run', side_effect=signed_command):
+                cache.S3(settings).command('head-object', 'manifests/test.json')
 
 
 if __name__ == '__main__':

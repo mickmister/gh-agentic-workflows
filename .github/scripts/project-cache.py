@@ -57,29 +57,30 @@ class Unavailable(Exception):
 class S3:
     """Small immutable-object adapter; bounded single PUTs, no multipart promises."""
     def __init__(self, env=os.environ):
-        self.bucket = env.get('AGENTIC_CACHE_BUCKET', '')
-        self.prefix = env.get('AGENTIC_CACHE_PREFIX', '').strip('/')
-        if not re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]', self.bucket):
-            raise Unavailable('cache bucket not configured')
+        required = ('URL', 'REGION', 'BUCKET', 'PREFIX', 'PATH_STYLE', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY')
+        if any(not env.get('S3_CACHE_' + name) for name in required):
+            raise Unavailable('explicit S3_CACHE configuration not complete')
+        self.bucket = env['S3_CACHE_BUCKET']
+        self.prefix = env['S3_CACHE_PREFIX'].strip('/')
+        # Validate a safe bucket segment, not AWS-specific naming/length policy.
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,253}', self.bucket):
+            raise ValueError('invalid cache bucket')
         relative(self.prefix)
-        self.region = env.get('AGENTIC_CACHE_REGION', 'us-east-1')
+        self.region = env['S3_CACHE_REGION']
         if not re.fullmatch(r'[a-z0-9-]+', self.region):
             raise ValueError('invalid S3 region')
-        self.endpoint = env.get('AGENTIC_CACHE_ENDPOINT', '')
-        if self.endpoint:
-            url = urlparse(self.endpoint)
-            if url.username or url.password or url.query or url.fragment or url.path not in ('', '/') or not url.hostname:
-                raise ValueError('invalid S3 endpoint')
-            if url.scheme != 'https' and not (url.scheme == 'http' and url.hostname in ('127.0.0.1', 'localhost', '::1')):
-                raise ValueError('S3 endpoint requires TLS')
+        self.endpoint = env['S3_CACHE_URL']
+        url = urlparse(self.endpoint)
+        if url.username or url.password or url.query or url.fragment or url.path not in ('', '/') or not url.hostname:
+            raise ValueError('invalid S3 endpoint')
+        if url.scheme != 'https' and not (url.scheme == 'http' and url.hostname in ('127.0.0.1', 'localhost', '::1')):
+            raise ValueError('S3 endpoint requires TLS')
         self.env = {k: v for k, v in env.items() if not k.startswith('AWS_')}
         for suffix in ('ACCESS_KEY_ID', 'SECRET_ACCESS_KEY', 'SESSION_TOKEN'):
-            if env.get('AGENTIC_CACHE_' + suffix):
-                self.env['AWS_' + suffix] = env['AGENTIC_CACHE_' + suffix]
-        if not all(self.env.get('AWS_' + s) for s in ('ACCESS_KEY_ID', 'SECRET_ACCESS_KEY')):
-            raise Unavailable('dedicated cache credentials not configured')
+            if env.get('S3_CACHE_' + suffix):
+                self.env['AWS_' + suffix] = env['S3_CACHE_' + suffix]
         self.env.update(AWS_EC2_METADATA_DISABLED='true', AWS_MAX_ATTEMPTS='2', AWS_PAGER='')
-        style = env.get('AGENTIC_CACHE_PATH_STYLE') or 'true'
+        style = env['S3_CACHE_PATH_STYLE']
         if style not in ('true', 'false'):
             raise ValueError('path style must be true or false')
         self.path_style = style == 'true'
@@ -91,8 +92,7 @@ class S3:
             config.write_text('[default]\nregion = ' + self.region + '\ns3 =\n    addressing_style = ' + ('path' if self.path_style else 'virtual') + '\n')
             env = dict(self.env, AWS_CONFIG_FILE=str(config), AWS_SHARED_CREDENTIALS_FILE=os.devnull)
             command = ['aws', '--no-cli-pager', '--region', self.region, '--cli-connect-timeout', '10', '--cli-read-timeout', '30']
-            if self.endpoint:
-                command += ['--endpoint-url', self.endpoint]
+            command += ['--endpoint-url', self.endpoint]
             try:
                 result = subprocess.run(command + ['s3api', operation, '--bucket', self.bucket, '--key', f'{self.prefix}/{key}'] + list(extra), env=env, capture_output=True, timeout=90)
             except (OSError, subprocess.TimeoutExpired) as error:

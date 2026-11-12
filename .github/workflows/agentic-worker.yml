@@ -33,14 +33,14 @@ jobs:
       - name: Execute pinned project setup
         uses: ./.agentic/active-setup
         env:
-          AGENTIC_CACHE_ENDPOINT: ${{ vars.AGENTIC_CACHE_ENDPOINT }}
-          AGENTIC_CACHE_REGION: ${{ vars.AGENTIC_CACHE_REGION }}
-          AGENTIC_CACHE_BUCKET: ${{ vars.AGENTIC_CACHE_BUCKET }}
-          AGENTIC_CACHE_PREFIX: ${{ vars.AGENTIC_CACHE_PREFIX }}
-          AGENTIC_CACHE_PATH_STYLE: ${{ vars.AGENTIC_CACHE_PATH_STYLE }}
-          AGENTIC_CACHE_ACCESS_KEY_ID: ${{ secrets.AGENTIC_CACHE_ACCESS_KEY_ID }}
-          AGENTIC_CACHE_SECRET_ACCESS_KEY: ${{ secrets.AGENTIC_CACHE_SECRET_ACCESS_KEY }}
-          AGENTIC_CACHE_SESSION_TOKEN: ${{ secrets.AGENTIC_CACHE_SESSION_TOKEN }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_SESSION_TOKEN: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
       - name: Record setup execution outcome
         run: |
           node -e 'const fs=require("fs"),p=".agentic/environment-receipt.json",r=JSON.parse(fs.readFileSync(p));r.phase="setup-executed-not-coding-acceptance";r.workflow_sha=process.env.GITHUB_SHA;fs.writeFileSync(p,JSON.stringify(r,null,2));'
