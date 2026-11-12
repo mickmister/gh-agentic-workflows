@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Called from independent gh-aw Resume workflow after Repo Memory is cloned.
+# Restore the native checkpoint fixture from the Actions artifact handoff.
 set -euo pipefail
-: "${WORKSPACE_ID:?}" "${REVISION:?}" "${DECISION:?}"
+: "${WORKSPACE_ID:?}" "${REVISION:?}" "${DECISION:?}" "${RUNNER_TEMP:?}"
 [[ "$WORKSPACE_ID" =~ ^[a-zA-Z0-9_-]{1,64}$ ]] || { echo "Invalid workspace id" >&2; exit 2; }
 [[ "$REVISION" =~ ^[1-9][0-9]{0,8}$ ]] || { echo "Invalid revision" >&2; exit 2; }
 [[ "$DECISION" == approve || "$DECISION" == request_changes ]] || { echo "Invalid decision" >&2; exit 2; }
-memory="/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
+memory="$RUNNER_TEMP/qrspi-checkpoints/$WORKSPACE_ID"
 manifest="$memory/checkpoint.json"
 archive="$memory/city.tar.gz"
 test -s "$manifest" && test -s "$archive"
