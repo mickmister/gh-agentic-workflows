@@ -51,7 +51,9 @@ class Missing(Exception):
 
 
 class Unavailable(Exception):
-    pass
+    def __init__(self, message='S3 unavailable', code='unavailable'):
+        super().__init__(message)
+        self.code = code
 
 
 class S3:
@@ -104,7 +106,13 @@ class S3:
                     raise Missing()
                 if '(PreconditionFailed)' in error or '(412)' in error:
                     return False
-                raise Unavailable('S3 operation failed')
+                # Report only known protocol codes, never arbitrary provider text.
+                codes = ('AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'AuthorizationHeaderMalformed',
+                         'InvalidRequest', 'InvalidArgument', 'NotImplemented', 'UnsupportedHeader', 'MissingContentLength',
+                         'NoSuchBucket', 'RequestTimeout', 'SlowDown', 'ServiceUnavailable', 'InternalError',
+                         'XAmzContentSHA256Mismatch', 'InvalidBucketName', 'InvalidToken', 'ExpiredToken')
+                code = next((code for code in codes if f'({code})' in error), 'operation_failed')
+                raise Unavailable('S3 operation failed', code=code)
             return json.loads(result.stdout or b'{}')
 
     def get(self, key, limit):

@@ -168,6 +168,21 @@ permission denial. Real S3 acceptance requires a configured destination, hosted
 upload/read/hash/conditional-race/forbidden-prefix checks and cold-vs-hit timing.
 Task `task-3vt.50.20` tracks that external prerequisite.
 
+`s3-cache-proof.yml` exercises the actual configured provider with repository-level
+`S3_CACHE_*` secrets. All objects are nested under the configured prefix plus
+`proofs/<run>-<attempt>/`; it never probes writes outside that namespace. The
+operator intentionally selected bucket-wide credentials, so client path rejection
+is checked and provider-enforced prefix denial is explicitly not claimed. Small
+immutable proof objects remain in that nested namespace for configured lifecycle
+cleanup; the workflow does not delete user objects or change bucket settings.
+
+This proof checks checksum roundtrip, duplicate conditional create, concurrent
+single-winner publication, real offline npm install/clean-seed save, idempotent
+save reconciliation, restore into a fresh checkout, executed readiness, unchanged
+source identity and lock-input invalidation. Metadata-only receipts withhold the
+endpoint, bucket, prefix and credentials. Cold-install/readiness and warm-restore/
+readiness times describe this small fixture only, not actual project speedups.
+
 Existing shared observability wraps `github-ultimate` build/Pages jobs with light
 Thoth and CargoWall; use its pinned remote action when native pre-hooks matter.
 Local composite pre-hooks do not run. Thoth offers shell/job timing and post-job
