@@ -15,7 +15,9 @@ Each path gets a fresh hosted runner and a pinned clean source checkout. Match
 Handy's Node 22 / pnpm 12.5.1 and the Android Ubuntu / iOS macOS runner families.
 Java 17 and Android platform-tools setup or Xcode 26.6 selection run on every
 corresponding path. Record actual versions, architecture and runner-image revision;
-S3 seed compatibility includes those values, not just the dependency lockfile.
+S3 seed compatibility includes actual tool versions, OS/architecture and image
+family, not just the dependency lockfile. Image build revisions are reported as
+evidence rather than automatically invalidating this dependency-only seed.
 
 1. **Producer / S3 cold miss:** verify a miss, run real `pnpm install
    --frozen-lockfile`, verify the installed compiler executable, capture/upload a
@@ -39,7 +41,8 @@ restore, installation, clean seed capture/upload, readiness and test execution.
 ## Interpretation
 
 One run is one observation per mode/platform, not a statistically stable median.
-Compare only matching source/toolchain/platform/image identities. The measurement
+Compare matching source/toolchain/platform/image families and disclose differing
+runner-image revisions. The measurement
 includes pnpm's real linking/patching work; a restored package store is not a
 restored installed tree. Producer save cost belongs in the cold-miss cost and in
 the amortization calculation, not in every warm hit. Tool setup is still required.
@@ -55,5 +58,7 @@ All S3 writes remain below the configured secret prefix plus
 identity, not destination values, raw package logs or dependency archives. Native
 Actions cache stores package downloads under run-specific keys. No cache deletion
 or bucket configuration change is performed. Existing cache adapter size/path
-bounds remain enforced; failure to fit a real project is a result to investigate,
-not permission to silently bypass limits.
+bounds remain enforced. The first real tree measured 62,585 entries and about
+478 MB of regular-file data on Linux, motivating a bounded increase from 50,000
+to 100,000 entries; 256 MiB compressed and 1 GiB expanded bounds remain. Further
+failure to fit is a result to investigate, not permission to bypass limits.

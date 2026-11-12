@@ -18,7 +18,9 @@ from urllib.parse import urlparse
 
 MAX_ARCHIVE = 256 * 1024 * 1024
 MAX_EXPANDED = 1024 * 1024 * 1024
-MAX_FILES = 50000
+# Handy's measured clean mobile dependency tree has 62,585 entries.
+# Keep a finite allowance with headroom; byte and safe-extraction limits still apply.
+MAX_FILES = 100000
 FORBIDDEN = {'.git', '.env', '.npmrc', '.netrc', '.ssh', '.aws', '.hermes', 'credentials', 'opencode.db'}
 
 

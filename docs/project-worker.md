@@ -158,7 +158,8 @@ retains old versions on repeated PUTs, so lifecycle planning must cover old
 versions and orphan blobs without aging out shared blobs before live manifests.
 The action does not change bucket lifecycle settings.
 
-Single PUT limit 256 MiB compressed, extraction limit 1 GiB and 50,000 entries;
+Single PUT limit 256 MiB compressed, extraction limit 1 GiB and 100,000 entries
+(raised from 50,000 after measuring Handy's 62,585-entry dependency tree);
 larger seeds/multipart are explicitly outside this slice. Checksums, output-root
 allowlists, no tracked-source overlap, no escaping links/hardlink extraction,
 staging and bounded extraction protect cold source. Internal pnpm-style symlinks

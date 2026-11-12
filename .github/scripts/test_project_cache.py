@@ -166,6 +166,16 @@ class CacheTests(unittest.TestCase):
         self.store.put('blobs/' + 'a' * 64, b'unpublished')
         self.assertEqual(self.restore()['status'], 'miss')
 
+    def test_entry_limit_is_enforced_on_capture_and_before_extraction(self):
+        self.populate()
+        data = cache.archive([self.output])
+        with patch.object(cache, 'MAX_FILES', 2), self.assertRaises(ValueError):
+            cache.archive([self.output])
+        shutil.rmtree(self.output)
+        with patch.object(cache, 'MAX_FILES', 2), self.assertRaises(ValueError):
+            cache.extract(data, [self.output])
+        self.assertFalse(self.output.exists())
+
     def test_s3_client_uses_only_dedicated_credentials(self):
         client = cache.S3({**self.s3_settings(), 'AWS_ACCESS_KEY_ID': 'unrelated-id', 'AWS_SECRET_ACCESS_KEY': 'unrelated-secret'})
         self.assertEqual(client.env['AWS_ACCESS_KEY_ID'], 'cache-id')

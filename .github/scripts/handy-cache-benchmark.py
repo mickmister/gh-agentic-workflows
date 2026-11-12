@@ -53,7 +53,7 @@ def make_spec(root, env):
             'recipe_digest': hashlib.sha256(recipe + b'handy-dependency-benchmark-v1').hexdigest(),
             'runtime': {'node': node, 'pnpm': pnpm, 'os': platform.system().lower(),
                         'arch': {'x86_64': 'x64', 'aarch64': 'arm64'}.get(platform.machine(), platform.machine()),
-                        'runner_image': os.environ.get('ImageOS'), 'runner_image_version': os.environ.get('ImageVersion')},
+                        'runner_image': os.environ.get('ImageOS')},
             'inputs': [{'member': 'app', 'path': name} for name in inputs],
             'outputs': [{'member': 'app', 'path': 'node_modules'}]}
 
@@ -71,6 +71,7 @@ def benchmark(args, report):
     report.update(schema=1, source_sha=source, engine_sha=os.environ['GITHUB_SHA'],
                   run_id=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'],
                   platform=os.environ['BENCH_PLATFORM'], mode=args.mode, runtime=spec['runtime'],
+                  runner_image_version=os.environ.get('ImageVersion'),
                   input_files=[item['path'] for item in spec['inputs']], measurements={}, checks={},
                   scope='Outer mobile workflow dependency setup, typecheck/JS tests and macOS native tests; not full EAS compilation, CocoaPods or Gradle downloads.',
                   actions_cache_hit=os.environ.get('BENCH_ACTIONS_CACHE_HIT') == 'true')
@@ -79,6 +80,7 @@ def benchmark(args, report):
         start, end = os.environ.get(f'BENCH_{label.upper()}_START'), os.environ.get(f'BENCH_{label.upper()}_END')
         measurements[label + '_ms'] = round((int(end) - int(start)) / 1_000_000) if start and end else 0
     require(args.mode != 'actions' or report['actions_cache_hit'], 'native package cache baseline did not hit')
+    report['stage'] = 'cache-lookup-restore'
     cache_started = time.monotonic_ns()
     receipt = None
     if args.mode in ('producer', 's3'):
