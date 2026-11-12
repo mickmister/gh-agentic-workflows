@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import stat
 import subprocess
 import time
 
@@ -99,6 +100,16 @@ def benchmark(args, report):
     report['stage'] = 'dependency-readiness'
     _, measurements['readiness_ms'] = run(['pnpm', 'exec', 'tsc', '--version'], root, env)
     checks['installed_tool_executable'] = True
+    files = links = expanded = 0
+    for item in (root / 'node_modules').rglob('*'):
+        info = item.lstat()
+        files += 1
+        links += int(stat.S_ISLNK(info.st_mode))
+        if stat.S_ISREG(info.st_mode):
+            expanded += info.st_size
+    report['seed_inventory'] = {'entries_including_root': files + 1, 'symlinks': links,
+                                'regular_file_bytes': expanded, 'adapter_max_entries': cache.MAX_FILES,
+                                'adapter_max_expanded_bytes': cache.MAX_EXPANDED}
     if args.mode == 'producer':
         report['stage'] = 'seed-capture-upload'
         report['save'] = cache.save(spec, members, store_root, store, receipt, 'clean-init')

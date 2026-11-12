@@ -2,150 +2,21 @@ name: Handy mobile dependency cache benchmark
 run-name: Handy dependency benchmark ${{ github.sha }}
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform(s) to measure on fresh runners
+        type: choice
+        options: [both, android, ios]
+        default: both
 permissions:
   contents: read
 jobs:
-  producer:
-    name: Seed ${{ matrix.platform }}
+  platform:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: android
-            runner: ubuntu-24.04
-          - platform: ios
-            runner: macos-26
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          path: .engine
-          persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: mickmister/handy-actions
-          ref: f9e1ff267b3f3f43481bacb34525806ac4df4198
-          path: source/handy
-          persist-credentials: false
-      - id: tools-start
-        shell: bash
-        run: python3 -c 'import time; print(f"now={time.monotonic_ns()}")' >> "$GITHUB_OUTPUT"
-      - uses: ./.engine/.github/actions/handy-benchmark-setup
-        with:
-          platform: ${{ matrix.platform }}
-      - id: tools-end
-        shell: bash
-        run: python3 -c 'import time; print(f"now={time.monotonic_ns()}")' >> "$GITHUB_OUTPUT"
-      - name: Confirm signing client is installed
-        run: aws --version
-      - name: Measure real cold install and clean seed upload
-        env:
-          BENCH_PLATFORM: ${{ matrix.platform }}
-          BENCH_TOOLS_START: ${{ steps.tools-start.outputs.now }}
-          BENCH_TOOLS_END: ${{ steps.tools-end.outputs.now }}
-          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
-          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
-          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
-          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
-          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
-          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
-          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
-          S3_CACHE_SESSION_TOKEN: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
-        run: >-
-          python3 .engine/.github/scripts/handy-cache-benchmark.py
-          --source source/handy --pnpm-store "$RUNNER_TEMP/handy-pnpm-store"
-          --mode producer --report "$RUNNER_TEMP/handy-report/result.json"
-      - name: Populate the existing pnpm download-cache baseline
-        if: ${{ !cancelled() }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: ${{ runner.temp }}/handy-pnpm-store
-          key: handy-benchmark-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
-      - name: Preserve measurements
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: handy-${{ matrix.platform }}-producer-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/handy-report/result.json
-          if-no-files-found: warn
-          retention-days: 7
-  compare:
-    name: Compare ${{ matrix.platform }} ${{ matrix.mode }}
-    needs: producer
-    if: ${{ !cancelled() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [android, ios]
-        mode: [cold, actions, s3]
-        include:
-          - platform: android
-            runner: ubuntu-24.04
-          - platform: ios
-            runner: macos-26
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          path: .engine
-          persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: mickmister/handy-actions
-          ref: f9e1ff267b3f3f43481bacb34525806ac4df4198
-          path: source/handy
-          persist-credentials: false
-      - id: tools-start
-        shell: bash
-        run: python3 -c 'import time; print(f"now={time.monotonic_ns()}")' >> "$GITHUB_OUTPUT"
-      - uses: ./.engine/.github/actions/handy-benchmark-setup
-        with:
-          platform: ${{ matrix.platform }}
-      - id: tools-end
-        shell: bash
-        run: python3 -c 'import time; print(f"now={time.monotonic_ns()}")' >> "$GITHUB_OUTPUT"
-      - id: cache-start
-        shell: bash
-        run: python3 -c 'import time; print(f"now={time.monotonic_ns()}")' >> "$GITHUB_OUTPUT"
-      - name: Restore pnpm downloads for current-workflow baseline only
-        id: native-cache
-        if: matrix.mode == 'actions'
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: ${{ runner.temp }}/handy-pnpm-store
-          key: handy-benchmark-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
-          fail-on-cache-miss: true
-      - id: cache-end
-        shell: bash
-        run: python3 -c 'import time; print(f"now={time.monotonic_ns()}")' >> "$GITHUB_OUTPUT"
-      - name: Measure install or S3 restore and execute project validation
-        env:
-          BENCH_PLATFORM: ${{ matrix.platform }}
-          BENCH_MODE: ${{ matrix.mode }}
-          BENCH_TOOLS_START: ${{ steps.tools-start.outputs.now }}
-          BENCH_TOOLS_END: ${{ steps.tools-end.outputs.now }}
-          BENCH_ACTIONS_RESTORE_START: ${{ matrix.mode == 'actions' && steps.cache-start.outputs.now || '' }}
-          BENCH_ACTIONS_RESTORE_END: ${{ matrix.mode == 'actions' && steps.cache-end.outputs.now || '' }}
-          BENCH_ACTIONS_CACHE_HIT: ${{ steps.native-cache.outputs.cache-hit }}
-          S3_CACHE_URL: ${{ matrix.mode == 's3' && secrets.S3_CACHE_URL || '' }}
-          S3_CACHE_REGION: ${{ matrix.mode == 's3' && secrets.S3_CACHE_REGION || '' }}
-          S3_CACHE_BUCKET: ${{ matrix.mode == 's3' && secrets.S3_CACHE_BUCKET || '' }}
-          S3_CACHE_PREFIX: ${{ matrix.mode == 's3' && secrets.S3_CACHE_PREFIX || '' }}
-          S3_CACHE_PATH_STYLE: ${{ matrix.mode == 's3' && secrets.S3_CACHE_PATH_STYLE || '' }}
-          S3_CACHE_ACCESS_KEY_ID: ${{ matrix.mode == 's3' && secrets.S3_CACHE_ACCESS_KEY_ID || '' }}
-          S3_CACHE_SECRET_ACCESS_KEY: ${{ matrix.mode == 's3' && secrets.S3_CACHE_SECRET_ACCESS_KEY || '' }}
-          S3_CACHE_SESSION_TOKEN: ${{ matrix.mode == 's3' && secrets.S3_CACHE_SESSION_TOKEN || '' }}
-        run: >-
-          python3 .engine/.github/scripts/handy-cache-benchmark.py
-          --source source/handy --pnpm-store "$RUNNER_TEMP/handy-pnpm-store"
-          --mode "$BENCH_MODE" --report "$RUNNER_TEMP/handy-report/result.json"
-      - name: Preserve measurements
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: handy-${{ matrix.platform }}-${{ matrix.mode }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/handy-report/result.json
-          if-no-files-found: warn
-          retention-days: 7
+        platform: ${{ fromJSON(inputs.platform == 'android' && '["android"]' || inputs.platform == 'ios' && '["ios"]' || '["android","ios"]') }}
+    uses: ./.github/workflows/handy-cache-benchmark-platform.yml
+    with:
+      platform: ${{ matrix.platform }}
+    secrets: inherit
