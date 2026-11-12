@@ -64,7 +64,10 @@ distinguish materialization, setup execution and coding acceptance (not provided
 ## Core cache actions
 
 `project-cache-restore` and `project-cache-save` wrap `project-cache.py`, using
-Python's standard library and AWS CLI (with `put-object --if-none-match` support).
+Python's standard library, AWS CLI for reads/diagnostics, and curl's standard
+SigV4 signer for conditional PUTs. The conditional signer avoids SDK-specific
+Expect/streaming behavior while preserving `If-None-Match: *`; secret signer
+inputs live only in a mode-0600 temporary configuration, never process arguments.
 Activate/verify tools before restore and run recipe readiness even on exact hits.
 Save explicitly after clean install/readiness and **before** agent work. There is
 no post-agent automatic save. Producer-stage labels alone cannot prove an arbitrary

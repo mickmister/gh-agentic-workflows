@@ -14,7 +14,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse, urlunparse
 
 MAX_ARCHIVE = 256 * 1024 * 1024
 MAX_EXPANDED = 1024 * 1024 * 1024
@@ -94,6 +94,8 @@ class S3:
 
     def command(self, operation, key, extra=()):
         relative(key)
+        if operation == 'put-object' and '--if-none-match' in extra:
+            return self.conditional_put(key, extra[extra.index('--body') + 1])
         with tempfile.TemporaryDirectory(prefix='agentic-s3-') as temporary:
             config = Path(temporary) / 'config'
             config.write_text('[default]\nregion = ' + self.region + '\ns3 =\n    addressing_style = ' + ('path' if self.path_style else 'virtual') + '\n')
@@ -130,6 +132,46 @@ class S3:
                         code = category
                 raise Unavailable('S3 operation failed', code=code, operation=operation, client_exit=result.returncode)
             return json.loads(result.stdout or b'{}')
+
+    def conditional_put(self, key, body):
+        """Use curl's standard SigV4 signer without SDK Expect/streaming behavior."""
+        relative(key)
+        endpoint = urlparse(self.endpoint)
+        object_path = quote(f'{self.prefix}/{key}', safe='/')
+        if self.path_style:
+            host, uri = endpoint.netloc, f'/{quote(self.bucket, safe="")}/{object_path}'
+        else:
+            host, uri = f'{self.bucket}.{endpoint.netloc}', f'/{object_path}'
+        url = urlunparse((endpoint.scheme, host, uri, '', '', ''))
+        def escaped(value):
+            if any(ord(c) < 32 for c in value):
+                raise ValueError('invalid control character in S3 configuration')
+            return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        with tempfile.TemporaryDirectory(prefix='agentic-signed-put-') as temporary:
+            config = Path(temporary) / 'curl.conf'
+            lines = [f'url = {escaped(url)}', f'aws-sigv4 = {escaped("aws:amz:" + self.region + ":s3")}',
+                     f'user = {escaped(self.env["AWS_ACCESS_KEY_ID"] + ":" + self.env["AWS_SECRET_ACCESS_KEY"])}',
+                     f'upload-file = {escaped(str(body))}', 'header = "If-None-Match: *"', 'header = "Expect:"',
+                     f'output = {escaped(str(Path(temporary) / "response"))}', 'write-out = "%{http_code}"',
+                     'connect-timeout = 10', 'max-time = 45', 'max-filesize = 16384', 'silent', 'show-error']
+            if self.env.get('AWS_SESSION_TOKEN'):
+                lines.append('header = ' + escaped('x-amz-security-token: ' + self.env['AWS_SESSION_TOKEN']))
+            # Signer input is a private ephemeral file, not argv or Actions output.
+            with open(config, 'x', opener=lambda name, flags: os.open(name, flags, 0o600)) as stream:
+                stream.write('\n'.join(lines) + '\n')
+            try:
+                result = subprocess.run(['curl', '-q', '--config', str(config)], env=self.env, capture_output=True, timeout=60)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise Unavailable('conditional signing client unavailable', code='signing_client', operation='put-object') from error
+            if result.returncode:
+                raise Unavailable('conditional transport failed', code='conditional_transport', operation='put-object', client_exit=result.returncode)
+            status = result.stdout.decode().strip()
+            if status == '412':
+                return False
+            if status in ('200', '201', '204'):
+                return {}
+            code = 'http_' + status if re.fullmatch(r'[1-5][0-9]{2}', status) else 'conditional_response'
+            raise Unavailable('conditional request rejected', code=code, operation='put-object')
 
     def get(self, key, limit):
         metadata = self.command('head-object', key)
