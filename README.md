@@ -32,5 +32,7 @@ approval does not add source-editing tools to those profiles.
 - [Stable source-repository persistence setup](docs/source-repo-persistence.md)
 - [Broader caller configuration proposal](docs/caller-configuration-proposal.md)
 
-The `poc/` directory and compiled gh-aw experiments retain historical research;
-the current PR-comment path uses ordinary GitHub Actions and Gas City.
+Workflows use ordinary GitHub Actions and native Gas City packs/formulas.
+The [`poc/` checkpoint test](poc/README.md) exercises native graph recovery across
+two runners using an Actions artifact. Production run persistence and human
+gates are documented separately in [the Goals workflow](docs/qrspi-goals.md).

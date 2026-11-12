@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Called from the gh-aw Start workflow after Repo Memory is cloned.
+# Native checkpoint fixture for the two-runner Actions artifact smoke test.
 set -euo pipefail
-: "${WORKSPACE_ID:?}"
+: "${WORKSPACE_ID:?}" "${RUNNER_TEMP:?}"
 [[ "$WORKSPACE_ID" =~ ^[a-zA-Z0-9_-]{1,64}$ ]] || { echo "Invalid workspace id" >&2; exit 2; }
-memory="/tmp/gh-aw/repo-memory/qrspi-poc/$WORKSPACE_ID"
+memory="$RUNNER_TEMP/qrspi-checkpoints/$WORKSPACE_ID"
 city="/tmp/qrspi-run/$WORKSPACE_ID/city"
 test ! -e "$memory/checkpoint.json" || { echo "Workspace already initialized" >&2; exit 3; }
 mkdir -p "$memory" "$(dirname "$city")"
