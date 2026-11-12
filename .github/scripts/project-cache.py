@@ -83,7 +83,10 @@ class S3:
         for suffix in ('ACCESS_KEY_ID', 'SECRET_ACCESS_KEY', 'SESSION_TOKEN'):
             if env.get('S3_CACHE_' + suffix):
                 self.env['AWS_' + suffix] = env['S3_CACHE_' + suffix]
-        self.env.update(AWS_EC2_METADATA_DISABLED='true', AWS_MAX_ATTEMPTS='2', AWS_PAGER='')
+        # Optional AWS-specific streaming checksum trailers are not universal S3.
+        # The cache protocol verifies its own SHA256 after every download.
+        self.env.update(AWS_EC2_METADATA_DISABLED='true', AWS_MAX_ATTEMPTS='2', AWS_PAGER='',
+                        AWS_REQUEST_CHECKSUM_CALCULATION='when_required', AWS_RESPONSE_CHECKSUM_VALIDATION='when_required')
         style = env['S3_CACHE_PATH_STYLE']
         if style not in ('true', 'false'):
             raise ValueError('path style must be true or false')
@@ -118,8 +121,12 @@ class S3:
                 if status:
                     code = 'http_' + status[1]
                 for text, category in (('SSL validation failed', 'tls_validation'), ('Could not connect to the endpoint URL', 'endpoint_connection'),
-                                       ('Unknown options:', 'cli_options'), ('Parameter validation failed', 'cli_parameters')):
-                    if text in error:
+                                       ('Unknown options:', 'cli_options'), ('Parameter validation failed', 'cli_parameters'),
+                                       ('Connection was closed', 'connection_closed'), ('Invalid header value', 'invalid_header'),
+                                       ('Read timeout', 'read_timeout'), ('Connect timeout', 'connect_timeout'),
+                                       ('Error parsing parameter', 'cli_parameter_file'), ('Failed to connect to proxy', 'proxy_connection'),
+                                       ('Could not connect to proxy', 'proxy_connection'), ('Invalid endpoint', 'invalid_endpoint')):
+                    if text.lower() in error.lower():
                         code = category
                 raise Unavailable('S3 operation failed', code=code, operation=operation, client_exit=result.returncode)
             return json.loads(result.stdout or b'{}')
