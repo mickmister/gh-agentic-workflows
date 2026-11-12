@@ -32,12 +32,20 @@ def digest(value):
     return hashlib.sha256(value).hexdigest()
 
 
-def relative(value):
+def relative(value, code_directories=False, directory=False):
     if not isinstance(value, str) or not value or '\\' in value or '\x00' in value:
         raise ValueError('invalid path')
     parts = value.split('/')
-    if any(p in ('', '.', '..') for p in parts) or any(p.lower() in FORBIDDEN or p.lower().startswith('.env.') for p in parts):
+    if any(p in ('', '.', '..') for p in parts):
         raise ValueError('forbidden cache path')
+    for index, part in enumerate(parts):
+        # EAS CLI publishes code in credentials/ directories. This archive-only
+        # exception does not admit a credential file, .aws tree or config root.
+        if (code_directories and part.lower() == 'credentials'
+                and (directory or index < len(parts) - 1)):
+            continue
+        if part.lower() in FORBIDDEN or part.lower().startswith('.env.'):
+            raise ValueError('forbidden cache path')
     return value
 
 
@@ -247,9 +255,9 @@ def archive(outputs):
                 files.append(file)
             for file in sorted(files):
                 name = str(index) + (('/' + file.relative_to(root).as_posix()) if file != root else '')
-                relative(name)
                 tar.inodes.clear()  # Store package-manager hardlinks as ordinary files.
                 info = tar.gettarinfo(str(file), arcname=name)
+                relative(name, code_directories=True, directory=info.isdir())
                 count += 1
                 expanded += info.size
                 if count > MAX_FILES or expanded > MAX_EXPANDED:
@@ -282,7 +290,7 @@ def extract(data, outputs):
             seen = set()
             expanded = 0
             for item in tar:
-                relative(item.name)
+                relative(item.name, code_directories=True, directory=item.isdir())
                 parts = PurePosixPath(item.name).parts
                 if not parts[0].isdigit() or int(parts[0]) >= len(outputs) or parts[0] != str(int(parts[0])):
                     raise ValueError('unexpected output slot')

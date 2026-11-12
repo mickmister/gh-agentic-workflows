@@ -1,5 +1,22 @@
 # Handy mobile dependency benchmark
 
+## Investigation paused
+
+User paused this work on 2026-11-12 to prioritize hosted review-request → coding
+agent CI. Task `task-3vt.50.32` holds the results and continuation points.
+No default workflow enables this benchmark; it remains manual dispatch only.
+The first real tree exceeded the original entry limit. After that was corrected,
+EAS CLI's package code under `credentials/` exposed an archive-path false positive,
+now covered by a focused fix/test while credential files stay rejected.
+There is **no successful real Handy S3 warm-hit performance comparison yet**.
+S3 cache transport correctness remains established separately by the small proof.
+
+Future performance work should include EAS's inner setup/build workspace and
+native Gradle/CocoaPods/compiler-cache tradeoffs, including safe reuse of older
+branch state through native invalidation. A clean installed-output seed and an
+incremental native build cache have different compatibility rules; stale build
+outputs must not be treated as current-candidate test evidence.
+
 `handy-cache-benchmark.yml` is a manually dispatched performance investigation,
 using actual `mickmister/handy-actions` source at
 `f9e1ff267b3f3f43481bacb34525806ac4df4198`. It makes no changes to Handy workflows,

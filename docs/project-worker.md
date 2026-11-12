@@ -164,6 +164,9 @@ larger seeds/multipart are explicitly outside this slice. Checksums, output-root
 allowlists, no tracked-source overlap, no escaping links/hardlink extraction,
 staging and bounded extraction protect cold source. Internal pnpm-style symlinks
 and executable modes survive; package hardlinks serialize as ordinary files.
+Archive code directories named `credentials` (used by EAS CLI) are allowed;
+files named `credentials` and `.aws`, `.env`, `.npmrc` paths remain forbidden.
+Path-name checks are not a secret scanner; only trusted clean outputs belong here.
 Corrupt/unavailable caches fall back to installation; malformed local specs fail
 explicitly. Incompatible results for the same key require an input/recipe fix or
 disabling that recipe, not reliance on first-writer arbitration.

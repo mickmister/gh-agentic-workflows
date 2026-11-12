@@ -176,6 +176,27 @@ class CacheTests(unittest.TestCase):
             cache.extract(data, [self.output])
         self.assertFalse(self.output.exists())
 
+    def test_package_credential_code_directory_is_not_a_credential_file(self):
+        self.populate()
+        code = self.output / 'eas-cli/build/credentials'
+        code.mkdir(parents=True)
+        (code / 'index.js').write_text('module.exports = {};')
+        data = cache.archive([self.output])
+        shutil.rmtree(self.output)
+        cache.extract(data, [self.output])
+        self.assertTrue((code / 'index.js').is_file())
+        for name in ('credentials', '.aws/credentials', '.env', '.npmrc'):
+            secret = self.output / 'eas-cli' / name
+            secret.parent.mkdir(exist_ok=True)
+            secret.write_text('not-for-cache')
+            with self.assertRaises(ValueError):
+                cache.archive([self.output])
+            secret.unlink()
+            if '/' in name:
+                secret.parent.rmdir()
+        with self.assertRaises(ValueError):
+            cache.relative('credentials/index.js')  # exception is archive-only
+
     def test_s3_client_uses_only_dedicated_credentials(self):
         client = cache.S3({**self.s3_settings(), 'AWS_ACCESS_KEY_ID': 'unrelated-id', 'AWS_SECRET_ACCESS_KEY': 'unrelated-secret'})
         self.assertEqual(client.env['AWS_ACCESS_KEY_ID'], 'cache-id')
