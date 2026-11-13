@@ -10,7 +10,12 @@ The configured native workspace seed stays unchanged between calls. The existing
 Document-backed nugs run APIs are permitted bootstrap storage while the assigned
 task moves machine state to a workflow-specific S3-backed nug.
 
-The workflow starts canonical CargoWall/Thoth observability in audit/light mode,
+Dispatch `observability=off|light|full` (default `light`) and optionally disable
+`telemetry-cache` to measure cold observer setup. Off uses an observer-free job;
+the exact native worker steps are shared through YAML aliases. See
+[`observability.md`](observability.md) for secret redaction and payload storage.
+
+By default the workflow starts canonical CargoWall/Thoth in audit/light mode,
 restores native workspace state, builds the pinned compatible nugs source and
 installs pinned Hermes 0.21.5 plus native tools. Hermes inspects the actual Bead,
 the attached workspace's runs, source worktrees and recipes. It chooses/reuses or

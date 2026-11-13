@@ -10,6 +10,15 @@ permissions:
   contents: read
   actions: read
 jobs:
+  off:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify observer-free runner has no observer pre-hooks
+        run: |
+          test -z "${OTEL_SERVICE_NAME:-}"
+          test -z "${TRACEPARENT:-}"
+          test ! -e /tmp/cargowall.log
+          test ! -e /tmp/cargowall-audit.json
   smoke:
     runs-on: ubuntu-24.04
     timeout-minutes: 5

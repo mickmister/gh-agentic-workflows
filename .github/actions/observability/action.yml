@@ -23,7 +23,7 @@ inputs:
     description: Cache Thoth instrumentation and dependencies
     default: 'true'
   secrets-to-redact:
-    description: 'JSON object of secret values forwarded to Thoth collector redaction. Callers should pass toJSON(secrets); GitHub log masking alone does not sanitize telemetry.'
+    description: 'JSON object explicitly enumerating the secrets used by the caller, forwarded to Thoth collector redaction. GitHub log masking alone does not sanitize telemetry.'
     default: '{"github_token":"${{ github.token }}"}'
   capture-stderr:
     description: Capture shell stderr content in telemetry
