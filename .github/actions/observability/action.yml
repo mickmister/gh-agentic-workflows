@@ -22,6 +22,18 @@ inputs:
   telemetry-cache:
     description: Cache Thoth instrumentation and dependencies
     default: 'true'
+  secrets-to-redact:
+    description: 'JSON object of secret values forwarded to Thoth collector redaction. Callers should pass toJSON(secrets); GitHub log masking alone does not sanitize telemetry.'
+    default: '{"github_token":"${{ github.token }}"}'
+  capture-stderr:
+    description: Capture shell stderr content in telemetry
+    default: 'false'
+  capture-pipes:
+    description: Capture shell pipe content in telemetry
+    default: 'false'
+  capture-genai-content:
+    description: Capture GenAI message content in telemetry
+    default: 'false'
   shutdown-timeout:
     description: Thoth shutdown budget in seconds
     default: '60'
@@ -49,12 +61,17 @@ runs:
       with:
         self_monitoring: 'false'
         cache: ${{ inputs.telemetry-cache }}
+        secrets_to_redact: ${{ inputs.secrets-to-redact }}
+        debug: ''
       env:
         OTEL_SERVICE_NAME: ${{ inputs.service-name }}
         OTEL_TRACES_EXPORTER: deferred
         OTEL_METRICS_EXPORTER: deferred
         OTEL_LOGS_EXPORTER: deferred
         OTEL_GITHUB_JOB_SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+        OTEL_SHELL_CONFIG_OBSERVE_STDERR: ${{ inputs.capture-stderr == 'true' && 'TRUE' || 'FALSE' }}
+        OTEL_SHELL_CONFIG_OBSERVE_PIPES: ${{ inputs.capture-pipes == 'true' && 'TRUE' || 'FALSE' }}
+        OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: ${{ inputs.capture-genai-content == 'true' && 'span_and_event' || 'no_content' }}
         OTEL_SHELL_CONFIG_INJECT_DEEP: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
         OTEL_SHELL_CONFIG_OBSERVE_SUBPROCESSES: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
         OTEL_SHELL_CONFIG_OBSERVE_SIGNALS: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
@@ -62,10 +79,16 @@ runs:
       shell: bash
       env:
         PROFILE: ${{ inputs.profile }}
-        SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+          SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+          CAPTURE_STDERR: ${{ inputs.capture-stderr }}
+          CAPTURE_PIPES: ${{ inputs.capture-pipes }}
+          CAPTURE_GENAI: ${{ inputs.capture-genai-content }}
       run: |
         case "$PROFILE" in
           light|full) ;;
           *) echo "::error::profile must be light or full"; exit 1 ;;
         esac
         [[ "$SHUTDOWN_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "::error::shutdown-timeout must be a positive integer"; exit 1; }
+        for value in "$CAPTURE_STDERR" "$CAPTURE_PIPES" "$CAPTURE_GENAI"; do
+          case "$value" in true|false) ;; *) echo '::error::capture inputs must be true or false'; exit 1 ;; esac
+        done
