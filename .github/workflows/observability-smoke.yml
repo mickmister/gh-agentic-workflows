@@ -95,29 +95,17 @@ jobs:
           app-id: ${{ secrets.AGENT_APP_ID }}
           private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
           storage-url: ${{ secrets.NUGS_STORAGE_URL }}
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: mickmister/workspace-nuggets
-          ref: b9f22101fd282e00b05973a7c0aec882c02dd811
-          token: ${{ steps.app-auth.outputs.source-token }}
-          path: .nugs-source
-          persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
-        with:
-          go-version-file: .nugs-source/go.mod
-          cache-dependency-path: .nugs-source/go.sum
       - name: Restore nugs context for after-the-fact execution links
         env:
           NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context }}
           NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
-        run: |
-          go build -C .nugs-source -o "$RUNNER_TEMP/nugs-observability" ./cmd/nugs
-          python3 .github/scripts/observability-smoke.py attach
+        run: python3 .github/scripts/observability-smoke.py attach
       - run: python3 -m pip install 'opentelemetry-proto==1.38.0'
       - name: Verify private payloads and absence of public payload artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           GC_OBSERVABILITY_TOKEN: ${{ steps.app-auth.outputs.storage-token }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
           S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
           S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
           S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}

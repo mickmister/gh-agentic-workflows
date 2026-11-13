@@ -261,7 +261,7 @@ def publish_nugs_link(receipt, env, binary, root, token):
         if result.returncode:
             if missing and result.stdout and json.loads(result.stdout).get('error', {}).get('code') == 'not_found':
                 return None
-            raise RuntimeError('private observability nugs publication failed')
+            raise RuntimeError('private observability nugs ' + '.'.join(args[:2]) + ' failed')
         return json.loads(result.stdout)
     context = command(['workspace', 'context'])
     if not re.fullmatch(r'ws-[0-9a-f]{32}', context['workspace_ref']):

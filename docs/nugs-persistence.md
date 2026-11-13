@@ -92,9 +92,9 @@ handoff argument, and no implicit binding change or local fallback occurs.
 
 ## Pinned npm nugs and native tools
 
-`.github/nugs-toolchain.lock.json` pins **`@mickmister/nugs@0.1.2` from npm**,
+`.github/nugs-toolchain.lock.json` pins **`@mickmister/nugs@0.1.3` from npm**,
 its exact public tarball URL, SHA-512 package integrity, native executable size
-and SHA-256, and source revision `39dd98b`. Bootstrap verifies the package bytes,
+and SHA-256, and source revision `b9f2210`. Bootstrap verifies the package bytes,
 name/version, and selected regular `package/binaries/linux-x64/nugs` member before
 running it; no npm lifecycle scripts execute and no additional Node runtime is
 needed by the Go worker. Archive expansion is bounded and archive members are

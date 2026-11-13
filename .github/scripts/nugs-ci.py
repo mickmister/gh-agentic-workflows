@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 SCRIPT = Path(__file__).resolve()
 LOCK = SCRIPT.parent.parent / "nugs-toolchain.lock.json"
 RESOURCE = "ci/persistence/proof.json"
+NPM_ARCHIVE_LIMIT = 64 * 1024 * 1024
 
 
 def require(value, message):
@@ -85,7 +86,7 @@ def verified_npm_binary(compressed, item):
     require(item.get("package") == "@mickmister/nugs" and
             re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", item.get("version", "")),
             "invalid pinned npm package/version")
-    require(0 < item["compressed_bytes"] <= 32 * 1024 * 1024 and
+    require(0 < item["compressed_bytes"] <= NPM_ARCHIVE_LIMIT and
             len(compressed) == item["compressed_bytes"] and
             "sha512-" + base64.b64encode(hashlib.sha512(compressed).digest()).decode() == item["integrity"],
             "npm tarball integrity mismatch")
@@ -114,7 +115,7 @@ def download_npm_binary(item):
         def redirect_request(self, *args, **kwargs):
             raise RuntimeError("npm tarball redirect refused")
     with urllib.request.build_opener(NoRedirect).open(url, timeout=90) as response:
-        packed = response.read(32 * 1024 * 1024 + 1)
+        packed = response.read(NPM_ARCHIVE_LIMIT + 1)
     return verified_npm_binary(packed, item)
 
 

@@ -34,7 +34,7 @@ the exact native worker steps are shared through YAML aliases. See
 [`observability.md`](observability.md) for secret redaction and payload storage.
 
 By default the workflow starts canonical CargoWall/Thoth in audit/light mode,
-restores native workspace state, builds the pinned compatible nugs source and
+restores native workspace state, uses integrity-pinned npm nugs 0.1.3, and
 installs pinned Hermes 0.21.5 plus native tools. Hermes inspects the actual Bead,
 the attached workspace's runs, source worktrees and recipes. It chooses/reuses or
 authors a provisional local setup action; a declared native Actions step executes

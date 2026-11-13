@@ -39,7 +39,7 @@ changed branch SHA fail with actionable, body-free diagnostics.
 
 ## Lifecycle and results
 
-The pinned npm `@mickmister/nugs@0.1.2` and unchanged native Beads/Dolt toolchain
+The pinned npm `@mickmister/nugs@0.1.3` and unchanged native Beads/Dolt toolchain
 restore the existing collection and stable registry attachment once at setup,
 records a started report, appends the assigned task's run note, and publishes a
 native checkpoint before agent work. Pinned GC/OpenCode use the verified isolated
