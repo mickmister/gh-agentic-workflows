@@ -121,7 +121,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq tmux jq lsof
-          python3 -m pip install 'uv==0.9.7'
+          python3 -m pip install 'uv==0.13.7'
           uv sync --project .hermes-runtime --frozen --no-dev --python 3.11
           go build -C .nugs-source -o "$RUNNER_TEMP/nugs-hermes" ./cmd/nugs
           python3 .github/scripts/nugs-source.py bootstrap
