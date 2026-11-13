@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -18,21 +19,19 @@ spec.loader.exec_module(transport)
 
 def attach():
     env = os.environ
-    seed = json.loads(env['NUGS_WORKSPACE_SEED'])
+    source_spec = importlib.util.spec_from_file_location('source', Path(__file__).with_name('nugs-source.py'))
+    source = importlib.util.module_from_spec(source_spec)
+    source_spec.loader.exec_module(source)
     binary = Path(env['RUNNER_TEMP']) / 'nugs-observability'
-    root = Path(env['RUNNER_TEMP']) / 'observability-workspace'
-    root.mkdir()
-    engine = Path.cwd()
-    subprocess.run(['git', 'config', '--global', 'credential.' + env['NUGS_STORAGE_URL'] + '.helper',
-                    '!python3 ' + str(engine / '.github/scripts/nugs-ci.py') + ' credential'], check=True)
-    result = subprocess.run([str(binary), 'workspace', 'attach', '--root', str(root),
-                            '--remote', env['NUGS_STORAGE_URL'], '--workspace-ref', seed['workspace_ref'],
-                            '--engagement', seed['engagement'], '--workspace', seed['workspace'],
-                            '--purpose', 'Private observability smoke'], capture_output=True, check=True)
-    if json.loads(result.stdout)['workspace_ref'] != seed['workspace_ref']:
-        raise RuntimeError('smoke workspace mismatch')
+    proof = source.SourceProof()
+    proof.bootstrap()
+    shutil.copyfile(binary, proof.bin / 'nugs')
+    proof.restore_into(proof.root, proof.base / 'collection', proof.handoff)
     with open(env['GITHUB_ENV'], 'a') as out:
-        out.write(f'GC_NUGS={binary}\nGC_WORKSPACE_ROOT={root}\n')
+        for key, value in {'GC_NUGS': proof.bin / 'nugs', 'GC_WORKSPACE_ROOT': proof.root,
+                           'HOME': proof.home, 'XDG_CONFIG_HOME': proof.home / '.config',
+                           'XDG_CACHE_HOME': proof.home / '.cache'}.items():
+            out.write(f'{key}={value}\n')
     print('Attached native nugs workspace for post-job receipt verification.')
 
 
@@ -72,6 +71,7 @@ def verify():
                     raise RuntimeError('private payload redaction assertion failed')
         if not count:
             raise RuntimeError('no useful trace spans retained')
+        transport.publish_nugs(receipt, env)
         print(f'{profile}: verified private payload/readback, firewall coverage, redaction and {count} trace spans.')
     result = subprocess.run(['gh', 'api', f'repos/{env["GITHUB_REPOSITORY"]}/actions/runs/{env["GITHUB_RUN_ID"]}/artifacts',
                              '--paginate', '--jq', '.artifacts[].name'], capture_output=True, check=True)
@@ -85,5 +85,6 @@ if __name__ == '__main__':
     try:
         {'attach': attach, 'verify': verify}[sys.argv[1]]()
     except Exception as error:
-        print(f'Private observability smoke failed ({type(error).__name__}); payload details withheld.', file=sys.stderr)
+        reason = str(error) if type(error) is RuntimeError else type(error).__name__
+        print(f'Private observability smoke failed ({reason}); payload details withheld.', file=sys.stderr)
         sys.exit(1)

@@ -281,5 +281,6 @@ if __name__ == '__main__':
             raise ValueError('unknown phase')
     except Exception as error:
         # SDK/provider bodies, destinations and configured secret values stay private.
-        print(f'Private observability {sys.argv[1]} failed ({type(error).__name__}); details withheld.', file=sys.stderr)
+        reason = str(error) if type(error) is RuntimeError else type(error).__name__
+        print(f'Private observability {sys.argv[1]} failed ({reason}); details withheld.', file=sys.stderr)
         sys.exit(1)

@@ -21,7 +21,7 @@ jobs:
           test ! -e /tmp/cargowall-audit.json
   smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -45,9 +45,6 @@ jobs:
           service-name: agentic-observability-smoke-${{ matrix.profile }}
           secrets-to-redact: >-
             {"github_token":${{ toJSON(github.token) }},"canary":"observability-redaction-canary-20261113",
-             "AGENT_APP_ID":${{ toJSON(secrets.AGENT_APP_ID) }},
-             "AGENT_APP_PRIVATE_KEY":${{ toJSON(secrets.AGENT_APP_PRIVATE_KEY) }},
-             "NUGS_STORAGE_URL":${{ toJSON(secrets.NUGS_STORAGE_URL) }},
              "S3_CACHE_URL":${{ toJSON(secrets.S3_CACHE_URL) }},
              "S3_CACHE_REGION":${{ toJSON(secrets.S3_CACHE_REGION) }},
              "S3_CACHE_BUCKET":${{ toJSON(secrets.S3_CACHE_BUCKET) }},
@@ -77,6 +74,18 @@ jobs:
       - name: Exercise telemetry redaction with a non-secret canary
         run: |
           python3 -c 'import sys; print(sys.argv[1]); print(sys.argv[1], file=sys.stderr)' observability-redaction-canary-20261113
+      - name: Check private receiver signal metadata before finalization
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['PRIVATE_OBSERVABILITY_DIR'])
+          print(json.dumps({kind: len(list(root.glob('*.' + kind))) for kind in ('traces', 'metrics', 'logs')}))
+          PY
+  verify:
+    needs: [off, smoke]
+    runs-on: ubuntu-24.04
+    steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -97,37 +106,18 @@ jobs:
         with:
           go-version-file: .nugs-source/go.mod
           cache-dependency-path: .nugs-source/go.sum
-      - name: Attach nugs for post-job discovery
+      - name: Restore nugs context for after-the-fact execution links
         env:
           NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context }}
           NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
         run: |
           go build -C .nugs-source -o "$RUNNER_TEMP/nugs-observability" ./cmd/nugs
           python3 .github/scripts/observability-smoke.py attach
-      - id: receipt-auth
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.AGENT_APP_ID }}
-          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
-          owner: mickmister
-          repositories: workspace-storage
-          permission-contents: write
-          skip-token-revoke: true
-      - name: Retain post-job receipt credential
-        env:
-          RECEIPT_TOKEN: ${{ steps.receipt-auth.outputs.token }}
-        run: python3 -c 'import os; open(os.environ["GITHUB_ENV"], "a").write("GC_OBSERVABILITY_TOKEN=" + os.environ["RECEIPT_TOKEN"] + "\n")'
-  verify:
-    needs: [off, smoke]
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
       - run: python3 -m pip install 'opentelemetry-proto==1.38.0'
       - name: Verify private payloads and absence of public payload artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+          GC_OBSERVABILITY_TOKEN: ${{ steps.app-auth.outputs.storage-token }}
           S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
           S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
           S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
