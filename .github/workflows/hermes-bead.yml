@@ -92,7 +92,7 @@ jobs:
     steps:
       # Remote syntax preserves CargoWall/Thoth pre-hooks, including same-repo use.
       - name: Observe the actual agent workflow
-        uses: mickmister/gh-agentic-workflows/.github/actions/observability@21431225f0ca075031d9669cf14f3085872458de
+        uses: mickmister/gh-agentic-workflows/.github/actions/observability@df3ff46af3df426763752343bf39014d9a3b47d6
         with:
           profile: ${{ inputs.observability }}
           s3-url: ${{ secrets.S3_CACHE_URL }}
