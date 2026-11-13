@@ -4,6 +4,10 @@ run-name: Hermes ${{ inputs.bead }} · ${{ github.run_id }}
 on:
   workflow_dispatch:
     inputs:
+      workspace-context:
+        description: Native nugs workspace handoff JSON for this invocation (identity, collection and checkpoint)
+        required: true
+        type: string
       bead:
         description: Bead in the configured workspace
         required: true
@@ -24,6 +28,9 @@ on:
         default: true
   workflow_call:
     inputs:
+      workspace-context:
+        required: true
+        type: string
       bead:
         required: true
         type: string
@@ -75,19 +82,26 @@ jobs:
     if: ${{ inputs.observability != 'off' }}
     runs-on: ubuntu-24.04
     concurrency: &bead-concurrency
-      group: hermes-${{ fromJSON(vars.NUGS_WORKSPACE_SEED).workspace_ref }}-${{ inputs.bead }}
+      group: hermes-${{ fromJSON(inputs.workspace-context).workspace_ref }}-${{ inputs.bead }}
       cancel-in-progress: false
     env: &workspace-environment
       BEAD_ID: ${{ inputs.bead }}
       BEAD_INSTRUCTIONS: ${{ inputs.instructions }}
-      NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
+      NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context }}
       NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
     steps:
       # Remote syntax preserves CargoWall/Thoth pre-hooks, including same-repo use.
       - name: Observe the actual agent workflow
-        uses: mickmister/gh-agentic-workflows/.github/actions/observability@e30a2bdcff7fae43b1d42d6417456033086738c9
+        uses: mickmister/gh-agentic-workflows/.github/actions/observability@21431225f0ca075031d9669cf14f3085872458de
         with:
           profile: ${{ inputs.observability }}
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
           telemetry-cache: ${{ inputs.telemetry-cache }}
           service-name: hermes-bead-trial
           network-mode: audit
@@ -328,6 +342,24 @@ jobs:
           test "$EXIT" = success
           test "$SYNC" = success
           test "$PERSIST" = success
+      # Issue at finalization, not startup: native App tokens expire after one
+      # hour and worker turns intentionally have no host execution budget.
+      - name: Authorize post-job nugs receipt publication
+        id: observability-auth
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: workspace-storage
+          permission-contents: write
+          skip-token-revoke: true
+      - name: Retain scoped token until private transport post-hook
+        if: ${{ always() && steps.observability-auth.outcome == 'success' }}
+        env:
+          RECEIPT_TOKEN: ${{ steps.observability-auth.outputs.token }}
+        run: python3 -c 'import os; open(os.environ["GITHUB_ENV"], "a").write("GC_OBSERVABILITY_TOKEN=" + os.environ["RECEIPT_TOKEN"] + "\n")'
   # A step-level condition does not suppress remote action pre-hooks. Keep the
   # off job free of observer action references, and reuse the exact worker steps.
   hermes-unobserved:

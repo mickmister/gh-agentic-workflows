@@ -1,7 +1,7 @@
-"""Source-repository persistence entrypoint with a stable, trusted workspace seed.
+"""Source-repository persistence entrypoint with an explicit native workspace context.
 
-The seed is setup policy from caller repository configuration, never a comment or
-PR payload. Its original checkpoint may stay unchanged across invocations: native
+The context is selected by the authorized workflow caller, never inferred from a
+comment or PR payload. Its original checkpoint may stay unchanged across invocations: native
 restore verifies that snapshot and sync incorporates the current peer history.
 """
 import importlib.util
@@ -18,7 +18,7 @@ spec.loader.exec_module(ci)
 
 def configure_source(env):
     raw = env.get("NUGS_WORKSPACE_SEED", "")
-    ci.require(0 < len(raw.encode()) <= 8192, "configure the caller repository NUGS_WORKSPACE_SEED once")
+    ci.require(0 < len(raw.encode()) <= 8192, "supply native workspace context for this invocation")
     seed = json.loads(raw)
     ci.require(isinstance(seed, dict), "workspace seed must be an object")
     ci.validate_handoff(seed, seed.get("workspace"), seed.get("collection_id"), seed.get("dolt_commit"))
