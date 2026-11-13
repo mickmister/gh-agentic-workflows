@@ -79,10 +79,10 @@ runs:
       shell: bash
       env:
         PROFILE: ${{ inputs.profile }}
-          SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
-          CAPTURE_STDERR: ${{ inputs.capture-stderr }}
-          CAPTURE_PIPES: ${{ inputs.capture-pipes }}
-          CAPTURE_GENAI: ${{ inputs.capture-genai-content }}
+        SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+        CAPTURE_STDERR: ${{ inputs.capture-stderr }}
+        CAPTURE_PIPES: ${{ inputs.capture-pipes }}
+        CAPTURE_GENAI: ${{ inputs.capture-genai-content }}
       run: |
         case "$PROFILE" in
           light|full) ;;
