@@ -148,8 +148,13 @@ native workspace links published/read back after capture, downloaded public ZIPs
 containing only valid traceparent IDs, disabled firewall summary and empty cleanup
 tails. It consumed the released integrity-pinned npm nugs 0.1.3 without compiling
 nugs. The earlier redaction-only smoke above is separate historical evidence.
-That run predates the zero-artifact requirement and does not establish acceptance
-of the new trace-context transport. `task-3vt.50.33.9` owns the stricter cutover.
+That run predates the zero-artifact requirement. The stricter cutover passed hosted
+[43512494500](https://github.com/mickmister/gh-agentic-workflows/actions/runs/43512494500):
+off/light/full, private signal/firewall readback and redaction, 11 spans/profile,
+all trace spans sharing the S3-persisted execution trace ID, late native workspace
+links, suppressed public firewall output, and **exactly zero workflow artifacts**.
+The GitHub artifacts API was independently checked after completion and returned
+zero. `task-3vt.50.33.9` records the cutover evidence.
 
 Standalone receipts and checkpoint handoffs use
 [`workflow-files`](private-workflow-storage.md), not workflow artifacts. The

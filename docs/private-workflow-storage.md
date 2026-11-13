@@ -28,3 +28,15 @@ runner and requires zero workflow artifacts. `private-storage-policy.yml` runs
 transport boundary tests and rejects artifact actions in workflow/composite YAML.
 Private S3 lifecycle/retention belongs to the storage configuration; the action
 does not delete objects or change bucket policy.
+
+Hosted acceptance:
+
+- [43512494628](https://github.com/mickmister/gh-agentic-workflows/actions/runs/43512494628):
+  independent producer/consumer runners passed private S3 file upload, download,
+  digest/run/attempt checks and zero-artifact assertion.
+- [43512757112](https://github.com/mickmister/gh-agentic-workflows/actions/runs/43512757112):
+  the actual native Gas City checkpoint start/resume fixture passed through S3,
+  including the native duplicate-resume check. Post-run artifact count was zero.
+- [43512494500](https://github.com/mickmister/gh-agentic-workflows/actions/runs/43512494500):
+  off/light/full observability and S3-only shared trace context passed, with zero
+  workflow artifacts and verified late nugs associations.
