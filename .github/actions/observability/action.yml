@@ -1,6 +1,30 @@
 name: Agentic workflow observability
 description: Start CargoWall before Thoth, with configurable job telemetry and automatic reverse-order cleanup
 inputs:
+  job-instance:
+    description: Unique job instance within the run attempt (include matrix dimensions)
+    default: ${{ github.job }}
+  s3-url:
+    description: Existing S3_CACHE_URL
+    required: true
+  s3-region:
+    description: Existing S3_CACHE_REGION
+    required: true
+  s3-bucket:
+    description: Existing S3_CACHE_BUCKET
+    required: true
+  s3-prefix:
+    description: Existing S3_CACHE_PREFIX
+    required: true
+  s3-path-style:
+    description: Existing S3_CACHE_PATH_STYLE
+    required: true
+  s3-access-key-id:
+    description: Existing S3_CACHE_ACCESS_KEY_ID
+    required: true
+  s3-secret-access-key:
+    description: Existing S3_CACHE_SECRET_ACCESS_KEY
+    required: true
   profile:
     description: 'Thoth tracing profile: light (shell/step telemetry) or full (deep injection and subprocess/signal observation)'
     default: light
@@ -46,6 +70,18 @@ runs:
   steps:
     # A remote composite's nested pre-hooks retain this order. Do not use
     # ./path invocation: local actions cannot run their pre-hooks.
+    - name: Prepare private payload destination
+      uses: mickmister/gh-agentic-workflows/.github/actions/private-observability@vk/46e5-vd-multi-instanc
+      with:
+        job-instance: ${{ inputs.job-instance }}
+        secrets-to-redact: ${{ inputs.secrets-to-redact }}
+        s3-url: ${{ inputs.s3-url }}
+        s3-region: ${{ inputs.s3-region }}
+        s3-bucket: ${{ inputs.s3-bucket }}
+        s3-prefix: ${{ inputs.s3-prefix }}
+        s3-path-style: ${{ inputs.s3-path-style }}
+        s3-access-key-id: ${{ inputs.s3-access-key-id }}
+        s3-secret-access-key: ${{ inputs.s3-secret-access-key }}
     - name: Audit job network traffic
       id: network
       uses: mickmister/cargowall-action@a561148bc2fde00ab8667080ed54d2ef717e44b1
@@ -53,6 +89,7 @@ runs:
         start-phase: pre
         mode: ${{ inputs.network-mode }}
         offline: 'true'
+        audit-summary: 'false'
         fail-on-unsupported: ${{ inputs.fail-on-unsupported }}
         allowed-hosts: ${{ inputs.allowed-hosts }}
         allowed-cidrs: ${{ inputs.allowed-cidrs }}
@@ -65,9 +102,11 @@ runs:
         debug: ''
       env:
         OTEL_SERVICE_NAME: ${{ inputs.service-name }}
-        OTEL_TRACES_EXPORTER: deferred
-        OTEL_METRICS_EXPORTER: deferred
-        OTEL_LOGS_EXPORTER: deferred
+        OTEL_TRACES_EXPORTER: otlp
+        OTEL_METRICS_EXPORTER: otlp
+        OTEL_LOGS_EXPORTER: otlp
+        OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+        OTEL_EXPORTER_OTLP_ENDPOINT: ${{ env.PRIVATE_OBSERVABILITY_ENDPOINT }}
         OTEL_GITHUB_JOB_SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
         OTEL_SHELL_CONFIG_OBSERVE_STDERR: ${{ inputs.capture-stderr == 'true' && 'TRUE' || 'FALSE' }}
         OTEL_SHELL_CONFIG_OBSERVE_PIPES: ${{ inputs.capture-pipes == 'true' && 'TRUE' || 'FALSE' }}

@@ -1,11 +1,11 @@
 name: Observability action smoke
 on:
-  push:
-    branches: ['**']
-    paths:
-      - .github/actions/observability/**
-      - .github/workflows/observability-smoke.yml
   workflow_dispatch:
+    inputs:
+      workspace-context:
+        description: Native nugs workspace context JSON for this private storage acceptance run
+        required: true
+        type: string
 permissions:
   contents: read
   actions: read
@@ -34,8 +34,27 @@ jobs:
         timeout-minutes: 2
         with:
           profile: ${{ matrix.profile }}
+          job-instance: smoke-${{ matrix.profile }}
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
           service-name: agentic-observability-smoke-${{ matrix.profile }}
-          secrets-to-redact: '{"github_token":"${{ github.token }}","canary":"observability-redaction-canary-20261113"}'
+          secrets-to-redact: >-
+            {"github_token":${{ toJSON(github.token) }},"canary":"observability-redaction-canary-20261113",
+             "AGENT_APP_ID":${{ toJSON(secrets.AGENT_APP_ID) }},
+             "AGENT_APP_PRIVATE_KEY":${{ toJSON(secrets.AGENT_APP_PRIVATE_KEY) }},
+             "NUGS_STORAGE_URL":${{ toJSON(secrets.NUGS_STORAGE_URL) }},
+             "S3_CACHE_URL":${{ toJSON(secrets.S3_CACHE_URL) }},
+             "S3_CACHE_REGION":${{ toJSON(secrets.S3_CACHE_REGION) }},
+             "S3_CACHE_BUCKET":${{ toJSON(secrets.S3_CACHE_BUCKET) }},
+             "S3_CACHE_PREFIX":${{ toJSON(secrets.S3_CACHE_PREFIX) }},
+             "S3_CACHE_PATH_STYLE":${{ toJSON(secrets.S3_CACHE_PATH_STYLE) }},
+             "S3_CACHE_ACCESS_KEY_ID":${{ toJSON(secrets.S3_CACHE_ACCESS_KEY_ID) }},
+             "S3_CACHE_SECRET_ACCESS_KEY":${{ toJSON(secrets.S3_CACHE_SECRET_ACCESS_KEY) }}}
       - name: Verify profile survives into caller steps
         env:
           PROFILE: ${{ matrix.profile }}
@@ -53,17 +72,67 @@ jobs:
           test "$OTEL_SHELL_CONFIG_OBSERVE_PIPES" = FALSE
           test "$OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT" = no_content
           curl --fail --silent --show-error --header "Authorization: Bearer $GH_TOKEN" https://api.github.com/zen
-          test -s /tmp/cargowall.log
+          test ! -s /tmp/cargowall.log
+          test -s "$PRIVATE_OBSERVABILITY_DIR/firewall/cargowall.log"
       - name: Exercise telemetry redaction with a non-secret canary
         run: |
           python3 -c 'import sys; print(sys.argv[1]); print(sys.argv[1], file=sys.stderr)' observability-redaction-canary-20261113
-      - name: Preserve network evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          name: cargowall-smoke-${{ matrix.profile }}-${{ github.run_attempt }}
-          path: |
-            /tmp/cargowall-audit.json
-            /tmp/cargowall.log
-          retention-days: 7
-          if-no-files-found: error
+          persist-credentials: false
+      - id: app-auth
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mickmister/workspace-nuggets
+          ref: b9f22101fd282e00b05973a7c0aec882c02dd811
+          token: ${{ steps.app-auth.outputs.source-token }}
+          path: .nugs-source
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: .nugs-source/go.mod
+          cache-dependency-path: .nugs-source/go.sum
+      - name: Attach nugs for post-job discovery
+        env:
+          NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: |
+          go build -C .nugs-source -o "$RUNNER_TEMP/nugs-observability" ./cmd/nugs
+          python3 .github/scripts/observability-smoke.py attach
+      - id: receipt-auth
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: workspace-storage
+          permission-contents: write
+          skip-token-revoke: true
+      - name: Retain post-job receipt credential
+        env:
+          RECEIPT_TOKEN: ${{ steps.receipt-auth.outputs.token }}
+        run: python3 -c 'import os; open(os.environ["GITHUB_ENV"], "a").write("GC_OBSERVABILITY_TOKEN=" + os.environ["RECEIPT_TOKEN"] + "\n")'
+  verify:
+    needs: [off, smoke]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install 'opentelemetry-proto==1.38.0'
+      - name: Verify private payloads and absence of public payload artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: python3 .github/scripts/observability-smoke.py verify
