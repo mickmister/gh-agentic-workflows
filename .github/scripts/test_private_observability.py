@@ -170,6 +170,8 @@ class PrivateObservabilityTest(unittest.TestCase):
         pointer = json.loads(json.loads(result.stdout)['document']['text'])
         self.assertEqual(pointer['workspace_ref'], context['workspace_ref'])
         self.assertEqual(pointer['sha256'], receipt['sha256'])
+        self.assertNotIn('members', pointer)
+        self.assertEqual(pointer['member_count'], len(receipt['members']))
         other = Path(self.enterContext(tempfile.TemporaryDirectory()))
         attached = subprocess.run([binary, 'workspace', 'attach', '--root', str(other), '--remote', str(remote),
                     '--engagement', 'test', '--workspace', 'another-context', '--purpose', 'Other relevant context'],

@@ -270,7 +270,9 @@ def publish_nugs_link(receipt, env, binary, root, token):
     command(['runs', 'create', '--run', run, '--purpose', 'Hosted workflow observability',
              *(['--task', env['BEAD_ID']] if env.get('BEAD_ID') else [])])
     name = f'observability/attempts/{receipt["github_run_attempt"]}/{receipt["github_job_instance"]}.json'
-    pointer = dict(receipt, workspace_ref=context['workspace_ref'], association='execution-used-workspace',
+    pointer = dict({key: value for key, value in receipt.items() if key != 'members'},
+                   member_count=len(receipt['members']),
+                   workspace_ref=context['workspace_ref'], association='execution-used-workspace',
                    bucket=env['S3_CACHE_BUCKET'], prefix=env['S3_CACHE_PREFIX'].strip('/'))
     content = json.dumps(pointer, sort_keys=True).encode()
     prior = command(['runs', 'read', '--run', run, '--name', name], missing=True)

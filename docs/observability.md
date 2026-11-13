@@ -18,6 +18,11 @@ workflow call site, explicitly enumerate only the secrets it uses:
       {"github_token":${{ toJSON(github.token) }},
        "AGENT_APP_PRIVATE_KEY":${{ toJSON(secrets.AGENT_APP_PRIVATE_KEY) }},
        "INFERENCE_API_KEY":${{ toJSON(secrets.INFERENCE_API_KEY) }},
+       "S3_CACHE_URL":${{ toJSON(secrets.S3_CACHE_URL) }},
+       "S3_CACHE_REGION":${{ toJSON(secrets.S3_CACHE_REGION) }},
+       "S3_CACHE_BUCKET":${{ toJSON(secrets.S3_CACHE_BUCKET) }},
+       "S3_CACHE_PREFIX":${{ toJSON(secrets.S3_CACHE_PREFIX) }},
+       "S3_CACHE_PATH_STYLE":${{ toJSON(secrets.S3_CACHE_PATH_STYLE) }},
        "S3_CACHE_ACCESS_KEY_ID":${{ toJSON(secrets.S3_CACHE_ACCESS_KEY_ID) }},
        "S3_CACHE_SECRET_ACCESS_KEY":${{ toJSON(secrets.S3_CACHE_SECRET_ACCESS_KEY) }}}
     capture-stderr: 'false'
@@ -128,6 +133,11 @@ post-job publication; the transport revokes it afterward.
 `observability-smoke.yml` accepts an explicit `workspace-context` for its native
 nugs association fixture (not telemetry startup), and checks
 off/light/full, actual S3 readback, decoded signal redaction, retained spans,
-firewall coverage and absence of public payload artifacts. This transport is
-under acceptance in `task-3vt.50.33.7`; the older redaction-only smoke above does
-not establish private destination acceptance.
+firewall coverage and absence of public payload artifacts. Hosted acceptance
+[43503001367](https://github.com/mickmister/gh-agentic-workflows/actions/runs/43503001367)
+passed off/light/full plus verification: private S3 payload/receipt readback,
+decoded canary/token/PEM-marker checks, 11 retained trace spans per profile,
+native workspace links published/read back after capture, downloaded public ZIPs
+containing only valid traceparent IDs, disabled firewall summary and empty cleanup
+tails. It consumed the released integrity-pinned npm nugs 0.1.3 without compiling
+nugs. The earlier redaction-only smoke above is separate historical evidence.
