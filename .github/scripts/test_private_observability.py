@@ -93,6 +93,32 @@ class PrivateObservabilityTest(unittest.TestCase):
             transport.publish(self.root, self.env, store)
         self.assertFalse((self.root / 'receipt.json').exists())
 
+    def test_resource_event_and_binary_text_redaction_preserves_valid_trace_and_identity(self):
+        try:
+            from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        except ImportError:
+            self.skipTest('OTLP SDK decoder required for structured redaction fixture')
+        message = ExportTraceServiceRequest()
+        resource = message.resource_spans.add()
+        attribute = resource.resource.attributes.add(key='private.resource')
+        attribute.value.string_value = 'canary-private-value'
+        span = resource.scope_spans.add().spans.add(name='useful work', trace_id=b'x' * 16, span_id=b'y' * 8,
+                                                  start_time_unix_nano=123, end_time_unix_nano=456)
+        event = span.events.add(name='private event')
+        event.attributes.add(key='generated.token').value.bytes_value = b'ghs_' + b'z' * 36
+        self.signals(message.SerializeToString())
+        receipt = transport.publish(self.root, self.env, transport.cache.DirectoryStore(self.root / 'objects'))
+        payload = (self.root / 'objects' / receipt['payload_key']).read_bytes()
+        with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
+            _, _, body = archive.extractfile('otel/one.traces').read().split(b'\n', 2)
+        recovered = ExportTraceServiceRequest.FromString(gzip.decompress(body))
+        self.assertEqual(recovered.resource_spans[0].resource.attributes[0].value.string_value, '***')
+        recovered_span = recovered.resource_spans[0].scope_spans[0].spans[0]
+        self.assertEqual(recovered_span.name, 'useful work')
+        self.assertEqual(recovered_span.trace_id, b'x' * 16)
+        self.assertEqual(recovered_span.start_time_unix_nano, 123)
+        self.assertEqual(recovered_span.events[0].attributes[0].value.bytes_value, b'***')
+
     def test_relocation_keeps_daemon_fd_private_and_public_cleanup_tail_empty(self):
         source = self.root / 'public.log'
         with source.open('w') as daemon:

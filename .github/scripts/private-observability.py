@@ -36,14 +36,16 @@ def secret_fragments(raw):
     return sorted({part for v in values.values() for part in [v, *v.splitlines()] if part}, key=len, reverse=True)
 
 
+def replace_secrets(text, fragments):
+    for value in fragments:
+        text = text.replace(value, '***')
+    return re.sub(r'gh[pousr]_[A-Za-z0-9_.-]{20,}|github_pat_[A-Za-z0-9_]{30,}', '***', text)
+
+
 def redact_text(data, fragments):
-    def replace(text):
-        for value in fragments:
-            text = text.replace(value, '***')
-        return re.sub(r'gh[pousr]_[A-Za-z0-9_.-]{20,}|github_pat_[A-Za-z0-9_]{30,}', '***', text)
     def strings(value):
         if isinstance(value, str):
-            return replace(value)
+            return replace_secrets(value, fragments)
         if isinstance(value, dict):
             return {key: strings(item) for key, item in value.items()}
         if isinstance(value, list):
@@ -58,7 +60,7 @@ def redact_text(data, fragments):
             try:
                 lines.append(json.dumps(strings(json.loads(line))))
             except json.JSONDecodeError:
-                lines.append(replace(line))
+                lines.append(replace_secrets(line, fragments))
         return ('\n'.join(lines) + '\n').encode()
 
 
@@ -140,18 +142,61 @@ def relocate_firewall(root, source=Path('/tmp/cargowall.log')):
         source.touch(mode=0o600)
 
 
+def normalize_otlp(raw, kind, fragments, failure):
+    # Upstream transforms span/log attributes but can miss resource/event fields.
+    # Preserve the protobuf schema and numeric/ID fields while scrubbing all text.
+    try:
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+        from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
+        from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
+    except ImportError:
+        raise RuntimeError(failure + ' (OTLP decoder unavailable)') from None
+    types = {'traces': ExportTraceServiceRequest, 'metrics': ExportMetricsServiceRequest, 'logs': ExportLogsServiceRequest}
+    try:
+        message = types[kind].FromString(raw)
+        def scrub(message):
+            for field, value in message.ListFields():
+                if field.type == field.TYPE_MESSAGE:
+                    for child in value if field.is_repeated else [value]:
+                        scrub(child)
+                elif field.type == field.TYPE_STRING:
+                    if field.is_repeated:
+                        for index, item in enumerate(value):
+                            value[index] = replace_secrets(item, fragments)
+                    else:
+                        setattr(message, field.name, replace_secrets(value, fragments))
+                elif field.type == field.TYPE_BYTES and field.name == 'bytes_value':
+                    try:
+                        message.bytes_value = replace_secrets(value.decode(), fragments).encode()
+                    except UnicodeDecodeError:
+                        pass
+        scrub(message)
+        return message.SerializeToString()
+    except Exception:
+        raise RuntimeError(failure) from None
+
+
 def package(root, env):
     fragments = secret_fragments(env.get('INPUT_SECRETS-TO-REDACT', '{}'))
     files = {}
     for kind in ('traces', 'metrics', 'logs'):
         for path in root.glob('*.' + kind):
             data = path.read_bytes()
-            _, encoding, body = data.split(b'\n', 2)
+            content_type, encoding, body = data.split(b'\n', 2)
             raw = gzip.decompress(body) if encoding == b'gzip' else body
-            if any(value.encode() in raw for value in fragments if len(value) >= 8):
-                raise RuntimeError('known redaction value remains in OTLP; publication refused')
-            if re.search(rb'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:RSA )?PRIVATE KEY-----', raw):
-                raise RuntimeError('credential marker remains in OTLP; publication refused')
+            def residual(raw):
+                if any(value.encode() in raw for value in fragments if len(value) >= 8):
+                    return 'known redaction value remains in OTLP; publication refused'
+                if re.search(rb'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:RSA )?PRIVATE KEY-----', raw):
+                    return 'credential marker remains in OTLP; publication refused'
+            failure = residual(raw)
+            if failure:
+                if content_type != b'application/x-protobuf':
+                    raise RuntimeError('unsupported OTLP redaction content type')
+                raw = normalize_otlp(raw, kind, fragments, failure)
+                if residual(raw):
+                    raise RuntimeError(failure)
+                data = content_type + b'\n' + encoding + b'\n' + (gzip.compress(raw) if encoding == b'gzip' else raw)
             files['otel/' + path.name] = data
     if not any(name.endswith('.traces') for name in files):
         raise RuntimeError('no private trace payload was received')

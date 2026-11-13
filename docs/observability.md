@@ -42,6 +42,11 @@ export. GitHub's `***` log masking or a later `::add-mask::` command is not a
 replacement for collector redaction. Exact configured values and recognized token
 patterns do not guarantee redaction of arbitrary encodings or derived credentials.
 Runtime-generated secrets need an appropriate redaction mechanism too.
+The private publisher adds schema-preserving protobuf redaction when its residual
+check finds configured values or credential markers in fields missed upstream
+(including resource/event fields). It uses the installed native Thoth SDK decoder,
+preserves trace/span IDs and numeric timing fields, then rechecks before upload.
+Malformed, unsupported or still-sensitive payloads refuse publication.
 
 The hosted smoke includes a public non-secret canary in command arguments and
 stdout/stderr. Acceptance requires downloading final signals, decoding the OTLP
