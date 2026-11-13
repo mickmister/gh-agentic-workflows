@@ -1,0 +1,92 @@
+name: Reusable native workspace persistence proof
+
+on:
+  workflow_call:
+    inputs:
+      implementation_ref:
+        type: string
+        required: true
+      workspace:
+        type: string
+        required: true
+      workspace_context:
+        description: Endpoint-free handoff from a verified bound native publication
+        type: string
+        required: true
+      collection_id:
+        type: string
+        required: true
+      dolt_commit:
+        type: string
+        required: true
+      expect_issue:
+        type: string
+        required: true
+      expect_previous_run:
+        type: string
+        default: ''
+      worker_mode:
+        type: string
+        default: success
+    secrets:
+      NUGS_STORAGE_URL:
+        required: true
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  persistence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: nugs-persistence-${{ inputs.workspace }}
+      cancel-in-progress: false
+    env:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      NUGS_WORKSPACE: ${{ inputs.workspace }}
+      NUGS_WORKSPACE_CONTEXT: ${{ inputs.workspace_context }}
+      NUGS_COLLECTION_ID: ${{ inputs.collection_id }}
+      NUGS_DOLT_COMMIT: ${{ inputs.dolt_commit }}
+      NUGS_EXPECT_ISSUE: ${{ inputs.expect_issue }}
+      NUGS_EXPECT_PREVIOUS_RUN: ${{ inputs.expect_previous_run }}
+      NUGS_WORKER_MODE: ${{ inputs.worker_mode }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/gh-agentic-workflows
+          ref: ${{ inputs.implementation_ref }}
+          persist-credentials: false
+      - name: Create and verify scoped App installation tokens
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - name: Fetch and verify pinned native tools
+        run: python3 .github/scripts/nugs-ci.py bootstrap
+      - name: Restore exact workspace before work
+        id: restore
+        run: python3 .github/scripts/nugs-ci.py restore
+      - name: Bounded synthetic worker
+        id: worker
+        continue-on-error: true
+        run: python3 .github/scripts/nugs-ci.py worker
+      - name: Publish and independently verify after success or ordinary failure
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        id: persistence
+        env:
+          NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
+        run: python3 .github/scripts/nugs-ci.py finalize
+      - name: Preserve worker and persistence failures independently
+        if: always()
+        env:
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+          PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
+        run: |
+          test "$WORKER_OUTCOME" = success
+          test "$PERSISTENCE_OUTCOME" = success

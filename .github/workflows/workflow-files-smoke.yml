@@ -1,0 +1,69 @@
+name: Private S3 cross-job file handoff
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  producer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Create run-bound checkpoint fixture
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          (Path(os.environ['RUNNER_TEMP']) / 'checkpoint.json').write_text(json.dumps({
+              'run': os.environ['GITHUB_RUN_ID'], 'attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'state': 'native-checkpoint-handoff-fixture'}))
+          PY
+      - uses: ./.github/actions/workflow-files
+        with:
+          name: checkpoint-fixture
+          path: ${{ runner.temp }}/checkpoint.json
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+  consumer:
+    needs: producer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/workflow-files
+        with:
+          operation: get
+          name: checkpoint-fixture
+          directory: ${{ runner.temp }}/restored-checkpoint
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+      - name: Verify checkpoint identity and zero workflow artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          value = json.loads((Path(os.environ['RUNNER_TEMP']) / 'restored-checkpoint/checkpoint.json').read_text())
+          assert value == {'run': os.environ['GITHUB_RUN_ID'], 'attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+                           'state': 'native-checkpoint-handoff-fixture'}
+          response = json.loads(subprocess.check_output(['gh', 'api',
+              f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{os.environ["GITHUB_RUN_ID"]}/artifacts']))
+          assert response['total_count'] == 0 and not response['artifacts']
+          print('Independent fresh-runner S3 checkpoint handoff verified; zero workflow artifacts.')
+          PY

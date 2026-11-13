@@ -1,0 +1,78 @@
+name: Pinned Gas City OpenCode scheduling smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      execution:
+        description: Optional execution slug to exercise the event orchestrator instead of the provider probe
+        default: ''
+        type: string
+      request:
+        description: Request or follow-up for the event orchestrator
+        default: ''
+        type: string
+      event_key:
+        description: Optional event idempotency key
+        default: ''
+        type: string
+      fail_worker:
+        description: Exercise ordinary worker failure recovery
+        default: false
+        type: boolean
+      comment_reference:
+        description: Trusted source caller comment identity; central runner independently verifies it
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gascity:
+    if: ${{ inputs.execution == '' && inputs.comment_reference == '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Gas City system prerequisites
+        run: sudo apt-get update && sudo apt-get install -y tmux jq lsof
+      - name: Verify pinned GC-managed OpenCode tool execution
+        env:
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: python3 .github/scripts/gascity-provider-smoke.py --base "$RUNNER_TEMP/gascity-provider"
+      - name: Retain body-free scheduling receipt
+        uses: ./.github/actions/workflow-files
+        with:
+          name: gascity-provider-${{ github.run_id }}
+          path: ${{ runner.temp }}/gascity-provider/receipt.json
+          if-no-files-found: error
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+  event:
+    if: ${{ inputs.execution != '' || inputs.comment_reference != '' }}
+    uses: ./.github/workflows/gascity-event.yml
+    with:
+      execution: ${{ inputs.execution }}
+      request: ${{ inputs.request }}
+      event_key: ${{ inputs.event_key }}
+      fail_worker: ${{ inputs.fail_worker }}
+      comment_reference: ${{ inputs.comment_reference }}
+    secrets:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+      INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+      INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

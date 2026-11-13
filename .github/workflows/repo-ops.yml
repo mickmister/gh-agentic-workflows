@@ -1,0 +1,202 @@
+name: Central read-only repository review
+
+on:
+  workflow_dispatch:
+    inputs:
+      goals:
+        description: 'Optional Goals pilot JSON: run, purpose, pipeline, turn, finished; request supplies the turn text'
+        default: ''
+        type: string
+      workspace_context:
+        description: Endpoint-free trusted workspace handoff JSON
+        required: true
+        type: string
+      workspace:
+        required: true
+        type: string
+      collection_id:
+        required: true
+        type: string
+      dolt_commit:
+        required: true
+        type: string
+      task:
+        required: true
+        type: string
+      target_repository:
+        required: true
+        type: string
+      target_branch:
+        required: true
+        type: string
+      target_sha:
+        required: true
+        type: string
+      read_path:
+        default: README.md
+        type: string
+      request:
+        required: true
+        type: string
+      resume_from:
+        description: 'Optional RUN_ID-ATTEMPT@REPORT_VERSION from a completed native-session report'
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      workspace_context:
+        required: true
+        type: string
+      operation:
+        default: repository-review
+        type: string
+      manifest_name:
+        default: ''
+        type: string
+      manifest_version:
+        default: ''
+        type: string
+      selected_tasks:
+        default: ''
+        type: string
+      implementation_ref:
+        required: true
+        type: string
+      workspace:
+        required: true
+        type: string
+      collection_id:
+        required: true
+        type: string
+      dolt_commit:
+        required: true
+        type: string
+      task:
+        required: true
+        type: string
+      target_repository:
+        type: string
+      target_branch:
+        type: string
+      target_sha:
+        type: string
+      read_path:
+        default: README.md
+        type: string
+      request:
+        required: true
+        type: string
+      resume_from:
+        default: ''
+        type: string
+    secrets:
+      NUGS_STORAGE_URL:
+        required: true
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+      INFERENCE_BASE_URL:
+        required: true
+      INFERENCE_API_KEY:
+        required: true
+      CF_ACCESS_CLIENT_ID:
+        required: true
+      CF_ACCESS_CLIENT_SECRET:
+        required: true
+      TARGET_READ_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  goals:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.goals != '' }}
+    uses: ./.github/workflows/qrspi-goals.yml
+    with:
+      run: ${{ fromJSON(inputs.goals).run }}
+      purpose: ${{ fromJSON(inputs.goals).purpose }}
+      pipeline: ${{ fromJSON(inputs.goals).pipeline }}
+      turn: ${{ fromJSON(inputs.goals).turn }}
+      finished: ${{ fromJSON(inputs.goals).finished }}
+      request: ${{ inputs.request }}
+    secrets: inherit
+  review:
+    if: ${{ inputs.goals == '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: nugs-persistence-${{ inputs.workspace }}
+      cancel-in-progress: false
+    env:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      TARGET_READ_TOKEN: ${{ secrets.TARGET_READ_TOKEN }}
+      NUGS_WORKSPACE: ${{ inputs.workspace }}
+      NUGS_WORKSPACE_CONTEXT: ${{ inputs.workspace_context }}
+      NUGS_COLLECTION_ID: ${{ inputs.collection_id }}
+      NUGS_DOLT_COMMIT: ${{ inputs.dolt_commit }}
+      NUGS_EXPECT_ISSUE: ${{ inputs.task }}
+      REPO_OPS_TARGET_REPOSITORY: ${{ inputs.target_repository }}
+      REPO_OPS_TARGET_BRANCH: ${{ inputs.target_branch }}
+      REPO_OPS_TARGET_SHA: ${{ inputs.target_sha }}
+      REPO_OPS_READ_PATH: ${{ inputs.read_path }}
+      REPO_OPS_REQUEST: ${{ inputs.request }}
+      REPO_OPS_OPERATION: ${{ inputs.operation || 'repository-review' }}
+      REPO_OPS_MANIFEST_NAME: ${{ inputs.manifest_name }}
+      REPO_OPS_MANIFEST_VERSION: ${{ inputs.manifest_version }}
+      REPO_OPS_SELECTED_TASKS: ${{ inputs.selected_tasks }}
+      REPO_OPS_RESUME_FROM: ${{ inputs.resume_from }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/gh-agentic-workflows
+          ref: ${{ inputs.implementation_ref || github.sha }}
+          persist-credentials: false
+      - name: Create and verify scoped App installation tokens
+        id: app-auth
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - name: Authenticate the target installation for repository review
+        if: ${{ (inputs.operation == '' || inputs.operation == 'repository-review') && env.TARGET_READ_TOKEN == '' }}
+        id: target-auth
+        uses: ./.github/actions/target-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          repository: ${{ inputs.target_repository }}
+          access: read
+      - name: Install scheduler prerequisites
+        run: sudo apt-get update && sudo apt-get install -y tmux jq lsof
+      - name: Verify pinned native workspace toolchain
+        run: python3 .github/scripts/repo-ops.py bootstrap
+      - name: Restore exact native workspace
+        id: restore
+        run: python3 .github/scripts/repo-ops.py restore
+      - name: GC-managed immutable target review
+        id: worker
+        continue-on-error: true
+        env:
+          TARGET_READ_TOKEN: ${{ secrets.TARGET_READ_TOKEN || steps.target-auth.outputs.token }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: python3 .github/scripts/repo-ops.py worker
+      - name: Final native publication and independent verification
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        id: persistence
+        env:
+          NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
+        run: python3 .github/scripts/repo-ops.py finalize
+      - name: Check work and persistence independently
+        if: always()
+        env:
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+          PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
+        run: |
+          test "$WORKER_OUTCOME" = success
+          test "$PERSISTENCE_OUTCOME" = success

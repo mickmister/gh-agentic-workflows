@@ -1,0 +1,381 @@
+name: Hermes handles a Bead
+run-name: Hermes ${{ inputs.bead }} · ${{ github.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace-context:
+        description: Native nugs workspace handoff JSON for this invocation (identity, collection and checkpoint)
+        required: true
+        type: string
+      bead:
+        description: Bead in the configured workspace
+        required: true
+        default: task-48v.2
+        type: string
+      instructions:
+        description: Additional context for this invocation (no credentials)
+        default: ''
+        type: string
+      observability:
+        description: 'off: no observers; light: shell/step timing + firewall; full: deep instrumentation + firewall'
+        type: choice
+        default: light
+        options: [off, light, full]
+      telemetry-cache:
+        description: Reuse cached observability tooling (disable to measure a cold setup)
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      workspace-context:
+        required: true
+        type: string
+      bead:
+        required: true
+        type: string
+      instructions:
+        default: ''
+        type: string
+      observability:
+        default: light
+        type: string
+      telemetry-cache:
+        default: true
+        type: boolean
+    secrets:
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+      NUGS_STORAGE_URL:
+        required: true
+      INFERENCE_BASE_URL:
+        required: true
+      INFERENCE_API_KEY:
+        required: true
+      CF_ACCESS_CLIENT_ID:
+        required: true
+      CF_ACCESS_CLIENT_SECRET:
+        required: true
+      S3_CACHE_URL:
+        required: true
+      S3_CACHE_REGION:
+        required: true
+      S3_CACHE_BUCKET:
+        required: true
+      S3_CACHE_PREFIX:
+        required: true
+      S3_CACHE_PATH_STYLE:
+        required: true
+      S3_CACHE_ACCESS_KEY_ID:
+        required: true
+      S3_CACHE_SECRET_ACCESS_KEY:
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  hermes:
+    if: ${{ inputs.observability != 'off' }}
+    runs-on: ubuntu-24.04
+    concurrency: &bead-concurrency
+      group: hermes-${{ fromJSON(inputs.workspace-context).workspace_ref }}-${{ inputs.bead }}
+      cancel-in-progress: false
+    env: &workspace-environment
+      BEAD_ID: ${{ inputs.bead }}
+      BEAD_INSTRUCTIONS: ${{ inputs.instructions }}
+      NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context }}
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+    steps:
+      # Remote syntax preserves CargoWall/Thoth pre-hooks, including same-repo use.
+      - name: Observe the actual agent workflow
+        uses: mickmister/gh-agentic-workflows/.github/actions/observability@f9afecee042cf261a344a4488a65735083b4353a
+        with:
+          profile: ${{ inputs.observability }}
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          telemetry-cache: ${{ inputs.telemetry-cache }}
+          service-name: hermes-bead-trial
+          network-mode: audit
+          secrets-to-redact: >-
+            {"github_token":${{ toJSON(github.token) }},
+             "AGENT_APP_ID":${{ toJSON(secrets.AGENT_APP_ID) }},
+             "AGENT_APP_PRIVATE_KEY":${{ toJSON(secrets.AGENT_APP_PRIVATE_KEY) }},
+             "NUGS_STORAGE_URL":${{ toJSON(secrets.NUGS_STORAGE_URL) }},
+             "INFERENCE_BASE_URL":${{ toJSON(secrets.INFERENCE_BASE_URL) }},
+             "INFERENCE_API_KEY":${{ toJSON(secrets.INFERENCE_API_KEY) }},
+             "CF_ACCESS_CLIENT_ID":${{ toJSON(secrets.CF_ACCESS_CLIENT_ID) }},
+             "CF_ACCESS_CLIENT_SECRET":${{ toJSON(secrets.CF_ACCESS_CLIENT_SECRET) }},
+             "S3_CACHE_URL":${{ toJSON(secrets.S3_CACHE_URL) }},
+             "S3_CACHE_REGION":${{ toJSON(secrets.S3_CACHE_REGION) }},
+             "S3_CACHE_BUCKET":${{ toJSON(secrets.S3_CACHE_BUCKET) }},
+             "S3_CACHE_PREFIX":${{ toJSON(secrets.S3_CACHE_PREFIX) }},
+             "S3_CACHE_PATH_STYLE":${{ toJSON(secrets.S3_CACHE_PATH_STYLE) }},
+             "S3_CACHE_ACCESS_KEY_ID":${{ toJSON(secrets.S3_CACHE_ACCESS_KEY_ID) }},
+             "S3_CACHE_SECRET_ACCESS_KEY":${{ toJSON(secrets.S3_CACHE_SECRET_ACCESS_KEY) }}}
+          capture-stderr: 'false'
+          capture-pipes: 'false'
+          capture-genai-content: 'false'
+      - &checkout-engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - &app-auth
+        id: app-auth
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - &tool-auth
+        id: tool-auth
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: github-ultimate,gh-agentic-workflows,workspace-nuggets
+          permission-contents: write
+          permission-workflows: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-actions: write
+      - &checkout-nugs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mickmister/workspace-nuggets
+          ref: b9f22101fd282e00b05973a7c0aec882c02dd811
+          token: ${{ steps.app-auth.outputs.source-token }}
+          path: .nugs-source
+          fetch-depth: 0
+          persist-credentials: false
+      - &checkout-hermes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NousResearch/hermes-agent
+          ref: f97608f178d1ffeca59860195ab7da295f7c8e5f
+          path: .hermes-runtime
+          persist-credentials: false
+      - &setup-node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - &install-native
+        name: Install pinned native runtime and persistence prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq lsof
+          python3 -m pip install 'uv==0.13.7'
+          uv sync --project .hermes-runtime --frozen --no-dev --python 3.11
+          python3 .github/scripts/nugs-source.py bootstrap
+      - &restore
+        id: restore
+        name: Restore the real workspace and native CLI environment
+        env:
+          GH_TOKEN: ${{ steps.tool-auth.outputs.token }}
+        run: |
+          python3 - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("source", ".github/scripts/nugs-source.py")
+          source = importlib.util.module_from_spec(spec); spec.loader.exec_module(source)
+          proof = source.SourceProof()
+          proof.restore()
+          tools = proof.base / 'worktrees'; tools.mkdir()
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              for k, v in {'HOME':proof.home, 'XDG_CONFIG_HOME':proof.home/'.config', 'GC_WORKSPACE_ROOT':proof.root,
+                           'GC_ATTEMPT_ROOT':proof.base, 'GC_SOURCE_WORKTREES':tools, 'GC_NUGS':proof.bin/'nugs',
+                           'GC_ENGINE_ROOT':Path.cwd(), 'GC_NUGS_SOURCE':Path.cwd()/'.nugs-source',
+                           'GC_SETUP_SLOT':Path.cwd()/'.agentic/active-setup/action.yml',
+                           'HERMES_BINARY':Path.cwd()/'.hermes-runtime/.venv/bin/hermes',
+                           'BD_NO_HOOKS':'1', 'BEADS_DOLT_SHARED_SERVER':'false'}.items(): out.write(f'{k}={v}\n')
+          with open(os.environ['GITHUB_PATH'], 'a') as out: out.write(str(proof.bin)+'\n')
+          PY
+      - &configure-tools
+        name: Configure native tools and dedicated source worktrees
+        env:
+          GH_TOKEN: ${{ steps.tool-auth.outputs.token }}
+        run: |
+          gh auth setup-git
+          # gh installs a github.com helper; retain the more-specific native
+          # storage helper so source and storage tokens remain separate.
+          git config --global --add "credential.${NUGS_STORAGE_URL}.helper" ''
+          git config --global --add "credential.${NUGS_STORAGE_URL}.helper" "!python3 $GC_ENGINE_ROOT/.github/scripts/nugs-ci.py credential"
+          git config --global user.name 'Hermes Agent'
+          git config --global user.email 'hermes-agent@users.noreply.github.com'
+          git worktree add -b "hermes/${BEAD_ID}-${GITHUB_RUN_ID}" "$GC_SOURCE_WORKTREES/gh-agentic-workflows" HEAD
+          git -C .nugs-source worktree add -b "hermes/${BEAD_ID}-${GITHUB_RUN_ID}" "$GC_SOURCE_WORKTREES/workspace-nuggets" HEAD
+          bd --directory "$GC_WORKSPACE_ROOT" show "$BEAD_ID" --json > "$GC_ATTEMPT_ROOT/assigned-bead.json"
+          python3 - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('tools', '.github/scripts/opencode-provider-smoke.py')
+          tools = importlib.util.module_from_spec(spec); spec.loader.exec_module(tools)
+          tools.download_binary(Path(os.environ['GC_NUGS']).parent, 'gas_city')
+          tools.download_binary(Path(os.environ['GC_NUGS']).parent)
+          PY
+          mkdir -p .agentic/active-setup
+          cp .github/hermes/noop-setup.yml .agentic/active-setup/action.yml
+      - &verify-launcher
+        name: Verify native launcher and deferred-message contract
+        run: NUGS_TEST_BINARY="$GC_NUGS" node --test .github/scripts/test_hermes_bead.mjs
+      - &setup-agent
+        id: setup-agent
+        name: Hermes receives the Bead and upserts its setup
+        continue-on-error: true
+        env: &agent-environment
+          GH_TOKEN: ${{ steps.tool-auth.outputs.token }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: |
+          node .github/scripts/hermes-bead-config.mjs setup
+          node .github/scripts/hermes-orchestrator.mjs "$GC_ATTEMPT_ROOT/setup.json"
+      - &setup
+        id: setup
+        name: Execute the setup action selected or authored by Hermes
+        if: ${{ steps.setup-agent.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.agentic/active-setup
+        env:
+          GH_TOKEN: ${{ steps.tool-auth.outputs.token }}
+      - &work
+        id: work
+        name: Continue the working Hermes session with the setup result
+        if: ${{ steps.setup-agent.outcome == 'success' }}
+        continue-on-error: true
+        env: *agent-environment
+        run: |
+          export GC_SETUP_OUTCOME='${{ steps.setup.outcome }}'
+          node .github/scripts/hermes-bead-config.mjs work
+          node .github/scripts/hermes-orchestrator.mjs "$GC_ATTEMPT_ROOT/work.json"
+      - &exit
+        id: exit
+        name: Ask the working agent the separately saved exit follow-up
+        if: ${{ always() && steps.setup-agent.outcome != 'skipped' && steps.restore.outcome == 'success' }}
+        continue-on-error: true
+        env: *agent-environment
+        run: |
+          export GC_SETUP_OUTCOME='${{ steps.setup.outcome }}'
+          export GC_WORK_OUTCOME='${{ steps.work.outcome }}'
+          node .github/scripts/hermes-bead-config.mjs exit
+          node .github/scripts/hermes-orchestrator.mjs "$GC_ATTEMPT_ROOT/exit.json"
+      - &sync
+        id: sync
+        name: Synchronize native Beads
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: ${{ env.GC_WORKSPACE_ROOT }}
+        env: *agent-environment
+        run: nugs beads sync > "$GC_ATTEMPT_ROOT/final-native-sync.json"
+      - &persist
+        id: persist
+        name: Retain private diagnostics independently of synchronization
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        working-directory: ${{ env.GC_WORKSPACE_ROOT }}
+        env: *agent-environment
+        run: |
+          # Public engine artifacts must not contain private prompts/native chats.
+          # Ordinary per-attempt object upload, not an execution queue or CAS store.
+          files=()
+          for file in setup work exit assigned-bead.json final-native-sync.json; do
+            if test -e "$GC_ATTEMPT_ROOT/$file"; then files+=("$file"); fi
+          done
+          tar -czf "$RUNNER_TEMP/hermes-diagnostics.tgz" -C "$GC_ATTEMPT_ROOT" \
+            --exclude='*/hermes-home' "${files[@]}"
+          export AWS_ACCESS_KEY_ID="$S3_CACHE_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$S3_CACHE_SECRET_ACCESS_KEY"
+          export AWS_EC2_METADATA_DISABLED=true AWS_MAX_ATTEMPTS=2
+          export AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+          if test "$S3_CACHE_PATH_STYLE" = true; then aws configure set default.s3.addressing_style path; fi
+          aws --endpoint-url "$S3_CACHE_URL" s3 cp "$RUNNER_TEMP/hermes-diagnostics.tgz" \
+            "s3://$S3_CACHE_BUCKET/$S3_CACHE_PREFIX/hermes-trials/$BEAD_ID/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/diagnostics.tgz" \
+            --region "$S3_CACHE_REGION" --only-show-errors
+          aws --endpoint-url "$S3_CACHE_URL" s3 cp \
+            "s3://$S3_CACHE_BUCKET/$S3_CACHE_PREFIX/hermes-trials/$BEAD_ID/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/diagnostics.tgz" \
+            "$RUNNER_TEMP/hermes-diagnostics-readback.tgz" --region "$S3_CACHE_REGION" --only-show-errors
+          cmp "$RUNNER_TEMP/hermes-diagnostics.tgz" "$RUNNER_TEMP/hermes-diagnostics-readback.tgz"
+          digest=$(sha256sum "$RUNNER_TEMP/hermes-diagnostics.tgz" | cut -d ' ' -f 1)
+          jq -n --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg sha256 "$digest" \
+            --arg object "s3://$S3_CACHE_BUCKET/$S3_CACHE_PREFIX/hermes-trials/$BEAD_ID/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/diagnostics.tgz" \
+            '{github_run:$run,github_attempt:$attempt,private_diagnostics:$object,sha256:$sha256,readback_verified:true}' | \
+            nugs runs write --run "hermes-${BEAD_ID//./-}" \
+              --name "orchestration/attempts/r$GITHUB_RUN_ID-a$GITHUB_RUN_ATTEMPT/diagnostics.json" --file -
+      - &preserve-outcomes
+        name: Preserve turn and persistence outcomes
+        if: always()
+        env:
+          SETUP_AGENT: ${{ steps.setup-agent.outcome }}
+          SETUP: ${{ steps.setup.outcome }}
+          WORK: ${{ steps.work.outcome }}
+          EXIT: ${{ steps.exit.outcome }}
+          SYNC: ${{ steps.sync.outcome }}
+          PERSIST: ${{ steps.persist.outcome }}
+        run: |
+          test "$SETUP_AGENT" = success
+          test "$SETUP" = success
+          test "$WORK" = success
+          test "$EXIT" = success
+          test "$SYNC" = success
+          test "$PERSIST" = success
+      # Issue at finalization, not startup: native App tokens expire after one
+      # hour and worker turns intentionally have no host execution budget.
+      - name: Authorize post-job nugs receipt publication
+        id: observability-auth
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: workspace-storage
+          permission-contents: write
+          skip-token-revoke: true
+      - name: Retain scoped token until private transport post-hook
+        if: ${{ always() && steps.observability-auth.outcome == 'success' }}
+        env:
+          RECEIPT_TOKEN: ${{ steps.observability-auth.outputs.token }}
+        run: python3 -c 'import os; open(os.environ["GITHUB_ENV"], "a").write("GC_OBSERVABILITY_TOKEN=" + os.environ["RECEIPT_TOKEN"] + "\n")'
+  # A step-level condition does not suppress remote action pre-hooks. Keep the
+  # off job free of observer action references, and reuse the exact worker steps.
+  hermes-unobserved:
+    if: ${{ inputs.observability == 'off' }}
+    runs-on: ubuntu-24.04
+    concurrency: *bead-concurrency
+    env: *workspace-environment
+    steps:
+      - *checkout-engine
+      - *app-auth
+      - *tool-auth
+      - *checkout-nugs
+      - *checkout-hermes
+      - *setup-node
+      - *install-native
+      - *restore
+      - *configure-tools
+      - *verify-launcher
+      - *setup-agent
+      - *setup
+      - *work
+      - *exit
+      - *sync
+      - *persist
+      - *preserve-outcomes

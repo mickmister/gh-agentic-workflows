@@ -1,0 +1,60 @@
+name: Pinned project environment worker
+run-name: Project environment ${{ github.run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      launch:
+        description: Pinned schema-1 project/source launch JSON (trusted operator only)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  environment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: .engine
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Resolve pinned projects and source members
+        env:
+          LAUNCH: ${{ inputs.launch }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TOKEN: ${{ secrets.AGENTIC_SOURCE_TOKEN }}
+          AGENTIC_SOURCE_REPOSITORIES: ${{ vars.AGENTIC_SOURCE_REPOSITORIES }}
+        run: |
+          node -e 'require("fs").writeFileSync("launch.json",process.env.LAUNCH);'
+          node .engine/.github/scripts/project-environment.mjs launch.json "$GITHUB_WORKSPACE"
+      - name: Execute pinned project setup
+        uses: ./.agentic/active-setup
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_SESSION_TOKEN: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+      - name: Record setup execution outcome
+        run: |
+          node -e 'const fs=require("fs"),p=".agentic/environment-receipt.json",r=JSON.parse(fs.readFileSync(p));r.phase="setup-executed-not-coding-acceptance";r.workflow_sha=process.env.GITHUB_SHA;fs.writeFileSync(p,JSON.stringify(r,null,2));'
+      - uses: ./.engine/.github/actions/workflow-files
+        if: always()
+        with:
+          name: project-environment-${{ github.run_attempt }}
+          path: .agentic/environment-receipt.json
+          if-no-files-found: warn
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}

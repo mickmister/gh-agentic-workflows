@@ -1,0 +1,51 @@
+name: Scoped source and nugs App authentication
+description: Generate independent installation tokens from the configured automation App
+inputs:
+  app-id:
+    required: true
+    description: GitHub App ID supplied from the caller secret
+  private-key:
+    required: true
+    description: GitHub App private-key PEM supplied from the caller secret
+  storage-url:
+    required: true
+    description: Private storage location, verified without logging it
+outputs:
+  source-token:
+    description: Short-lived token restricted to the three source repositories
+    value: ${{ steps.source.outputs.token }}
+  storage-token:
+    description: Short-lived token restricted to workspace storage
+    value: ${{ steps.storage.outputs.token }}
+runs:
+  using: composite
+  steps:
+    - id: source
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: mickmister
+        repositories: github-ultimate,gh-agentic-workflows,workspace-nuggets
+        permission-contents: write
+        permission-workflows: write
+        permission-pull-requests: write
+        permission-issues: write
+        permission-actions: read
+    - id: storage
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: mickmister
+        repositories: workspace-storage
+        permission-contents: write
+    - name: Verify installation identity and repository boundaries
+      shell: bash
+      env:
+        SOURCE_APP_TOKEN: ${{ steps.source.outputs.token }}
+        STORAGE_APP_TOKEN: ${{ steps.storage.outputs.token }}
+        SOURCE_APP_SLUG: ${{ steps.source.outputs.app-slug }}
+        STORAGE_APP_SLUG: ${{ steps.storage.outputs.app-slug }}
+        NUGS_STORAGE_URL: ${{ inputs.storage-url }}
+      run: python3 "$GITHUB_ACTION_PATH/../../scripts/nugs-app-auth.py"

@@ -1,0 +1,7 @@
+name: Provisional no-op setup
+description: Default slot supplies no project setup; Hermes may replace it for its task
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: 'true'

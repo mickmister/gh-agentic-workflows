@@ -1,0 +1,5 @@
+{
+  "inputs": ["config.md", "dialogue.json", {"name": "goals.md", "optional": true}, {"name": "question.json", "optional": true}],
+  "outputs": ["goals.md", "question.json"],
+  "validator": "assets/checks/goals.mjs"
+}

@@ -1,0 +1,70 @@
+name: Native workspace persistence smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      invocation_mode:
+        description: Stable source-caller setup, or explicit checkpoint development harness
+        default: source
+        type: choice
+        options: [source, checkpoint]
+      workspace:
+        description: Workspace handle from the verified handoff
+        required: false
+        type: string
+      workspace_context:
+        description: Endpoint-free trusted workspace handoff JSON
+        required: false
+        type: string
+      collection_id:
+        description: Exact native collection identity
+        required: false
+        type: string
+      dolt_commit:
+        description: Exact verified native checkpoint
+        required: false
+        type: string
+      expect_issue:
+        description: Existing issue to read after native restore
+        required: false
+        type: string
+      expect_previous_run:
+        description: Prior proof run to recover (empty for first run)
+        default: ''
+        type: string
+      worker_mode:
+        description: Exercise success or intentional ordinary failure
+        default: success
+        type: choice
+        options: [success, fail-worker, reject-push, concurrent-peer]
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    if: ${{ inputs.invocation_mode == 'checkpoint' }}
+    uses: ./.github/workflows/nugs-persistence.yml
+    with:
+      implementation_ref: ${{ github.sha }}
+      workspace: ${{ inputs.workspace }}
+      workspace_context: ${{ inputs.workspace_context }}
+      collection_id: ${{ inputs.collection_id }}
+      dolt_commit: ${{ inputs.dolt_commit }}
+      expect_issue: ${{ inputs.expect_issue }}
+      expect_previous_run: ${{ inputs.expect_previous_run }}
+      worker_mode: ${{ inputs.worker_mode }}
+    secrets:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+  source-proof:
+    if: ${{ inputs.invocation_mode == 'source' }}
+    uses: ./.github/workflows/nugs-source.yml
+    with:
+      worker_mode: ${{ inputs.worker_mode }}
+      expect_previous_run: ${{ inputs.expect_previous_run }}
+    secrets:
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}

@@ -1,0 +1,169 @@
+name: Document-backed QRSPI Goals
+
+on:
+  workflow_dispatch:
+    inputs:
+      run:
+        description: Stable run slug; reuse for clarification turns
+        required: true
+        type: string
+      purpose:
+        description: Stable purpose; identical across turns
+        required: true
+        type: string
+      pipeline:
+        description: Select route before dialogue
+        required: true
+        type: choice
+        options: [quick, full]
+      turn:
+        description: Unique turn slug; reuse only for identical input retries
+        required: true
+        type: string
+      request:
+        description: Operator-supplied intent or clarification answer
+        required: true
+        type: string
+      finished:
+        description: Explicitly finished articulating Goals
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      run:
+        required: true
+        type: string
+      purpose:
+        required: true
+        type: string
+      pipeline:
+        required: true
+        type: string
+      turn:
+        required: true
+        type: string
+      request:
+        required: true
+        type: string
+      finished:
+        default: false
+        type: boolean
+    secrets:
+      NUGS_STORAGE_URL:
+        required: true
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+      INFERENCE_BASE_URL:
+        required: true
+      INFERENCE_API_KEY:
+        required: true
+      CF_ACCESS_CLIENT_ID:
+        required: true
+      CF_ACCESS_CLIENT_SECRET:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  goals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: qrspi-goals-${{ inputs.run }}
+      cancel-in-progress: false
+    env:
+      NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      GC_PACK: packs/qrspi
+      GC_FORMULA: qrspi-goals
+      GC_RUN: ${{ inputs.run }}
+      GC_PURPOSE: ${{ inputs.purpose }}
+      GC_PIPELINE: ${{ inputs.pipeline }}
+      GC_TURN: ${{ inputs.turn }}
+      GC_REQUEST: ${{ inputs.request }}
+      GC_FINISHED: ${{ inputs.finished }}
+      GC_NUGS: ${{ github.workspace }}/nugs-run
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Verify pack transport and artifact checks
+        run: node --test .github/scripts/test_gascity_pack.mjs
+      - id: app-auth
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - name: Checkout trusted run-helper source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/workspace-nuggets
+          ref: fe654bde035bc105e2a7c21810ec483d6ed51570
+          token: ${{ steps.app-auth.outputs.source-token }}
+          path: nugs-source
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: nugs-source/go.mod
+      - name: Build pilot run helpers from pinned source
+        working-directory: nugs-source
+        run: go build -o "$GC_NUGS" ./cmd/nugs
+      - name: Install session prerequisites
+        run: sudo apt-get update && sudo apt-get install -y tmux jq lsof
+      - name: Install existing pinned persistence toolchain
+        run: python3 .github/scripts/nugs-source.py bootstrap
+      - name: Install locked native GC and fresh-session provider tools
+        run: |
+          python3 - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("tools", ".github/scripts/opencode-provider-smoke.py")
+          tools = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(tools)
+          directory = Path(os.environ["RUNNER_TEMP"]) / ("nugs-ci-" + os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]) / "bin"
+          tools.download_binary(directory, "gas_city")
+          tools.download_binary(directory)
+          with open(os.environ["GITHUB_ENV"], "a") as stream:
+              stream.write("GC_BINARY=" + str(directory / "gc") + "\n")
+              stream.write("OPENCODE_BINARY=" + str(directory / "opencode") + "\n")
+          tools.command([str(directory / "gc"), "lint", "packs/qrspi", "--json"], Path.cwd(), os.environ)
+          PY
+      - id: restore
+        name: Restore and synchronize workspace
+        run: python3 .github/scripts/nugs-source.py restore
+      - id: worker
+        name: Run one bounded Goals turn
+        continue-on-error: true
+        env:
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: node .github/scripts/gascity-pack.mjs run
+      - id: persistence
+        name: Verify published receipt recovery
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json
+          spec = importlib.util.spec_from_file_location("source", ".github/scripts/nugs-source.py")
+          source = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(source)
+          proof = source.SourceProof()
+          assert proof.nugs("beads", "sync")["publication"]["verified"]
+          report = json.loads((proof.base / "pack-report.json").read_text())
+          recovered = proof.nugs("documents", "read", "--name", report["receipt"]["name"])["document"]
+          assert recovered["version"] == report["receipt"]["version"]
+          PY
+      - name: Preserve worker and persistence outcomes
+        if: always()
+        env:
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+          PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
+        run: |
+          test "$WORKER_OUTCOME" = success
+          test "$PERSISTENCE_OUTCOME" = success
