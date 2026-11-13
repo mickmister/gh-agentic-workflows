@@ -159,14 +159,6 @@ jobs:
           recovered = proof.nugs("documents", "read", "--name", report["receipt"]["name"])["document"]
           assert recovered["version"] == report["receipt"]["version"]
           PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
-        with:
-          name: qrspi-goals-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/pack-report.json
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/pack-recovery.json
-          if-no-files-found: warn
       - name: Preserve worker and persistence outcomes
         if: always()
         env:

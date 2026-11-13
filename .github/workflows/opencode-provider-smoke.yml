@@ -22,8 +22,16 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: python3 .github/scripts/opencode-provider-smoke.py --base "$RUNNER_TEMP/opencode-provider"
       - name: Retain body-free OpenCode receipt
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: ./.github/actions/workflow-files
         with:
           name: opencode-provider-${{ github.run_id }}
           path: ${{ runner.temp }}/opencode-provider/receipt.json
           if-no-files-found: error
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}

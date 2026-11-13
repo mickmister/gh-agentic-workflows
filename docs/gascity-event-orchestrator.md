@@ -50,7 +50,8 @@ request text is rejected. A failed event remains retryable.
 - Worker context uses supported OpenCode native export/import. Continuation checks
   both preserved message IDs and recovery of a prior nonce from conversation history.
 - Execution and report documents live under `ci/gascity/` in nugs. State updates use
-  expected-version CAS. Local reports/recovery receipts are also Actions artifacts.
+  expected-version CAS. Workflow artifacts are forbidden; use the native durable
+  records and private S3 for file bundles or cross-job handoffs.
 - GC is stopped before capture. Ordinary worker failure retains pending work; final
   persistence independently restores the workspace and reads the exact checkpoint.
 - Completion uses the native `gc convoy control <finalizer>` operation and checks

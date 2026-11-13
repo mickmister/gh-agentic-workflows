@@ -105,9 +105,28 @@ def serve(root):
     server.server_close()
 
 
-def prepare(env):
-    cache.S3(env)  # Validate explicit existing settings before any capture starts.
+def trace_context(env):
+    repository, run, attempt = env['GITHUB_REPOSITORY'], env['GITHUB_RUN_ID'], env['GITHUB_RUN_ATTEMPT']
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository) or not run.isdigit() or not attempt.isdigit():
+        raise ValueError('invalid trace context execution identity')
+    identity = f'{repository}/{run}-{attempt}'
+    # All jobs independently derive identical content, so ordinary concurrent
+    # PUTs agree without a first-writer race or an artifact coordination service.
+    trace = hashlib.sha256(('github-actions-trace-v1:' + identity).encode()).hexdigest()[:32]
+    parent = hashlib.sha256(('github-actions-parent-v1:' + identity).encode()).hexdigest()[:16]
+    return f'observability/github/{identity}/trace-context.json', {
+        'schema_version': 1, 'repository': repository, 'github_run_id': run,
+        'github_run_attempt': attempt, 'traceparent': f'00-{trace}-{parent}-01'}
+
+
+def prepare(env, store=None):
+    store = store or cache.S3(env)
     secret_fragments(env.get('INPUT_SECRETS-TO-REDACT', '{}'))
+    context_key, context = trace_context(env)
+    content = json.dumps(context, sort_keys=True).encode()
+    store.put(context_key, content)
+    if store.get(context_key, len(content)) != content:
+        raise RuntimeError('private trace context readback failed')
     root = Path(tempfile.mkdtemp(prefix='private-observability-', dir=env['RUNNER_TEMP']))
     with (root / 'receiver.log').open('wb') as log:
         child = subprocess.Popen([sys.executable, str(SCRIPT), 'serve', str(root)],
@@ -128,6 +147,8 @@ def prepare(env):
     with open(env['GITHUB_ENV'], 'a') as out:
         out.write(f'PRIVATE_OBSERVABILITY_DIR={root}\n')
         out.write(f'PRIVATE_OBSERVABILITY_ENDPOINT=http://127.0.0.1:{ready["port"]}\n')
+        out.write(f'PRIVATE_OBSERVABILITY_TRACEPARENT={context["traceparent"]}\n')
+        out.write(f'PRIVATE_OBSERVABILITY_TRACE_CONTEXT_KEY={context_key}\n')
     print('Private OTLP receiver ready; payloads will not use Actions artifacts.')
     return child
 
@@ -232,7 +253,9 @@ def publish(root, env, store=None):
                'github_job_instance': job,
                'source_sha': env.get('GITHUB_SHA'), 'payload_key': key + '/payload.tgz',
                'sha256': hashlib.sha256(payload).hexdigest(), 'bytes': len(payload), 'members': members,
-               'verified': True, 'captured_at_unix': time.time()}
+                'verified': True, 'captured_at_unix': time.time()}
+    context_key, context = trace_context(env)
+    receipt.update(trace_context_key=context_key, trace_id=context['traceparent'].split('-')[1])
     manifest = json.dumps(receipt, sort_keys=True).encode()
     store.put(key + '/receipt.json', manifest)
     if store.get(key + '/receipt.json', len(manifest)) != manifest:

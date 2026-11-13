@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       root_id: ${{ steps.checkpoint.outputs.root_id }}
+      checkpoint_attempt: ${{ steps.checkpoint.outputs.attempt }}
     steps:
       - uses: actions/checkout@v4
       - name: Install prerequisites
@@ -32,12 +33,20 @@ jobs:
           echo "Native Dolt archive: $snapshot_bytes bytes"
           root_id="$(jq -r '.root_id' "$memory/pr-smoke/checkpoint.json")"
           echo "root_id=$root_id" >> "$GITHUB_OUTPUT"
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           tar -czf /tmp/qrspi-handoff.tar.gz -C "$memory" pr-smoke
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/workflow-files
         with:
           name: native-gascity-checkpoint
           path: /tmp/qrspi-handoff.tar.gz
-          retention-days: 7
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
   resume:
     needs: start
     runs-on: ubuntu-latest
@@ -49,11 +58,21 @@ jobs:
           sudo apt-get install -y -qq tmux jq
       - name: Install pinned Gas City, Beads, Dolt
         run: bash poc/scripts/install-gascity.sh
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/workflow-files
         with:
+          operation: get
           name: native-gascity-checkpoint
-          path: /tmp
-      - name: Restore checkpoint artifact
+          source-attempt: ${{ needs.start.outputs.checkpoint_attempt }}
+          directory: /tmp
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+      - name: Restore private S3 checkpoint bundle
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/qrspi-checkpoints"

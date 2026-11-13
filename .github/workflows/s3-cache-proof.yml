@@ -39,9 +39,16 @@ jobs:
         run: python3 .github/scripts/s3-cache-proof.py "$RUNNER_TEMP/s3-proof/result.json"
       - name: Preserve metadata-only proof result
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: ./.github/actions/workflow-files
         with:
           name: s3-cache-proof-${{ github.run_attempt }}
           path: ${{ runner.temp }}/s3-proof/result.json
-          retention-days: 7
           if-no-files-found: error
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}

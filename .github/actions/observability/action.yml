@@ -71,7 +71,7 @@ runs:
     # A remote composite's nested pre-hooks retain this order. Do not use
     # ./path invocation: local actions cannot run their pre-hooks.
     - name: Prepare private payload destination
-      uses: mickmister/gh-agentic-workflows/.github/actions/private-observability@a26b755b1c756d8688e5f66113e790761f821510
+      uses: mickmister/gh-agentic-workflows/.github/actions/private-observability@vk/46e5-vd-multi-instanc
       with:
         job-instance: ${{ inputs.job-instance }}
         secrets-to-redact: ${{ inputs.secrets-to-redact }}
@@ -94,8 +94,11 @@ runs:
         allowed-hosts: ${{ inputs.allowed-hosts }}
         allowed-cidrs: ${{ inputs.allowed-cidrs }}
     - name: Capture Thoth telemetry
-      uses: plengauer/Thoth/actions/instrument/job@60ff0df1106176453b5ec87f96f927233759caea
+      uses: mickmister/Thoth/actions/instrument/job@8519efd79c06b84a2df4ea7c6165987c964f2383
       with:
+        artifacts: disabled
+        traceparent: ${{ env.PRIVATE_OBSERVABILITY_TRACEPARENT }}
+        release_repository: plengauer/Thoth
         self_monitoring: 'false'
         cache: ${{ inputs.telemetry-cache }}
         secrets_to_redact: ${{ inputs.secrets-to-redact }}

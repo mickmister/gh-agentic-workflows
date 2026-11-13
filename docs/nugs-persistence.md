@@ -32,8 +32,8 @@ checkpoint while it is still open, then closes it and CAS-updates a proof
 document. It checks that a stale document write is rejected. Finalization
 runs after ordinary success or failure, synchronizes native changes without force,
 and independently restores the final collection and verifies its issue/artifact.
-Receipts live under `ci/persistence/runs/` in nugs; URL-free runner receipts are
-also retained as Actions artifacts. Worker and persistence outcomes remain
+Receipts live under `ci/persistence/runs/` in nugs. Workflow artifact copies are
+forbidden; standalone bundles and cross-job files use private S3. Worker and persistence outcomes remain
 separate; an intentionally failed worker leaves the workflow failed even if
 final persistence succeeds. Abrupt cancellation/runner loss cannot guarantee
 the finalizer. No arbitrary worker command, inference, or source write is run.

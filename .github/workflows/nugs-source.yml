@@ -65,17 +65,6 @@ jobs:
         env:
           NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
         run: python3 .github/scripts/nugs-source.py finalize
-      - name: Retain URL-free component receipts
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: nugs-persistence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/toolchain.json
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/restore.json
-            ${{ runner.temp }}/nugs-app-auth.json
-          if-no-files-found: warn
       - name: Preserve worker and persistence failures independently
         if: always()
         env:

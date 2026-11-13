@@ -10,7 +10,6 @@ import re
 import subprocess
 import sys
 import tarfile
-import zipfile
 
 spec = importlib.util.spec_from_file_location('transport', Path(__file__).with_name('private-observability.py'))
 transport = importlib.util.module_from_spec(spec)
@@ -40,6 +39,11 @@ def verify():
     from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
     env = os.environ
     store = transport.cache.S3(env)
+    context_key, expected_context = transport.trace_context(env)
+    context = json.loads(store.get(context_key, 4096))
+    if context != expected_context:
+        raise RuntimeError('private cross-job trace context mismatch')
+    expected_trace = bytes.fromhex(context['traceparent'].split('-')[1])
     types = {'traces': ExportTraceServiceRequest, 'metrics': ExportMetricsServiceRequest, 'logs': ExportLogsServiceRequest}
     for profile in ('light', 'full'):
         key = f'observability/github/{env["GITHUB_REPOSITORY"]}/{env["GITHUB_RUN_ID"]}-{env["GITHUB_RUN_ATTEMPT"]}/smoke-{profile}'
@@ -64,7 +68,12 @@ def verify():
                     signal = types[member['name'].rsplit('.', 1)[1]].FromString(raw)
                     data = json.dumps(MessageToDict(signal)).encode()
                     if isinstance(signal, ExportTraceServiceRequest):
-                        count += sum(len(scope.spans) for resource in signal.resource_spans for scope in resource.scope_spans)
+                        for resource in signal.resource_spans:
+                            for scope in resource.scope_spans:
+                                for span in scope.spans:
+                                    if span.trace_id != expected_trace:
+                                        raise RuntimeError('private cross-job trace identity mismatch')
+                                    count += 1
                 if b'observability-redaction-canary-20261113' in data or re.search(rb'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:RSA )?PRIVATE KEY-----', data):
                     raise RuntimeError('private payload redaction assertion failed')
         if not count:
@@ -84,16 +93,8 @@ def verify_public(env):
             raise RuntimeError('public output API request failed: ' + path.split('?')[0])
         return result.stdout
     artifacts = json.loads(api(f'/runs/{env["GITHUB_RUN_ID"]}/artifacts?per_page=100'))
-    if artifacts['total_count'] > 100:
-        raise RuntimeError('unexpected public artifact count')
-    for artifact in artifacts['artifacts']:
-        if not re.fullmatch(r'opentelemetry_workflow_run_\d+|opentelemetry_job_\d+', artifact['name']) or artifact['size_in_bytes'] > 4096:
-            raise RuntimeError('unexpected public artifact; private payload acceptance failed')
-        with zipfile.ZipFile(io.BytesIO(api(f'/artifacts/{artifact["id"]}/zip'))) as archive:
-            if archive.namelist() != ['traceparent'] or archive.getinfo('traceparent').file_size > 128:
-                raise RuntimeError('unexpected public artifact content')
-            if not re.fullmatch(rb'[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}\s*', archive.read('traceparent')):
-                raise RuntimeError('public artifact is not trace-context metadata')
+    if artifacts['total_count'] != 0 or artifacts['artifacts']:
+        raise RuntimeError('workflow artifacts are forbidden, including trace-context metadata')
     jobs = json.loads(api(f'/runs/{env["GITHUB_RUN_ID"]}/jobs?per_page=100'))['jobs']
     for job in jobs:
         if job['name'] not in ('smoke (light)', 'smoke (full)'):
@@ -107,7 +108,7 @@ def verify_public(env):
             raise RuntimeError('firewall cleanup emitted public payload content')
         if 'Private OTel/firewall upload and readback verified.' not in logs:
             raise RuntimeError('post-job private publication not verified')
-    print('Public artifacts contain trace-context metadata only; no OTel/firewall payload artifacts.')
+    print('Zero workflow artifacts verified; OTel, firewall and cross-job trace context use private S3 only.')
     print('Public firewall summary is disabled and cleanup tails contain no daemon payload.')
 
 

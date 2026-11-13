@@ -59,12 +59,19 @@ jobs:
           key: handy-benchmark-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.platform }}
       - name: Preserve measurements
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: ./.engine/.github/actions/workflow-files
         with:
           name: handy-${{ inputs.platform }}-producer-${{ github.run_attempt }}
           path: ${{ runner.temp }}/handy-report/result.json
           if-no-files-found: warn
-          retention-days: 7
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
   compare:
     name: Compare ${{ inputs.platform }} ${{ matrix.mode }}
     needs: producer
@@ -132,9 +139,16 @@ jobs:
           --mode "$BENCH_MODE" --report "$RUNNER_TEMP/handy-report/result.json"
       - name: Preserve measurements
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: ./.engine/.github/actions/workflow-files
         with:
           name: handy-${{ inputs.platform }}-${{ matrix.mode }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/handy-report/result.json
           if-no-files-found: warn
-          retention-days: 7
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}

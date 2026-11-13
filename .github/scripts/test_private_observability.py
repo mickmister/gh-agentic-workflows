@@ -131,7 +131,7 @@ class PrivateObservabilityTest(unittest.TestCase):
     def test_receiver_preserves_otlp_wire_envelope_and_rejects_unknown_paths(self):
         for name in ('GITHUB_STATE', 'GITHUB_ENV'):
             self.env[name] = str(self.root / name)
-        child = transport.prepare(self.env)
+        child = transport.prepare(self.env, transport.cache.DirectoryStore(self.root / 'objects'))
         state = dict(line.split('=', 1) for line in (self.root / 'GITHUB_STATE').read_text().splitlines())
         capture = Path(state['capture_dir'])
         ready = json.loads((capture / 'ready.json').read_text())
@@ -147,6 +147,14 @@ class PrivateObservabilityTest(unittest.TestCase):
         finally:
             os.kill(ready['pid'], signal.SIGTERM)
             child.wait(timeout=10)
+
+    def test_s3_trace_context_is_shared_across_jobs_but_separated_by_attempt_and_repository(self):
+        key, context = transport.trace_context(self.env)
+        other_job = {**self.env, 'GITHUB_JOB': 'different', 'INPUT_JOB-INSTANCE': 'matrix-full'}
+        self.assertEqual((key, context), transport.trace_context(other_job))
+        self.assertNotEqual((key, context), transport.trace_context({**self.env, 'GITHUB_RUN_ATTEMPT': '3'}))
+        self.assertNotEqual((key, context), transport.trace_context({**self.env, 'GITHUB_REPOSITORY': 'other/repo'}))
+        self.assertRegex(context['traceparent'], r'^00-[a-f0-9]{32}-[a-f0-9]{16}-01$')
 
     @unittest.skipUnless(os.environ.get('NUGS_TEST_BINARY'), 'native nugs binary not supplied')
     def test_native_nugs_pointer_preserves_workspace_binding_and_payload_identity(self):

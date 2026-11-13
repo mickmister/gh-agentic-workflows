@@ -44,11 +44,17 @@ jobs:
       - name: Record setup execution outcome
         run: |
           node -e 'const fs=require("fs"),p=".agentic/environment-receipt.json",r=JSON.parse(fs.readFileSync(p));r.phase="setup-executed-not-coding-acceptance";r.workflow_sha=process.env.GITHUB_SHA;fs.writeFileSync(p,JSON.stringify(r,null,2));'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: ./.engine/.github/actions/workflow-files
         if: always()
         with:
           name: project-environment-${{ github.run_attempt }}
           path: .agentic/environment-receipt.json
-          include-hidden-files: true
-          retention-days: 7
           if-no-files-found: warn
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}

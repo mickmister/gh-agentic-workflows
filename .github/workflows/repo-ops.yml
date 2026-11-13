@@ -192,15 +192,6 @@ jobs:
         env:
           NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
         run: python3 .github/scripts/repo-ops.py finalize
-      - name: Retain body-free component receipts
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: repo-ops-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/restore.json
-          if-no-files-found: warn
       - name: Check work and persistence independently
         if: always()
         env:

@@ -153,16 +153,6 @@ jobs:
           NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
           NUGS_PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
         run: python3 .github/scripts/gascity-event.py publish
-      - name: Retain event decisions and recovery receipts
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: gascity-event-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/event-report.json
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/event-receipt.json
-            ${{ runner.temp }}/nugs-ci-${{ github.run_id }}-${{ github.run_attempt }}/pr-publication.json
-          if-no-files-found: warn
       - name: Preserve execution and persistence outcomes
         if: always()
         env:
