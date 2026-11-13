@@ -43,10 +43,18 @@ remain. A successful smoke job alone is not this artifact-level assertion.
 
 Investigation under `task-3vt.50.33.6` found private-key PEM markers in six
 `github.actions.step.input.private-key` span attributes in run `43481648506`.
-Values were not printed. Previously exported key material needs rotation and
-affected telemetry cleanup. New inputs cannot change an executing job's pinned
+Values were not printed. The user revoked the exposed App private key; a
+replacement is pending. Affected telemetry still needs cleanup/review. New inputs
+cannot change an executing job's pinned
 action or retroactively sanitize existing artifacts. Review the active older-pin
 run's exported telemetry as well. Keep incident values out of public logs/docs.
+
+Hosted smoke `43493020688` passed off/light/full. All six final OTLP signal files
+were decoded: 33 spans remained, the synthetic redaction canary was absent, and no
+GitHub-token pattern matches were found. This verifies that fixture/export path,
+not arbitrary transformed secrets or all historical payloads. The observer-free
+job has no observer pre-step; its prior measured duration was 4s, versus 28s/39s
+for light/full observer pre-start alone in run `43492675354` (one observation each).
 
 ## Dispatch cost controls
 
@@ -77,4 +85,5 @@ requires an upstream/custom collector transport change plus verification that no
 public payload artifact is produced. CargoWall's public audit summary is also a
 separate output surface; suppress or sanitize it when adopting private storage.
 Private agent diagnostics already use S3, but OTel/firewall migration has not been
-implemented by these controls.
+implemented by these controls. Follow-up `task-3vt.50.33.7` owns that transport
+change, including suppression of the existing public upload.
