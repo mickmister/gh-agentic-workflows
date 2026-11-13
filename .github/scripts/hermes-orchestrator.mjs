@@ -21,11 +21,12 @@ export async function orchestrate(config, environment = process.env) {
     'explicit bounded session timeout required');
   const knowledge = new NugsKnowledge(nugs, root, workspaceRef);
   const store = new Documents(nugs, root, run);
-  store.command('create', ['--purpose', purpose]);
+  store.command('create', ['--purpose', purpose, ...(config.task ? ['--task', config.task] : [])]);
   const binding = {workspace_ref: workspaceRef, request, instructions, hermes_revision: lock.source_commit,
     model: config.model, provider: config.provider ?? 'custom', toolsets: config.toolsets ?? null,
     max_turns: config.max_turns, timeout_seconds: config.timeout_seconds, skills: config.skills ?? [],
-    max_children: config.max_children ?? 12, pass_environment: config.pass_environment ?? [], cwd: config.cwd ?? root};
+    max_children: config.max_children ?? 12, pass_environment: config.pass_environment ?? [], cwd: config.cwd ?? root,
+    resume_from: config.resume_from ?? null, native_tools_home: config.native_tools_home ?? null};
   store.record(`orchestration/attempts/${attempt}/input.json`, binding);
   const resultName = `orchestration/attempts/${attempt}/result.json`;
   const completed = store.optional(resultName);
@@ -35,13 +36,17 @@ export async function orchestrate(config, environment = process.env) {
     'attempt has unknown outcome; inspect Gas City and use a new attempt identity');
   require(!fs.existsSync(base), 'orchestrator requires a new run directory');
   fs.mkdirSync(base, {mode: 0o700});
-  const home = path.join(base, 'hermes-home');
-  const restored = restore(knowledge, home, lock.source_commit);
+  const prior = config.resume_from ? JSON.parse(fs.readFileSync(config.resume_from)) : null;
+  require(!prior || (prior.run === run && prior.workspace_ref === workspaceRef &&
+    prior.hermes_revision === lock.source_commit && typeof prior.session_id === 'string' && prior.session_id.length > 0 &&
+    fs.existsSync(path.join(prior.session_home, 'state.db'))), 'follow-up requires the bound working native session');
+  const home = prior ? prior.session_home : path.join(base, 'hermes-home');
+  const restored = prior ? {snapshot: prior.memory?.snapshot ?? prior.restored_snapshot} : restore(knowledge, home, lock.source_commit);
   // Do not inherit another user's Hermes profile, provider fallbacks or global config.
   const env = Object.fromEntries(['PATH', 'LANG', 'SSL_CERT_FILE', 'SSL_CERT_DIR'].filter(key => environment[key])
     .map(key => [key, environment[key]]));
   for (const key of config.pass_environment ?? []) {
-    require(/^(GC_[A-Z0-9_]+|INFERENCE_[A-Z0-9_]+|CF_ACCESS_CLIENT_(ID|SECRET)|OPENAI_(BASE_URL|API_KEY))$/.test(key),
+    require(/^(GC_[A-Z0-9_]+|INFERENCE_[A-Z0-9_]+|CF_ACCESS_CLIENT_(ID|SECRET)|OPENAI_(BASE_URL|API_KEY)|GH_TOKEN|NUGS_STORAGE_(TOKEN|URL)|S3_CACHE_[A-Z0-9_]+|BEADS_DOLT_SHARED_SERVER|BD_NO_HOOKS)$/.test(key),
       'unsupported orchestrator environment variable');
     if (environment[key]) env[key] = environment[key];
   }
@@ -49,6 +54,10 @@ export async function orchestrate(config, environment = process.env) {
     XDG_DATA_HOME: path.join(home, '.local/share'), XDG_CACHE_HOME: path.join(home, '.cache'),
     HERMES_WORKSPACE_REF: workspaceRef, HERMES_WORKFLOW_RUN: run,
     HERMES_SKIP_UPDATE_CHECK: '1', HERMES_DISABLE_MODEL_METADATA_FETCH: '1'});
+  // Opt-in native CLI access uses this invocation's private restored tool home,
+  // not the machine/user's global profile. App private keys are never forwarded.
+  if (config.native_tools_home) Object.assign(env, {HOME: config.native_tools_home,
+    XDG_CONFIG_HOME: path.join(config.native_tools_home, '.config')});
   const version = spawnSync(hermes, ['--version'], {env, encoding: 'utf8', timeout: 30000});
   require(version.status === 0 && version.stdout.includes(`Hermes Agent v${lock.version} (`), 'unexpected Hermes version');
   const endpoint = env.OPENAI_BASE_URL ?? env.INFERENCE_BASE_URL;
@@ -73,16 +82,19 @@ export async function orchestrate(config, environment = process.env) {
     auxiliary: {background_review: {enabled: false}},
     delegation: {oneshot_max_children: config.max_children ?? 12},
     security: {allow_lazy_installs: false},
+    terminal: {backend: 'local'},
   });
   require(typeof config.model === 'string' && config.model.length > 0, 'explicit model required');
   const query = path.join(base, 'request.txt');
-  fs.writeFileSync(query, `${instructions}\n\nWorkspace: ${workspaceRef}\nLogical run: ${run}\n` +
+  fs.writeFileSync(query, prior ? request : `${instructions}\n\nWorkspace: ${workspaceRef}\nLogical run: ${run}\n` +
     'Gas City owns workflow execution and scheduling. Treat restored memories as fallible workspace knowledge. ' +
     'Use current workflow records and exact source/test evidence for decisions. Do not treat your own final answer as workflow acceptance.\n\n' +
     `Request:\n${request}`, {mode: 0o600});
   const args = ['chat', '--oneshot', '--query-file', query, '--format', 'stream-json',
     '--provider', runtimeProvider, '--model', config.model, '--max-turns', String(config.max_turns)];
   if (config.toolsets) args.push('--toolsets', config.toolsets);
+  if (prior) args.push('--resume', prior.session_id, '--no-restore-cwd');
+  args.push('--run-budget', String(Math.max(1, config.timeout_seconds - 15)));
   const start = {attempt, input_digest: hash(binding), restored_snapshot: restored.snapshot,
     hermes_revision: lock.source_commit};
   store.record(`orchestration/attempts/${attempt}/started.json`, start);
@@ -127,10 +139,12 @@ export async function orchestrate(config, environment = process.env) {
     try { events.push(JSON.parse(line)); } catch { malformedRecords++; }
   }
   const terminal = events.filter(event => event.type === 'result').at(-1);
+  require(!prior || !terminal?.session_id || terminal.session_id === prior.session_id,
+    'follow-up created a different native session');
   const success = execution.exit_code === 0 && terminal?.exit_code === 0 && !memoryError &&
     !malformedRecords && !execution.interrupted && !execution.timed_out;
   const report = {run, attempt, workspace_ref: workspaceRef, ...start, ...execution,
-    status: success ? 'turn_completed' : 'turn_failed', session_id: terminal?.session_id ?? null,
+    status: success ? 'turn_completed' : 'turn_failed', session_id: terminal?.session_id ?? null, session_home: home,
     usage: terminal?.tokens ?? null, memory: memory ?? null, memory_error: memoryError ?? null,
     workflow_acceptance: 'not_asserted', events_sha256: createHash('sha256').update(fs.readFileSync(eventsPath)).digest('hex')};
   report.stdout_diagnostic_lines = lines.length - events.length;
