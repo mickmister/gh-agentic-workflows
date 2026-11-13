@@ -55,7 +55,7 @@ promotion still requires its existing audit and approval contract.
 
 Use actual commands/tests and exact source revisions to evaluate the task. Separate
 work success, publication and persistence outcomes. Retain specific missing tools,
-unavailable worker/platform capabilities and failed checks honestly. Use at most
-two semantic repairs per failure class. Before ending, leave a useful Bead note
+unavailable worker/platform capabilities and failed checks honestly. Before ending,
+leave a useful Bead note
 and a compact nugs run result with commits/PRs, tests, blockers and unfinished work.
 Native workspace synchronization is handled by the host at finalization.

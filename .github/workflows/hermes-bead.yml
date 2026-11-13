@@ -58,7 +58,6 @@ permissions:
 jobs:
   hermes:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
     concurrency:
       group: hermes-${{ fromJSON(vars.NUGS_WORKSPACE_SEED).workspace_ref }}-${{ inputs.bead }}
       cancel-in-progress: false
@@ -219,12 +218,19 @@ jobs:
           export GC_WORK_OUTCOME='${{ steps.work.outcome }}'
           node .github/scripts/hermes-bead-config.mjs exit
           node .github/scripts/hermes-orchestrator.mjs "$GC_ATTEMPT_ROOT/exit.json"
-      - id: persist
-        name: Synchronize native Beads and retain private diagnostics
+      - id: sync
+        name: Synchronize native Beads
         if: ${{ always() && steps.restore.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: ${{ env.GC_WORKSPACE_ROOT }}
+        env: *agent-environment
+        run: nugs beads sync > "$GC_ATTEMPT_ROOT/final-native-sync.json"
+      - id: persist
+        name: Retain private diagnostics independently of synchronization
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        working-directory: ${{ env.GC_WORKSPACE_ROOT }}
         env: *agent-environment
         run: |
-          nugs beads sync --root "$GC_WORKSPACE_ROOT" > "$GC_ATTEMPT_ROOT/final-native-sync.json"
           # Public engine artifacts must not contain private prompts/native chats.
           # Ordinary per-attempt object upload, not an execution queue or CAS store.
           files=()
@@ -259,10 +265,12 @@ jobs:
           SETUP: ${{ steps.setup.outcome }}
           WORK: ${{ steps.work.outcome }}
           EXIT: ${{ steps.exit.outcome }}
+          SYNC: ${{ steps.sync.outcome }}
           PERSIST: ${{ steps.persist.outcome }}
         run: |
           test "$SETUP_AGENT" = success
           test "$SETUP" = success
           test "$WORK" = success
           test "$EXIT" = success
+          test "$SYNC" = success
           test "$PERSIST" = success

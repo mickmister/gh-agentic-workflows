@@ -35,7 +35,9 @@ onboarding acceptance.
 Source edits belong in the initialized dedicated task worktrees; publish task
 branches/regular PRs, never workspace-nuggets main or automatic merge/release.
 The agent records compact source/test/effect/continuation evidence through nugs.
-Native workspace sync runs after work/failure. Raw CLI logs go to the configured
+Native workspace sync runs after work/failure. Diagnostics publication runs
+independently even if synchronization fails. Both use the attached workspace cwd.
+Raw CLI logs go to the configured
 private S3 target under a separate run-scoped diagnostics prefix, not public
 Actions artifacts or Documents. No native Hermes database is published to Git.
 Thoth final telemetry becomes available after its post-job shutdown, so same-job
@@ -48,7 +50,14 @@ binding, setup execution, explicit same-session exit follow-up, source/test/PR
 effects, private persistence and native synchronization. A completed model turn
 is not task acceptance. A later fresh runner must discover previous workspace
 records and decide how to continue; this is not automatic conversation/database
-resumption. Cancellation/runner loss is bounded by last durable source/run state.
+resumption. Cancellation/runner loss recovers from last durable source/run state.
+
+The duration-measurement trial has no imposed setup/work/interview timeouts, native
+run budget, turn cap, delegation-count cap or repair-count instruction. Native
+Hermes zero values mean unlimited turns/children; the launcher does not start host
+timeout timers or pass `--run-budget`. The workflow uses GitHub's default hosted
+job ceiling (currently six hours), which is a platform limit, not a measured task
+budget. Use the canonical OTel step/command timing evidence before choosing caps.
 
 The native launcher tests use a deterministic CLI fixture to verify deferred
 message ordering, session binding and duplicate no-model-call behavior. They are

@@ -16,9 +16,9 @@ export async function orchestrate(config, environment = process.env) {
   require(/^[a-z0-9][a-z0-9-]{0,63}$/.test(attempt), 'unique attempt identity required');
   require(typeof request === 'string' && request.length > 0 && Buffer.byteLength(request) <= 16000, 'invalid request');
   require(typeof instructions === 'string' && instructions.length > 0, 'trusted orchestration instructions required');
-  require(Number.isInteger(config.max_turns) && config.max_turns >= 1 && config.max_turns <= 500, 'explicit turn budget required');
-  require(Number.isInteger(config.timeout_seconds) && config.timeout_seconds >= 1 && config.timeout_seconds <= 3600,
-    'explicit bounded session timeout required');
+  require(Number.isInteger(config.max_turns) && config.max_turns >= 0, 'turn budget must be nonnegative (zero is unlimited)');
+  require(Number.isInteger(config.timeout_seconds) && config.timeout_seconds >= 0 && config.timeout_seconds <= 3600,
+    'session timeout must be nonnegative (zero disables the host timer)');
   const knowledge = new NugsKnowledge(nugs, root, workspaceRef);
   const store = new Documents(nugs, root, run);
   store.command('create', ['--purpose', purpose, ...(config.task ? ['--task', config.task] : [])]);
@@ -94,7 +94,7 @@ export async function orchestrate(config, environment = process.env) {
     '--provider', runtimeProvider, '--model', config.model, '--max-turns', String(config.max_turns)];
   if (config.toolsets) args.push('--toolsets', config.toolsets);
   if (prior) args.push('--resume', prior.session_id, '--no-restore-cwd');
-  args.push('--run-budget', String(Math.max(1, config.timeout_seconds - 15)));
+  if (config.timeout_seconds > 0) args.push('--run-budget', String(Math.max(1, config.timeout_seconds - 15)));
   const start = {attempt, input_digest: hash(binding), restored_snapshot: restored.snapshot,
     hermes_revision: lock.source_commit};
   store.record(`orchestration/attempts/${attempt}/started.json`, start);
@@ -111,8 +111,10 @@ export async function orchestrate(config, environment = process.env) {
         interruptTimer ??= setTimeout(() => kill('SIGKILL'), 5000);
       };
       process.once('SIGTERM', interrupt); process.once('SIGINT', interrupt);
-      const timer = setTimeout(() => { timedOut = true; kill('SIGTERM'); }, config.timeout_seconds * 1000);
-      const hardTimer = setTimeout(() => kill('SIGKILL'), config.timeout_seconds * 1000 + 5000);
+      const timer = config.timeout_seconds > 0
+        ? setTimeout(() => { timedOut = true; kill('SIGTERM'); }, config.timeout_seconds * 1000) : undefined;
+      const hardTimer = config.timeout_seconds > 0
+        ? setTimeout(() => kill('SIGKILL'), config.timeout_seconds * 1000 + 5000) : undefined;
       const cleanup = () => {
         clearTimeout(timer); clearTimeout(hardTimer); clearTimeout(interruptTimer);
         process.removeListener('SIGTERM', interrupt); process.removeListener('SIGINT', interrupt);

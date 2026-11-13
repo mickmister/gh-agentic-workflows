@@ -49,7 +49,7 @@ console.log(JSON.stringify({type:'result',session_id:'working-session',exit_code
   try {
     const config = {nugs,root,workspace_ref:context.workspace_ref,hermes:binary,run:'bead-trial',purpose:'test',
       task:'task-test',attempt:'work',base:path.join(root,'work'),request:'Handle the Bead.',instructions:'Read the real task.',
-      model:'fixture',provider:'custom',toolsets:'terminal,file,memory',max_turns:5,timeout_seconds:30,
+      model:'fixture',provider:'custom',toolsets:'terminal,file,memory',max_turns:0,timeout_seconds:0,max_children:0,
       pass_environment:['OPENAI_BASE_URL','OPENAI_API_KEY','GH_TOKEN']};
     const runtime = {...env,OPENAI_BASE_URL:'http://127.0.0.1:1234/v1',OPENAI_API_KEY:'fixture',GH_TOKEN:'scoped-source',AGENT_APP_PRIVATE_KEY:'never-forward'};
     const work = await orchestrate(config,runtime);
@@ -59,6 +59,11 @@ console.log(JSON.stringify({type:'result',session_id:'working-session',exit_code
     assert.equal(result.session_id,work.session_id);
     const calls = JSON.parse(fs.readFileSync(path.join(root,'calls.json')));
     assert.equal(calls.length,2);
+    for (const call of calls) {
+      assert.ok(!call.args.includes('--run-budget'));
+      assert.equal(call.args[call.args.indexOf('--max-turns')+1],'0');
+    }
+    assert.equal(JSON.parse(fs.readFileSync(path.join(work.session_home,'config.yaml'))).delegation.oneshot_max_children,0);
     assert.ok(!calls[0].query.includes('What made the task harder?'));
     assert.equal(calls[1].query,'What made the task harder?');
     assert.equal(calls[1].args[calls[1].args.indexOf('--resume')+1],work.session_id);

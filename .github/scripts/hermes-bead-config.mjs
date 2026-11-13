@@ -32,9 +32,9 @@ const config = {
   attempt: `r${env.GITHUB_RUN_ID}-a${env.GITHUB_RUN_ATTEMPT}-${phase}`,
   base, hermes: env.HERMES_BINARY, model: 'gpt-6.1-sol', provider: 'custom',
   cwd: root, native_tools_home: env.HOME, toolsets: 'terminal,file,memory',
-  max_turns: phase === 'setup' ? 12 : phase === 'exit' ? 15 : 50,
-  timeout_seconds: phase === 'setup' ? 240 : phase === 'exit' ? 300 : 1200,
-  max_children: 3, request,
+  // Native Hermes uses zero for unlimited turns/children; the launcher omits
+  // both its host timer and native run budget when timeout_seconds is zero.
+  max_turns: 0, timeout_seconds: 0, max_children: 0, request,
   instructions: fs.readFileSync(path.join(env.GC_ENGINE_ROOT, '.github/hermes/working-instructions.md'), 'utf8'),
   pass_environment: ['INFERENCE_BASE_URL', 'INFERENCE_API_KEY', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET',
     'GH_TOKEN', 'NUGS_STORAGE_URL', 'NUGS_STORAGE_TOKEN', 'BD_NO_HOOKS', 'BEADS_DOLT_SHARED_SERVER',
