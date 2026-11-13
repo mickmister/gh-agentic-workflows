@@ -71,7 +71,7 @@ runs:
     # A remote composite's nested pre-hooks retain this order. Do not use
     # ./path invocation: local actions cannot run their pre-hooks.
     - name: Prepare private payload destination
-      uses: mickmister/gh-agentic-workflows/.github/actions/private-observability@vk/46e5-vd-multi-instanc
+      uses: mickmister/gh-agentic-workflows/.github/actions/private-observability@12ff9d8b8ea05e8a3e363ea22d09c3b72d1b3e01
       with:
         job-instance: ${{ inputs.job-instance }}
         secrets-to-redact: ${{ inputs.secrets-to-redact }}
