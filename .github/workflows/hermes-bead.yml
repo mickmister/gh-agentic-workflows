@@ -69,11 +69,15 @@ jobs:
     steps:
       # Remote syntax preserves CargoWall/Thoth pre-hooks, including same-repo use.
       - name: Observe the actual agent workflow
-        uses: mickmister/gh-agentic-workflows/.github/actions/observability@69e77278097d6e4695840b44a29eebc440fad039
+        uses: mickmister/gh-agentic-workflows/.github/actions/observability@61e7bffb36aae98ea7a5ae5ed0dcca47c844f2cd
         with:
           profile: light
           service-name: hermes-bead-trial
           network-mode: audit
+          secrets-to-redact: ${{ toJSON(secrets) }}
+          capture-stderr: 'false'
+          capture-pipes: 'false'
+          capture-genai-content: 'false'
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
