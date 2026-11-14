@@ -47,6 +47,10 @@ class Redactor:
         for value in self.values():
             text = text.replace(value, '[REDACTED]')
         text = re.sub(r'\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{30,})\b', '[REDACTED TOKEN]', text)
+        # Gateways mint response credentials that were never in the input secret
+        # registry. Scrub JWTs and access cookies in unstructured stderr too.
+        text = re.sub(r'\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b', '[REDACTED TOKEN]', text)
+        text = re.sub(r'(?i)\bCF_Authorization=[^;\s"\\]+', 'CF_Authorization=[REDACTED]', text)
         return re.sub(r'-----BEGIN (?:RSA )?PRIVATE KEY-----.*?(?:-----END (?:RSA )?PRIVATE KEY-----|$)',
                       '[REDACTED PRIVATE KEY]', text, flags=re.S)
 
@@ -56,7 +60,10 @@ class Redactor:
         if isinstance(value, list):
             return [self.value(item) for item in value]
         if isinstance(value, dict):
-            return {key: self.value(item) for key, item in value.items()}
+            sensitive_headers = {'authorization', 'proxy-authorization', 'cookie', 'set-cookie',
+                                 'x-api-key', 'cf-access-client-id', 'cf-access-client-secret'}
+            return {key: '[REDACTED HEADER]' if key.lower() in sensitive_headers else self.value(item)
+                    for key, item in value.items()}
         return value
 
 

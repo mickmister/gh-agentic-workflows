@@ -10,6 +10,29 @@ spec.loader.exec_module(module)
 
 
 class DiagnosticEvidence(unittest.TestCase):
+    def test_provider_error_credentials_are_redacted_without_an_input_secret_match(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / 'work'
+            output.mkdir()
+            jwt = 'eyJfixtureHeader.fixturePayload.fixtureSignature'
+            cookie = 'CF_Authorization=opaque-fresh-response-token'
+            error = {'type': 'error', 'error': {'data': {'statusCode': 401,
+                'message': 'Unauthorized: Invalid API key', 'responseHeaders': {
+                    'Set-Cookie': cookie, 'AUTHORIZATION': 'Bearer fresh-opaque-response-token',
+                    'content-type': 'application/json'}}}}
+            (output / 'events.jsonl').write_text(json.dumps(error) + '\n')
+            (output / 'diagnostics.log').write_text('received ' + jwt + '\n' + cookie + '; Path=/\n')
+            logs = module.Diagnostics(output, 'work', {'GITHUB_REPOSITORY': 'owner/repo',
+                'GITHUB_RUN_ID': '1', 'GITHUB_RUN_ATTEMPT': '1', 'BEAD_ID': 'task-test',
+                'GC_DIAG_WORKSPACE_REF': 'ws-test'}, store=module.cache.DirectoryStore(root / 's3'))
+            logs.flush(final=True)
+            uploaded = b'\n'.join(path.read_bytes() for path in (root / 's3').rglob('*') if path.is_file())
+            for secret in (jwt, 'opaque-fresh-response-token', 'fresh-opaque-response-token'):
+                self.assertNotIn(secret.encode(), uploaded)
+            self.assertIn(b'Invalid API key', uploaded)
+            self.assertIn(b'application/json', uploaded)
+
     def test_incremental_events_redact_new_credentials_and_preserve_session_and_offsets(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
