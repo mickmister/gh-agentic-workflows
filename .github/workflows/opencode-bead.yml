@@ -239,17 +239,22 @@ jobs:
             --directory "$auth" --uid "$(id -u)" --gid "$(id -g)" \
             > "$RUNNER_TEMP/credential-renewal.log" 2>&1
           python3 "$GC_ENGINE_ROOT/.github/scripts/workflow-credentials.py" wait --directory "$auth"
-          python3 - "$(command -v gh)" <<'PY'
-          import os, pathlib, sys
+          python3 - <<'PY'
+          import os, pathlib, shutil
+          # Resolve the executable directly: observer shell aliases and injected
+          # Python argv are not a reliable executable-discovery interface.
+          real_gh = shutil.which('gh')
+          assert real_gh and pathlib.Path(real_gh).is_file(), 'gh executable unavailable'
           script = pathlib.Path(os.environ['GC_ENGINE_ROOT']) / '.github/scripts/workflow-credentials.py'
           wrapper = pathlib.Path(os.environ['GC_NUGS']).parent / 'gh'
           wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\nos.execv(sys.executable, [sys.executable, ' + repr(str(script)) + ', "gh", *sys.argv[1:]])\n')
           wrapper.chmod(0o700)
           with open(os.environ['GITHUB_ENV'], 'a') as out:
-              out.write('GC_REAL_GH=' + sys.argv[1] + '\n')
+              out.write('GC_REAL_GH=' + real_gh + '\n')
           PY
       - &verify-tools
         name: Verify real source and storage credentials and search tools
+        working-directory: ${{ env.GC_WORKSPACE_ROOT }}
         run: |
           command -v git gh rg bd nugs gc
           gh api repos/mickmister/gh-agentic-workflows --jq .full_name
@@ -327,9 +332,13 @@ jobs:
         env: *agent-environment
         run: |
           python3 "$GC_ENGINE_ROOT/.github/scripts/agent-diagnostics.py" finalize
-          nugs runs write --run "opencode-${BEAD_ID//./-}" \
-            --name "orchestration/attempts/r$GITHUB_RUN_ID-a$GITHUB_RUN_ATTEMPT/diagnostics.json" \
-            --file "$GC_ATTEMPT_ROOT/diagnostics-receipt.json"
+          # Preflight failures have no native run to link. Keep their verified
+          # S3 receipt independently; each turn creates its run before its directory.
+          if test -d "$GC_ATTEMPT_ROOT/work" || test -d "$GC_ATTEMPT_ROOT/setup"; then
+            nugs runs write --run "opencode-${BEAD_ID//./-}" \
+              --name "orchestration/attempts/r$GITHUB_RUN_ID-a$GITHUB_RUN_ATTEMPT/diagnostics.json" \
+              --file "$GC_ATTEMPT_ROOT/diagnostics-receipt.json"
+          fi
       - &preserve-outcomes
         name: Preserve turn and persistence outcomes
         if: always()
