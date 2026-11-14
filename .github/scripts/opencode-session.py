@@ -14,8 +14,8 @@ def resume_reference(value):
     return match.groups()
 
 
-def session_data(content, session_id=None):
-    require(0 < len(content) <= 1024 * 1024, "native session export exceeds its size limit")
+def session_data(content, session_id=None, max_bytes=1024 * 1024):
+    require(0 < len(content) <= max_bytes, "native session export exceeds its size limit")
     value = json.loads(content)
     identifier = value.get("info", {}).get("id", "")
     require(re.fullmatch(r"ses_[A-Za-z0-9]+", identifier), "invalid native session ID")

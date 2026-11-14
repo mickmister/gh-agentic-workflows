@@ -1,5 +1,9 @@
 # Hermes outer orchestrator and workspace knowledge
 
+OpenCode is now selected for the hosted coding worker; see
+[`opencode-bead-trial.md`](opencode-bead-trial.md). The Hermes adapter described
+below remains historical/compatibility code, not the active dispatch workflow.
+
 Hermes runs in a **fresh session per workflow attempt**. Gas City remains the
 workflow engine: its formulas, graph, dependencies and role outcomes own the
 execution. Hermes is the outer agent that interprets requests and supervises

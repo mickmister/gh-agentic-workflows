@@ -1,5 +1,5 @@
-name: Hermes handles a Bead
-run-name: Hermes ${{ inputs.bead }} · ${{ github.run_id }}
+name: OpenCode handles a Bead
+run-name: OpenCode ${{ inputs.bead }} · ${{ github.run_id }}
 
 on:
   workflow_dispatch:
@@ -17,6 +17,10 @@ on:
         description: Additional context for this invocation (no credentials)
         default: ''
         type: string
+      prepare-project:
+        description: Run a setup-authoring turn and its composite before task work
+        default: false
+        type: boolean
       observability:
         description: 'off: no observers; light: shell/step timing + firewall; full: deep instrumentation + firewall'
         type: choice
@@ -37,6 +41,9 @@ on:
       instructions:
         default: ''
         type: string
+      prepare-project:
+        default: false
+        type: boolean
       observability:
         default: light
         type: string
@@ -78,11 +85,11 @@ permissions:
   actions: read
 
 jobs:
-  hermes:
+  opencode:
     if: ${{ inputs.observability != 'off' }}
     runs-on: ubuntu-24.04
     concurrency: &bead-concurrency
-      group: hermes-${{ fromJSON(inputs.workspace-context).workspace_ref }}-${{ inputs.bead }}
+      group: opencode-${{ fromJSON(inputs.workspace-context).workspace_ref }}-${{ inputs.bead }}
       cancel-in-progress: false
     env: &workspace-environment
       BEAD_ID: ${{ inputs.bead }}
@@ -103,7 +110,7 @@ jobs:
           s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
           s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
           telemetry-cache: ${{ inputs.telemetry-cache }}
-          service-name: hermes-bead-trial
+          service-name: opencode-bead-trial
           network-mode: audit
           secrets-to-redact: >-
             {"github_token":${{ toJSON(github.token) }},
@@ -158,13 +165,6 @@ jobs:
           path: .nugs-source
           fetch-depth: 0
           persist-credentials: false
-      - &checkout-hermes
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: NousResearch/hermes-agent
-          ref: f97608f178d1ffeca59860195ab7da295f7c8e5f
-          path: .hermes-runtime
-          persist-credentials: false
       - &setup-node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -173,9 +173,7 @@ jobs:
         name: Install pinned native runtime and persistence prerequisites
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq tmux jq lsof
-          python3 -m pip install 'uv==0.13.7'
-          uv sync --project .hermes-runtime --frozen --no-dev --python 3.11
+          sudo apt-get install -y -qq tmux jq lsof ripgrep
           python3 .github/scripts/nugs-source.py bootstrap
       - &restore
         id: restore
@@ -196,7 +194,7 @@ jobs:
                            'GC_ATTEMPT_ROOT':proof.base, 'GC_SOURCE_WORKTREES':tools, 'GC_NUGS':proof.bin/'nugs',
                            'GC_ENGINE_ROOT':Path.cwd(), 'GC_NUGS_SOURCE':Path.cwd()/'.nugs-source',
                            'GC_SETUP_SLOT':Path.cwd()/'.agentic/active-setup/action.yml',
-                           'HERMES_BINARY':Path.cwd()/'.hermes-runtime/.venv/bin/hermes',
+                            'OPENCODE_BINARY':proof.bin/'opencode',
                            'BD_NO_HOOKS':'1', 'BEADS_DOLT_SHARED_SERVER':'false'}.items(): out.write(f'{k}={v}\n')
           with open(os.environ['GITHUB_PATH'], 'a') as out: out.write(str(proof.bin)+'\n')
           PY
@@ -210,10 +208,10 @@ jobs:
           # storage helper so source and storage tokens remain separate.
           git config --global --add "credential.${NUGS_STORAGE_URL}.helper" ''
           git config --global --add "credential.${NUGS_STORAGE_URL}.helper" "!python3 $GC_ENGINE_ROOT/.github/scripts/nugs-ci.py credential"
-          git config --global user.name 'Hermes Agent'
-          git config --global user.email 'hermes-agent@users.noreply.github.com'
-          git worktree add -b "hermes/${BEAD_ID}-${GITHUB_RUN_ID}" "$GC_SOURCE_WORKTREES/gh-agentic-workflows" HEAD
-          git -C .nugs-source worktree add -b "hermes/${BEAD_ID}-${GITHUB_RUN_ID}" "$GC_SOURCE_WORKTREES/workspace-nuggets" HEAD
+          git config --global user.name 'OpenCode Agent'
+          git config --global user.email 'opencode-agent@users.noreply.github.com'
+          git worktree add -b "opencode/${BEAD_ID}-${GITHUB_RUN_ID}" "$GC_SOURCE_WORKTREES/gh-agentic-workflows" HEAD
+          git -C .nugs-source worktree add -b "opencode/${BEAD_ID}-${GITHUB_RUN_ID}" "$GC_SOURCE_WORKTREES/workspace-nuggets" HEAD
           bd --directory "$GC_WORKSPACE_ROOT" show "$BEAD_ID" --json > "$GC_ATTEMPT_ROOT/assigned-bead.json"
           python3 - <<'PY'
           import importlib.util, os
@@ -224,13 +222,43 @@ jobs:
           tools.download_binary(Path(os.environ['GC_NUGS']).parent)
           PY
           mkdir -p .agentic/active-setup
-          cp .github/hermes/noop-setup.yml .agentic/active-setup/action.yml
-      - &verify-launcher
-        name: Verify native launcher and deferred-message contract
-        run: NUGS_TEST_BINARY="$GC_NUGS" node --test .github/scripts/test_hermes_bead.mjs
+          cp .github/opencode/noop-setup.yml .agentic/active-setup/action.yml
+      - &renew-credentials
+        name: Start host-owned credential renewal
+        env:
+          RENEW_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          RENEW_APP_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          BOOTSTRAP_SOURCE_TOKEN: ${{ steps.tool-auth.outputs.token }}
+          BOOTSTRAP_STORAGE_TOKEN: ${{ steps.app-auth.outputs.storage-token }}
+        run: |
+          auth="$GC_ATTEMPT_ROOT/credentials"
+          mkdir -m 700 "$auth"
+          printf 'GC_CREDENTIALS_DIR=%s\n' "$auth" >> "$GITHUB_ENV"
+          sudo -b --preserve-env=RENEW_APP_ID,RENEW_APP_KEY,BOOTSTRAP_SOURCE_TOKEN,BOOTSTRAP_STORAGE_TOKEN \
+            python3 "$GC_ENGINE_ROOT/.github/scripts/workflow-credentials.py" serve \
+            --directory "$auth" --uid "$(id -u)" --gid "$(id -g)" \
+            > "$RUNNER_TEMP/credential-renewal.log" 2>&1
+          python3 "$GC_ENGINE_ROOT/.github/scripts/workflow-credentials.py" wait --directory "$auth"
+          python3 - "$(command -v gh)" <<'PY'
+          import os, pathlib, sys
+          script = pathlib.Path(os.environ['GC_ENGINE_ROOT']) / '.github/scripts/workflow-credentials.py'
+          wrapper = pathlib.Path(os.environ['GC_NUGS']).parent / 'gh'
+          wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\nos.execv(sys.executable, [sys.executable, ' + repr(str(script)) + ', "gh", *sys.argv[1:]])\n')
+          wrapper.chmod(0o700)
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('GC_REAL_GH=' + sys.argv[1] + '\n')
+          PY
+      - &verify-tools
+        name: Verify real source and storage credentials and search tools
+        run: |
+          command -v git gh rg bd nugs gc
+          gh api repos/mickmister/gh-agentic-workflows --jq .full_name
+          nugs workspace context
+          git ls-remote "$NUGS_STORAGE_URL" > "$GC_ATTEMPT_ROOT/storage-read-preflight.txt"
       - &setup-agent
         id: setup-agent
-        name: Hermes receives the Bead and upserts its setup
+        name: OpenCode receives the Bead and upserts its setup
+        if: ${{ inputs.prepare-project }}
         continue-on-error: true
         env: &agent-environment
           GH_TOKEN: ${{ steps.tool-auth.outputs.token }}
@@ -246,11 +274,10 @@ jobs:
           S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
           S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
         run: |
-          node .github/scripts/hermes-bead-config.mjs setup
-          node .github/scripts/hermes-orchestrator.mjs "$GC_ATTEMPT_ROOT/setup.json"
+          python3 .github/scripts/opencode-bead.py setup
       - &setup
         id: setup
-        name: Execute the setup action selected or authored by Hermes
+        name: Execute the setup action selected or authored by OpenCode
         if: ${{ steps.setup-agent.outcome == 'success' }}
         continue-on-error: true
         uses: ./.agentic/active-setup
@@ -258,25 +285,32 @@ jobs:
           GH_TOKEN: ${{ steps.tool-auth.outputs.token }}
       - &work
         id: work
-        name: Continue the working Hermes session with the setup result
-        if: ${{ steps.setup-agent.outcome == 'success' }}
+        name: OpenCode handles the task with the available source and tools
+        if: ${{ steps.setup-agent.outcome == 'success' || steps.setup-agent.outcome == 'skipped' }}
         continue-on-error: true
         env: *agent-environment
         run: |
           export GC_SETUP_OUTCOME='${{ steps.setup.outcome }}'
-          node .github/scripts/hermes-bead-config.mjs work
-          node .github/scripts/hermes-orchestrator.mjs "$GC_ATTEMPT_ROOT/work.json"
+          python3 .github/scripts/opencode-bead.py work
+      - &refresh-credentials
+        name: Refresh credentials before the deferred follow-up and finalization
+        if: ${{ always() && env.GC_CREDENTIALS_DIR != '' }}
+        run: |
+          generation=$(python3 -c 'import json,os; print(json.load(open(os.environ["GC_CREDENTIALS_DIR"]+"/status.json"))["generation"])')
+          pid=$(python3 -c 'import json,os; print(json.load(open(os.environ["GC_CREDENTIALS_DIR"]+"/status.json"))["pid"])')
+          sudo kill -HUP "$pid"
+          python3 "$GC_ENGINE_ROOT/.github/scripts/workflow-credentials.py" wait \
+            --directory "$GC_CREDENTIALS_DIR" --after "$generation"
       - &exit
         id: exit
         name: Ask the working agent the separately saved exit follow-up
-        if: ${{ always() && steps.setup-agent.outcome != 'skipped' && steps.restore.outcome == 'success' }}
+        if: ${{ always() && steps.restore.outcome == 'success' && (steps.work.outcome != 'skipped' || steps.setup-agent.outcome == 'success') }}
         continue-on-error: true
         env: *agent-environment
         run: |
           export GC_SETUP_OUTCOME='${{ steps.setup.outcome }}'
           export GC_WORK_OUTCOME='${{ steps.work.outcome }}'
-          node .github/scripts/hermes-bead-config.mjs exit
-          node .github/scripts/hermes-orchestrator.mjs "$GC_ATTEMPT_ROOT/exit.json"
+          python3 .github/scripts/opencode-bead.py exit
       - &sync
         id: sync
         name: Synchronize native Beads
@@ -292,33 +326,10 @@ jobs:
         working-directory: ${{ env.GC_WORKSPACE_ROOT }}
         env: *agent-environment
         run: |
-          # Public engine artifacts must not contain private prompts/native chats.
-          # Ordinary per-attempt object upload, not an execution queue or CAS store.
-          files=()
-          for file in setup work exit assigned-bead.json final-native-sync.json; do
-            if test -e "$GC_ATTEMPT_ROOT/$file"; then files+=("$file"); fi
-          done
-          tar -czf "$RUNNER_TEMP/hermes-diagnostics.tgz" -C "$GC_ATTEMPT_ROOT" \
-            --exclude='*/hermes-home' "${files[@]}"
-          export AWS_ACCESS_KEY_ID="$S3_CACHE_ACCESS_KEY_ID"
-          export AWS_SECRET_ACCESS_KEY="$S3_CACHE_SECRET_ACCESS_KEY"
-          export AWS_EC2_METADATA_DISABLED=true AWS_MAX_ATTEMPTS=2
-          export AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
-          if test "$S3_CACHE_PATH_STYLE" = true; then aws configure set default.s3.addressing_style path; fi
-          aws --endpoint-url "$S3_CACHE_URL" s3 cp "$RUNNER_TEMP/hermes-diagnostics.tgz" \
-            "s3://$S3_CACHE_BUCKET/$S3_CACHE_PREFIX/hermes-trials/$BEAD_ID/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/diagnostics.tgz" \
-            --region "$S3_CACHE_REGION" --only-show-errors
-          aws --endpoint-url "$S3_CACHE_URL" s3 cp \
-            "s3://$S3_CACHE_BUCKET/$S3_CACHE_PREFIX/hermes-trials/$BEAD_ID/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/diagnostics.tgz" \
-            "$RUNNER_TEMP/hermes-diagnostics-readback.tgz" --region "$S3_CACHE_REGION" --only-show-errors
-          cmp "$RUNNER_TEMP/hermes-diagnostics.tgz" "$RUNNER_TEMP/hermes-diagnostics-readback.tgz"
-          digest=$(sha256sum "$RUNNER_TEMP/hermes-diagnostics.tgz" | cut -d ' ' -f 1)
-          jq -n --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
-            --arg sha256 "$digest" \
-            --arg object "s3://$S3_CACHE_BUCKET/$S3_CACHE_PREFIX/hermes-trials/$BEAD_ID/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/diagnostics.tgz" \
-            '{github_run:$run,github_attempt:$attempt,private_diagnostics:$object,sha256:$sha256,readback_verified:true}' | \
-            nugs runs write --run "hermes-${BEAD_ID//./-}" \
-              --name "orchestration/attempts/r$GITHUB_RUN_ID-a$GITHUB_RUN_ATTEMPT/diagnostics.json" --file -
+          python3 "$GC_ENGINE_ROOT/.github/scripts/agent-diagnostics.py" finalize
+          nugs runs write --run "opencode-${BEAD_ID//./-}" \
+            --name "orchestration/attempts/r$GITHUB_RUN_ID-a$GITHUB_RUN_ATTEMPT/diagnostics.json" \
+            --file "$GC_ATTEMPT_ROOT/diagnostics-receipt.json"
       - &preserve-outcomes
         name: Preserve turn and persistence outcomes
         if: always()
@@ -329,9 +340,15 @@ jobs:
           EXIT: ${{ steps.exit.outcome }}
           SYNC: ${{ steps.sync.outcome }}
           PERSIST: ${{ steps.persist.outcome }}
+          PREPARE_PROJECT: ${{ inputs.prepare-project }}
         run: |
-          test "$SETUP_AGENT" = success
-          test "$SETUP" = success
+          if test "$PREPARE_PROJECT" = true; then
+            test "$SETUP_AGENT" = success
+            test "$SETUP" = success
+          else
+            test "$SETUP_AGENT" = skipped
+            test "$SETUP" = skipped
+          fi
           test "$WORK" = success
           test "$EXIT" = success
           test "$SYNC" = success
@@ -354,9 +371,18 @@ jobs:
         env:
           RECEIPT_TOKEN: ${{ steps.observability-auth.outputs.token }}
         run: python3 -c 'import os; open(os.environ["GITHUB_ENV"], "a").write("GC_OBSERVABILITY_TOKEN=" + os.environ["RECEIPT_TOKEN"] + "\n")'
+      - &stop-credentials
+        name: Stop credential host and preserve dedicated post-hook authentication
+        if: ${{ always() && env.GC_CREDENTIALS_DIR != '' }}
+        run: |
+          printf 'GC_CREDENTIALS_DIR=\n' >> "$GITHUB_ENV"
+          if test -f "$GC_CREDENTIALS_DIR/status.json"; then
+            pid=$(python3 -c 'import json,os; print(json.load(open(os.environ["GC_CREDENTIALS_DIR"]+"/status.json"))["pid"])')
+            sudo kill -TERM "$pid"
+          fi
   # A step-level condition does not suppress remote action pre-hooks. Keep the
   # off job free of observer action references, and reuse the exact worker steps.
-  hermes-unobserved:
+  opencode-unobserved:
     if: ${{ inputs.observability == 'off' }}
     runs-on: ubuntu-24.04
     concurrency: *bead-concurrency
@@ -366,16 +392,18 @@ jobs:
       - *app-auth
       - *tool-auth
       - *checkout-nugs
-      - *checkout-hermes
       - *setup-node
       - *install-native
       - *restore
       - *configure-tools
-      - *verify-launcher
+      - *renew-credentials
+      - *verify-tools
       - *setup-agent
       - *setup
       - *work
+      - *refresh-credentials
       - *exit
       - *sync
       - *persist
       - *preserve-outcomes
+      - *stop-credentials

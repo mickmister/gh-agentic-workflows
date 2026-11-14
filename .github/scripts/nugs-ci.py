@@ -16,6 +16,7 @@ import shlex
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.request
 from urllib.parse import urlsplit
 
@@ -48,7 +49,12 @@ def credential():
             fields.get("protocol") != "https" or fields.get("host") != url.netloc or
             fields.get("path") != url.path.lstrip("/")):
         return
-    token = os.environ["NUGS_STORAGE_TOKEN"]
+    if os.environ.get('GC_CREDENTIALS_DIR'):
+        current = json.loads((Path(os.environ['GC_CREDENTIALS_DIR']) / 'current.json').read_text())
+        require(current['expires_at_unix'] > time.time(), 'storage credential expired; host renewal unavailable')
+        token = current['storage_token']
+    else:
+        token = os.environ["NUGS_STORAGE_TOKEN"]
     require(token and "\n" not in token and "\r" not in token, "invalid storage credential")
     # This is Git's private credential-helper pipe, never an Actions log.
     sys.stdout.write("username=x-access-token\npassword=" + token + "\n\n")

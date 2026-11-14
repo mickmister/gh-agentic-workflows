@@ -1,5 +1,11 @@
 # Hosted Hermes Bead trial
 
+Historical worker: the dispatch workflow has been replaced by
+[`opencode-bead.yml`](../.github/workflows/opencode-bead.yml). See
+[`opencode-bead-trial.md`](opencode-bead-trial.md) for the selected runtime,
+work-first default, native exports and remaining hosted/thread acceptance.
+The following records the earlier Hermes trial rather than a current entrypoint.
+
 This is the provisional live Hermes worker, not the final Gas City coding flow.
 Gas City remains required in the final architecture. No semantic task selector,
 custom RPC server or Python orchestration state machine is introduced.
