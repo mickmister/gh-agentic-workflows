@@ -33,6 +33,22 @@ def save(path, value):
     path.chmod(0o600)
 
 
+def validate_export(exported, identifier, logs):
+    try:
+        return sessions.session_data(exported, identifier, max_bytes=64 * 1024 * 1024)
+    except Exception as error:
+        # A native turn can finish while its export is unusable. Preserve the
+        # rejected response privately before failing validation, without claiming
+        # it is a recoverable checkpoint or losing the completed native evidence.
+        logs.object('rejected-native-export.txt', logs.redactor.text(exported.decode(errors='replace')).encode())
+        details = {'category': type(error).__name__, 'bytes': len(exported)}
+        if isinstance(error, json.JSONDecodeError):
+            details.update(message=error.msg, position=error.pos, line=error.lineno, column=error.colno)
+        logs.state.update(status='checkpoint_failed', export_validation=details)
+        logs.heartbeat()
+        raise
+
+
 def workflow_config(instructions):
     config = oc.config_for(Path('/unused-probe-fixture'))
     config['default_agent'] = 'workspace-worker'
@@ -197,8 +213,14 @@ def turn(phase, environment=None, diagnostic_store=None):
     require(len(identifiers) == 1, 'native turn must bind one explicit session')
     identifier = identifiers.pop()
     require(prior is None or identifier == prior['session_id'], 'native follow-up changed session')
-    exported = oc.command([str(binary), 'export', identifier, '--pure'], root, native_env)
-    data = sessions.session_data(exported, identifier, max_bytes=64 * 1024 * 1024)
+    export = subprocess.run([str(binary), 'export', identifier, '--pure'], cwd=root,
+                            env={**native_env, 'PWD': str(root)}, capture_output=True, timeout=180)
+    with (output / 'diagnostics.log').open('ab') as stderr:
+        stderr.write(export.stderr)
+    logs.flush(final=True)
+    require(export.returncode == 0, 'native export command failed; private diagnostics retained')
+    exported = export.stdout
+    data = validate_export(exported, identifier, logs)
     require(data['messages'], 'native export has no history')
     export_file = output / 'native-session.json'
     export_file.write_bytes(exported)

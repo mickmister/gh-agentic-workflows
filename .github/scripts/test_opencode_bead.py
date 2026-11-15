@@ -17,6 +17,25 @@ ENGINE = Path(__file__).resolve().parents[2]
 
 
 class OpenCodeWorkflow(unittest.TestCase):
+    def test_unusable_export_retains_private_redacted_evidence_and_terminal_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = adapter.diagnostic.cache.DirectoryStore(root / 's3')
+            logs = adapter.diagnostic.Diagnostics(root, 'work', {'GITHUB_REPOSITORY': 'owner/engine',
+                'GITHUB_RUN_ID': '42', 'GITHUB_RUN_ATTEMPT': '1', 'BEAD_ID': 'task-test',
+                'GC_DIAG_WORKSPACE_REF': 'ws-test', 'INFERENCE_API_KEY': 'fixture-provider-secret'}, store=store)
+            logs.state['native_exit_code'] = 0
+            with self.assertRaises(json.JSONDecodeError):
+                adapter.validate_export(b'not-json fixture-provider-secret', 'ses_EXPLICIT', logs)
+            state = json.loads(store.get(logs.key + '/state.json', 1024 * 1024))
+            self.assertEqual(state['status'], 'checkpoint_failed')
+            self.assertEqual(state['native_exit_code'], 0)
+            self.assertEqual(state['export_validation']['position'], 0)
+            rejected = logs.members[0]
+            evidence = store.get(rejected['key'], rejected['bytes'])
+            self.assertIn(b'not-json', evidence)
+            self.assertNotIn(b'fixture-provider-secret', evidence)
+
     def test_worker_config_has_no_probe_turn_limit_or_request_timers(self):
         config = adapter.workflow_config('Trusted instructions')
         self.assertNotIn('steps', config['agent']['workspace-worker'])
