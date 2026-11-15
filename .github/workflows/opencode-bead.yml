@@ -160,7 +160,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mickmister/workspace-nuggets
-          ref: b9f22101fd282e00b05973a7c0aec882c02dd811
+          ref: 9ae24ebd399c8576ccb925c6fa2d9866fb09b5d3
           token: ${{ steps.app-auth.outputs.source-token }}
           path: .nugs-source
           fetch-depth: 0

@@ -6,10 +6,15 @@ repair and start-versus-continuation decisions. Follow Zero Framework Cognition:
 use native tools, not keyword rules or a replacement orchestration framework.
 Gas City remains required in the final architecture.
 
-Start with `bd --directory "$GC_WORKSPACE_ROOT" show BEAD_ID --json` and relevant
+Start with `bd --directory "$GC_WORKSPACE_ROOT" show "$BEAD_ID" --json` and relevant
 comments/dependencies. Your current directory is the restored shared Beads root.
-Use nugs there: `nugs workspace context`, `nugs documents list`, then inspect/read
-the relevant workspace-scoped runs. Do not begin with global Actions run scanning.
+Use nugs there: `nugs workspace context`, then inspect/read the relevant
+workspace-scoped runs. For document discovery, narrow `nugs documents list` with
+`--prefix` to the appropriate thread/project. The default is 20 metadata entries;
+follow `page.next_token` with `--token` to continue the same snapshot. Use `--all`
+only when a full inventory is needed. `nugs documents --help` and
+`nugs documents list --help` describe the supported inputs.
+Do not begin with global Actions run scanning.
 Document-backed runs remain explicitly permitted compact bootstrap records;
 never put native exports, transcripts or source archives in Documents.
 
