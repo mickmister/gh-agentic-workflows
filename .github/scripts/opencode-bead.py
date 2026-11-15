@@ -213,18 +213,18 @@ def turn(phase, environment=None, diagnostic_store=None):
     require(len(identifiers) == 1, 'native turn must bind one explicit session')
     identifier = identifiers.pop()
     require(prior is None or identifier == prior['session_id'], 'native follow-up changed session')
-    export = subprocess.run([str(binary), 'export', identifier, '--pure'], cwd=root,
-                            env={**native_env, 'PWD': str(root)}, capture_output=True, timeout=180)
-    with (output / 'diagnostics.log').open('ab') as stderr:
-        stderr.write(export.stderr)
+    export_file = output / 'native-session.json'
+    # The pinned native CLI can exit before a large piped stdout export drains.
+    # A regular private file avoids pipe truncation and retains bytes for diagnosis.
+    with export_file.open('xb') as stdout, (output / 'diagnostics.log').open('ab') as stderr:
+        os.fchmod(stdout.fileno(), 0o600)
+        export = subprocess.run([str(binary), 'export', identifier, '--pure'], cwd=root,
+                                env={**native_env, 'PWD': str(root)}, stdout=stdout, stderr=stderr, timeout=180)
     logs.flush(final=True)
     require(export.returncode == 0, 'native export command failed; private diagnostics retained')
-    exported = export.stdout
+    exported = export_file.read_bytes()
     data = validate_export(exported, identifier, logs)
     require(data['messages'], 'native export has no history')
-    export_file = output / 'native-session.json'
-    export_file.write_bytes(exported)
-    export_file.chmod(0o600)
     (output / 'answer.md').write_text('\n\n'.join(event['part']['text'] for event in events
                                                 if event.get('type') == 'text'))
     (output / 'answer.md').chmod(0o600)

@@ -73,7 +73,8 @@ class OpenCodeWorkflow(unittest.TestCase):
             capture = root / 'native-environment.json'
             code = ('import os,json;from pathlib import Path;'
                     f'Path({str(capture)!r}).write_text(json.dumps({{k:os.environ.get(k) for k in '
-                    '("GH_TOKEN","AGENT_APP_PRIVATE_KEY","OTEL_SECRETS_TO_REDACT")}))')
+                    '("GH_TOKEN","AGENT_APP_PRIVATE_KEY","OTEL_SECRETS_TO_REDACT")}));'
+                    'print("native-export-fixture\\n" * 4096)')
             command = 'python3 -c ' + shlex.quote(code)
 
             class Provider(BaseHTTPRequestHandler):
@@ -113,6 +114,7 @@ class OpenCodeWorkflow(unittest.TestCase):
                     reports.append(report)
                 self.assertEqual(len({report['session_id'] for report in reports}), 1)
                 exports = [json.loads(Path(report['native_export']['path']).read_text()) for report in reports]
+                self.assertGreater(Path(reports[-1]['native_export']['path']).stat().st_size, 65536)
                 self.assertLess(len(exports[0]['messages']), len(exports[-1]['messages']))
                 self.assertTrue(any(part['type'] == 'tool' for message in exports[-1]['messages']
                                     for part in message['parts']))
