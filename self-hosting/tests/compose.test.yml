@@ -1,0 +1,15 @@
+services:
+  gitea:
+    ports: ['127.0.0.1:19400:3000']
+  minio:
+    ports: ['127.0.0.1:19401:9000']
+  gateway:
+    ports: ['127.0.0.1:19402:8080']
+    environment:
+      INFERENCE_BASE_URL: http://fixture:8090/v1
+  caddy:
+    volumes: [./tests/Caddyfile:/etc/caddy/Caddyfile:ro]
+  fixture:
+    image: agentic-control:pilot
+    command: [python, /opt/pilot/tests/model.py]
+    networks: [jobs]

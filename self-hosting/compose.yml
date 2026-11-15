@@ -1,0 +1,125 @@
+name: ${COMPOSE_PROJECT_NAME:-agentic}
+services:
+  gitea:
+    image: gitea/gitea:1.25.1@sha256:b3aee0f6fa4ff3271180a2388bb796be5cced8828685b968a310d70e881fcbb3
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__server__ROOT_URL: https://${GITEA_HOST:?set GITEA_HOST}/
+      GITEA__server__DOMAIN: ${GITEA_HOST}
+      GITEA__server__SSH_PORT: ${GITEA_SSH_PORT:-2222}
+      GITEA__security__INSTALL_LOCK: 'true'
+      GITEA__service__DISABLE_REGISTRATION: 'true'
+      GITEA__actions__ENABLED: 'true'
+    volumes: [gitea:/data]
+    ports: ['${GITEA_SSH_PORT:-2222}:22']
+    networks: [jobs]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://localhost:3000/api/healthz]
+      interval: 5s
+      retries: 30
+  minio:
+    image: agentic-minio:9e49d5e7
+    build:
+      context: ..
+      dockerfile: self-hosting/minio.Dockerfile
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/minio_user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_password
+    secrets: [minio_user, minio_password]
+    volumes: [minio:/data]
+    networks: [jobs]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:9000/minio/health/live')"]
+      interval: 5s
+      retries: 30
+  gateway:
+    image: agentic-control:pilot
+    build:
+      context: ..
+      dockerfile: self-hosting/Dockerfile
+      target: control
+    environment: &pilot-environment
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: agentic-private
+      GITEA_URL: http://gitea:3000
+      GITEA_HOST: ${GITEA_HOST}
+      APP_HOST: ${APP_HOST:?set APP_HOST}
+      PAGES_DOMAIN: ${PAGES_DOMAIN:?set PAGES_DOMAIN}
+      SOURCE_REPOSITORY: ${SOURCE_REPOSITORY:-pilot/source}
+      SOURCE_REF: ${SOURCE_REF:-main}
+      WORKFLOW_REPOSITORY: ${WORKFLOW_REPOSITORY:-pilot/workflows}
+      WORKFLOW_REF: ${WORKFLOW_REF:-main}
+      HOSTED_BUILD_COMMAND: ${HOSTED_BUILD_COMMAND:-}
+      INFERENCE_BASE_URL: ${INFERENCE_BASE_URL:-}
+      INFERENCE_MODEL: ${INFERENCE_MODEL:-gpt-6.1-sol}
+    secrets: [minio_user, minio_password, app_token, worker_token, gitea_token, source_token, inference_key]
+    networks: [jobs]
+    depends_on:
+      minio: {condition: service_healthy}
+      gitea: {condition: service_healthy}
+    restart: unless-stopped
+  runner:
+    image: gitea/act_runner:0.2.13@sha256:8477d5b61b655caad4449888bae39f1f34bebd27db56cb15a62dccb3dcf3a944
+    entrypoint: [/bin/sh, /config/runner.sh]
+    environment:
+      JOB_NETWORK: ${JOB_NETWORK:-agentic-jobs}
+      WORKER_IMAGE: ${WORKER_IMAGE:-agentic-worker:opencode-1.19.4}
+      RUNNER_CAPACITY: ${RUNNER_CAPACITY:-2}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner:/data
+      - ./runner.sh:/config/runner.sh:ro
+    networks: [jobs]
+    depends_on:
+      gitea: {condition: service_healthy}
+    restart: unless-stopped
+  caddy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    environment:
+      GITEA_HOST: ${GITEA_HOST}
+      APP_HOST: ${APP_HOST}
+      S3_HOST: ${S3_HOST:?set S3_HOST}
+      TLS_EMAIL: ${TLS_EMAIL:?set TLS_EMAIL}
+    ports: ['${HTTP_PORT:-80}:80', '${HTTPS_PORT:-443}:443']
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, caddy_data:/data, caddy_config:/config]
+    networks: [jobs]
+    restart: unless-stopped
+  init:
+    profiles: [setup]
+    image: agentic-control:pilot
+    command: [python, bootstrap.py]
+    environment: *pilot-environment
+    secrets: [minio_user, minio_password, app_token, worker_token, gitea_token, inference_key]
+    volumes: [runner:/runner]
+    networks: [jobs]
+    depends_on:
+      minio: {condition: service_healthy}
+      gitea: {condition: service_healthy}
+  worker-image:
+    profiles: [build]
+    image: ${WORKER_IMAGE:-agentic-worker:opencode-1.19.4}
+    build:
+      context: ..
+      dockerfile: self-hosting/Dockerfile
+      target: worker
+    command: [opencode, --version]
+    networks: [jobs]
+networks:
+  jobs:
+    name: ${JOB_NETWORK:-agentic-jobs}
+volumes:
+  gitea:
+  minio:
+  runner:
+  caddy_data:
+  caddy_config:
+secrets:
+  minio_user: {file: ./secrets/minio_user}
+  minio_password: {file: ./secrets/minio_password}
+  app_token: {file: ./secrets/app_token}
+  worker_token: {file: ./secrets/worker_token}
+  gitea_token: {file: ./secrets/gitea_token}
+  source_token: {file: ./secrets/source_token}
+  inference_key: {file: ./secrets/inference_key}

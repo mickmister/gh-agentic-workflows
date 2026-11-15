@@ -1,0 +1,60 @@
+name: Publish hosted app (GitHub Pages or S3)
+description: Keep the existing GHU Pages preparation or publish the same built payload to S3
+inputs:
+  target:
+    description: github-pages or s3
+    required: true
+  source:
+    description: Built hosted-dist directory, never source/node_modules
+    default: hosted-dist
+  repository:
+    required: true
+    description: Canonical owner/repository
+  branch:
+    required: true
+    description: Source branch
+  sha:
+    required: true
+    description: Built source commit
+  pages-domain:
+    description: S3-backed branch hostname suffix
+    default: ''
+outputs:
+  skipped:
+    description: Existing GHU publication skip contract
+    value: ${{ steps.publish.outputs.skipped }}
+  preview_path:
+    description: Existing GHU branch preview directory for the caller's Pages deploy/status steps
+    value: ${{ steps.publish.outputs.preview_path }}
+  url:
+    description: Published S3 preview URL (GitHub Pages URL comes from caller deploy step)
+    value: ${{ steps.publish.outputs.url }}
+runs:
+  using: composite
+  steps:
+    - id: publish
+      shell: bash
+      env:
+        PUBLISH_TARGET: ${{ inputs.target }}
+        PUBLISH_SOURCE: ${{ inputs.source }}
+        PUBLISH_REPOSITORY: ${{ inputs.repository }}
+        PUBLISH_BRANCH: ${{ inputs.branch }}
+        PUBLISH_SHA: ${{ inputs.sha }}
+        PAGES_DOMAIN: ${{ inputs.pages-domain }}
+        ADAPTER: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        case "$PUBLISH_TARGET" in
+          github-pages)
+            # Existing GHU publisher updates gh-pages and prepares pages-site;
+            # caller retains its existing native GitHub Pages deployment.
+            test "$PUBLISH_SOURCE" = hosted-dist
+            GITHUB_REPOSITORY="$PUBLISH_REPOSITORY" GITHUB_REF_NAME="$PUBLISH_BRANCH" GITHUB_SHA="$PUBLISH_SHA" node scripts/publish-hosted.mjs
+            ;;
+          s3)
+            python "$ADAPTER/../../publish.py" --source "$PUBLISH_SOURCE" --repository "$PUBLISH_REPOSITORY" \
+              --branch "$PUBLISH_BRANCH" --sha "$PUBLISH_SHA" --domain "$PAGES_DOMAIN" > publish.receipt.json
+            python -c 'import json,os; d=json.load(open("publish.receipt.json")); open(os.environ["GITHUB_OUTPUT"],"a").write("skipped=false\nurl="+d["url"]+"\n")'
+            ;;
+          *) exit 2 ;;
+        esac

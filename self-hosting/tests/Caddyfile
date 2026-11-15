@@ -1,0 +1,14 @@
+https://agents.localhost, https://git.localhost, https://objects.localhost, https://*.pages.localhost {
+  tls internal
+  @git host git.localhost
+  handle @git {
+    reverse_proxy gitea:3000
+  }
+  @s3 host objects.localhost
+  handle @s3 {
+    reverse_proxy minio:9000
+  }
+  handle {
+    reverse_proxy gateway:8080
+  }
+}

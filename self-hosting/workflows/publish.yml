@@ -1,0 +1,41 @@
+name: Publish hosted branch to S3
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+jobs:
+  publish:
+    runs-on: agentic
+    steps:
+      - name: Fetch the exact source candidate without persisting credentials
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          test ! -S /var/run/docker.sock
+          export GIT_TERMINAL_PROMPT=0
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.http://gitea:3000/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$SOURCE_TOKEN" | base64 -w0)"
+          git init -q source
+          git -C source remote add origin "http://gitea:3000/$SOURCE_REPO.git"
+          git -C source fetch -q --depth=1 origin "$SOURCE_SHA"
+          git -C source checkout -q --detach FETCH_HEAD
+      - name: Build and publish the selected branch
+        env:
+          PILOT_GATEWAY: http://gateway:8080
+          PILOT_WORKER_TOKEN: ${{ secrets.PILOT_WORKER_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          # For GHU: pnpm install --frozen-lockfile && pnpm run pages:build
+          HOSTED_BUILD_COMMAND: ${{ vars.HOSTED_BUILD_COMMAND }}
+          PAGES_DOMAIN: ${{ vars.PAGES_DOMAIN }}
+        run: |
+          set -eu
+          cd source
+          test -n "$HOSTED_BUILD_COMMAND"
+          bash -e -o pipefail -c "$HOSTED_BUILD_COMMAND"
+          python /opt/pilot/publish.py --source hosted-dist --repository "$SOURCE_REPO" \
+            --branch "$SOURCE_BRANCH" --sha "$SOURCE_SHA" --domain "$PAGES_DOMAIN"

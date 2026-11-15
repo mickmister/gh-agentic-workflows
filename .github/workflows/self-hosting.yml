@@ -1,0 +1,31 @@
+name: Self-hosted Compose pilot
+on:
+  workflow_dispatch:
+  push:
+    paths: ['self-hosting/**', '.dockerignore', '.github/workflows/self-hosting.yml', '.github/*toolchain.lock.json']
+  pull_request:
+    paths: ['self-hosting/**', '.dockerignore', '.github/workflows/self-hosting.yml', '.github/*toolchain.lock.json']
+permissions:
+  contents: read
+jobs:
+  native-compose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build pinned services and released native tool image
+        working-directory: self-hosting
+        run: docker compose --env-file .env.example -f compose.yml build --quiet minio gateway worker-image
+      - name: Exercise real Gitea jobs and native thread recovery with a fixture provider
+        working-directory: self-hosting
+        run: python3 tests/smoke.py
+      - name: Verify private S3 publication and stale-write rejection
+        run: docker exec agentic-test-gateway-1 python /opt/pilot/tests/storage_pages.py
+      - name: Restore coherent state into new volumes
+        working-directory: self-hosting
+        run: python3 tests/recovery.py
+      - name: Remove only this disposable installation
+        if: always()
+        working-directory: self-hosting
+        run: docker compose --env-file .env -f compose.yml -f tests/compose.test.yml down --volumes
