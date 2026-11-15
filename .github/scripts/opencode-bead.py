@@ -103,6 +103,7 @@ def turn(phase, environment=None, diagnostic_store=None):
     else:
         request = (engine / '.github/opencode/exit-followup.md').read_text()
         request += f'\nObserved Actions outcomes: setup={env.get("GC_SETUP_OUTCOME")}; work={env.get("GC_WORK_OUTCOME")}.'
+        request += '\nCaller scope and instructions remain in force for this follow-up:\n' + env.get('BEAD_INSTRUCTIONS', '')
     binding = digest(json.dumps({'workspace_ref': workspace, 'bead': bead, 'phase': phase,
                                  'request': request, 'config': workflow_config(instructions),
                                  'version': lock['version'], 'archive_sha256': lock['sha256'],
@@ -133,7 +134,7 @@ def turn(phase, environment=None, diagnostic_store=None):
     allowed = ('PATH', 'LANG', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HOME', 'XDG_CONFIG_HOME',
                'GH_TOKEN', 'NUGS_STORAGE_URL', 'NUGS_STORAGE_TOKEN', 'INFERENCE_BASE_URL',
                'INFERENCE_API_KEY', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET',
-               'BD_NO_HOOKS', 'BEADS_DOLT_SHARED_SERVER', 'TRACEPARENT', 'TRACESTATE',
+                'BEAD_ID', 'BD_NO_HOOKS', 'BEADS_DOLT_SHARED_SERVER', 'TRACEPARENT', 'TRACESTATE',
                'OTEL_SERVICE_NAME', 'OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_PROTOCOL',
                'OTEL_TRACES_EXPORTER', 'OTEL_METRICS_EXPORTER', 'OTEL_LOGS_EXPORTER')
     native_env = {key: value for key, value in env.items()

@@ -73,7 +73,7 @@ class OpenCodeWorkflow(unittest.TestCase):
             capture = root / 'native-environment.json'
             code = ('import os,json;from pathlib import Path;'
                     f'Path({str(capture)!r}).write_text(json.dumps({{k:os.environ.get(k) for k in '
-                    '("GH_TOKEN","AGENT_APP_PRIVATE_KEY","OTEL_SECRETS_TO_REDACT")}));'
+                    '("GH_TOKEN","AGENT_APP_PRIVATE_KEY","OTEL_SECRETS_TO_REDACT","BEAD_ID")}));'
                     'print("native-export-fixture\\n" * 4096)')
             command = 'python3 -c ' + shlex.quote(code)
 
@@ -120,10 +120,14 @@ class OpenCodeWorkflow(unittest.TestCase):
                                     for part in message['parts']))
                 observed = json.loads(capture.read_text())
                 self.assertEqual(observed['GH_TOKEN'], 'scoped-test-token')
+                self.assertEqual(observed['BEAD_ID'], 'task-test')
                 self.assertIsNone(observed['AGENT_APP_PRIVATE_KEY'])
                 self.assertIsNone(observed['OTEL_SECRETS_TO_REDACT'])
                 self.assertNotIn('NEW FOLLOW-UP', json.dumps(requests[0]))
                 self.assertIn('NEW FOLLOW-UP', json.dumps(requests[-1]))
+                latest_user = next(message for message in reversed(requests[-1]['messages']) if message['role'] == 'user')
+                self.assertIn('Caller scope and instructions remain in force', json.dumps(latest_user))
+                self.assertIn(env['BEAD_INSTRUCTIONS'], json.dumps(latest_user))
                 count = len(requests)
                 self.assertEqual(adapter.turn('exit', env), reports[-1])
                 self.assertEqual(len(requests), count)
