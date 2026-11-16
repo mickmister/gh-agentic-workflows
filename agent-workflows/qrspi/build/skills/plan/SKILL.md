@@ -98,7 +98,7 @@ Every task spec must be self-contained — an implementation agent reading only 
 
 ## Phase-Scoped Content Rules
 
-plan.md contains ONLY current-phase tasks. Each task must reference goal IDs that exist in goals.md. Tasks for goals not in the current phase must not appear. The `goal_ids` frontmatter list (e.g. `[G1, G2]` — see ID-Hygiene Contract below) must contain only IDs in goals.md.
+plan.md contains ONLY current-phase tasks. Each task must reference goal IDs that exist in goals.md. Tasks for goals not in the current phase must not appear. The `goal_ids` frontmatter list (e.g. `[G1, G2]` — see ID-Hygiene Contract below) must contain only IDs in goals.md. <!-- id-hygiene-exempt -->
 
 ## Task Sizing
 
@@ -123,8 +123,6 @@ Failing a floor check → merge into the parent task that gives it observable be
 ## Schema-Migration Task Shape
 
 A **schema-migration task** applies an identical mechanical change to N files of the same shape (e.g., deleting one frontmatter key from every agent file). This is the narrow exception to the LOC ceiling and file-count guidance. The full contract — eligibility, the mandatory `sizing_exception: schema-migration` + `sizing_rationale:` + `structural_lint:` trio, the script-path ERE, the diff-must-be-non-empty rule, and the six plan-spec defect conditions — lives in `references/schema-migration-task-shape.md`. Read that reference whenever authoring or reviewing such a task. The plan reviewer (`agents/qrspi-plan-reviewer.md` § Schema-migration exception review) enforces the same six defects.
-
-## Multi-Actor Flow Check
 
 ## Multi-Actor Flow Check
 
@@ -216,7 +214,7 @@ When `config.md` has `pipeline: quick`: the plan subagent receives `goals.md` + 
 ### Sub-Subagent Dispatch (Large Plans Only)
 
 **Compaction checkpoint: pre-fanout.** Per-task spec-generation fan-out — one subagent per task. The orchestrator's post-fanout merge re-aggregates output into `plan.md`; that re-aggregation is where context saturation bites. See using-qrspi `## Compaction Checkpoints`.
-Call `TaskCreate({ subject: "Recommend /compact (pre-fanout) — plan", description: "per-task spec fan-out merges into plan.md; user decides /compact." })`.
+Surface a todo: title `Recommend /compact (pre-fanout) — plan`, description `per-task spec fan-out merges into plan.md; user decides /compact.`.
 
 **Sub-subagent inputs:** `plan.md` overview; relevant `structure.md` sections; `design.md` (for per-goal `Acceptance` blocks + vertical-slice context); `skills/plan/owns-defers.md` (the layer-depth clamp — without it, sub-subagents drift into Implement/Structure scope: algorithm pseudocode, regex grammar, literal-value hard-coding, line-numbered citations, exact `@test` counts, shebang/file-mode specifics); the three `skills/_shared/prompt-prose-*` shared files included at Plan Overview Subagent above (re-checked at dispatch; same PRECONDITION).
 
@@ -224,7 +222,7 @@ Each sub-subagent writes `tasks/task-NN.md` — **and ONLY that file**. Sub-suba
 
 ### Per-Task Classification (`task_type` and `tier`)
 
-Every task spec sets `task_type` and `tier` in frontmatter (the per-task `model:` field is retired by G22 / design.md CD-1). `task_type` selects the TDD or lightweight implementer dispatch chain; `tier` is consumed by the Tier Resolution Chain (`scripts/_resolve-lib.sh`), which maps the tier to a `(vendor, model)` pair via `config.md`'s `model_routing:` block — NOT a per-invocation override.
+Every task spec sets `task_type` and `tier` in frontmatter (the per-task `model:` field is retired in favor of `tier:`-based resolution through `model_routing:`). `task_type` selects the TDD or lightweight implementer dispatch chain; `tier` is consumed by the Tier Resolution Chain (`scripts/_resolve-lib.sh`), which maps the tier to a `(vendor, model)` pair via `config.md`'s `model_routing:` block — NOT a per-invocation override.
 
 **`task_type` dispatch:**
 - **Absent or `code`** — TDD path: when `task_type: code` (or absent), the test-writer dispatches first, then the implementer, with the RED-verification gate between them. Absent `task_type:` defaults to the TDD path identically. **Dispatch order: test-writer → RED-verification gate → implementer.**
@@ -252,8 +250,6 @@ The template below embeds information-mapping patterns: claim-before-evidence, o
 ## Evergreen-Output Rule
 
 Any artifact in the QRSPI run directory governed by `status: draft → approved` frontmatter promotion (goals, design, structure, phasing, plan, parallelization, roadmap, future-goals, and any future artifact adopting this lifecycle) describes the **current state** of decisions. The reader is a downstream agent or future maintainer.
-
-*(Excludes by design: `SKILL.md` files — skills carry rule rationale legitimately; `feedback/*.md` — the designated home for dialogue exhaust; `reviews/**/*.md` — finding rationale; `config.md` — non-narrative.)*
 
 **Litmus test (apply to every paragraph before write).** Two filters, in order:
 
@@ -284,7 +280,7 @@ Decision-process history (drafts, review rounds, feedback applied, compaction re
 ---
 status: draft
 phase_start_commit: null
-test_writer_tier: null   # optional: low | medium | high. When unset, per-task `tier:` drives co-escalated qrspi-test-writer dispatch (high-tier co-escalates implementer + test-writer per design.md CD-1). Set only to pin test-writer tier independent of per-task tier.
+test_writer_tier: null   # optional: low | medium | high. When unset, per-task `tier:` drives co-escalated qrspi-test-writer dispatch (high-tier co-escalates implementer + test-writer). Set only to pin test-writer tier independent of per-task tier.
 ---
 
 # Implementation Plan
@@ -353,15 +349,15 @@ Seven reviewer dispatches run in parallel as the review round (one unified plan-
 ### Review Round
 
 **Compaction checkpoint: pre-fanout.** Reviewer fan-out reads merged `plan.md` + `goals.md` + `research/summary.md` + `design.md` + `structure.md`; up to seven parallel Claude dispatches plus seven non-blocking Codex parallels when `second_reviewer: true`. See using-qrspi `## Compaction Checkpoints`.
-Call `TaskCreate({ subject: "Recommend /compact (pre-fanout) — plan", description: "pre-fanout: reviewer fan-out (7 Claude + up to 7 Codex) reads merged plan.md + 4 prior artifacts. User decides whether to /compact." })`.
+Surface a todo: title `Recommend /compact (pre-fanout) — plan`, description `pre-fanout: reviewer fan-out (7 Claude + up to 7 Codex) reads merged plan.md + 4 prior artifacts. User decides whether to /compact.`.
 
 Apply the **Standard Review Loop** from `using-qrspi/SKILL.md`.
 
-**Pre-dispatch diff-file emission.** Before dispatching reviewers, the orchestrator runs `git -C "<repo>" diff "<ref>" -- "<ABS_ARTIFACT_DIR>/plan.md" "<ABS_ARTIFACT_DIR>/tasks/" > "<ABS_ARTIFACT_DIR>/reviews/plan/round-NN.diff"` as a Bash redirect (diff never enters main-chat context). `<ref>` is `<base-branch>` by default, narrowed to the SHA from `reviews/plan/round-(NN-1)-commit.txt` when using-qrspi step 12's anchor-file lookup applies (validates SHA shape, halts with `anchor-file-missing:` / `sha-format-invalid:` before any `git diff` runs). Each reviewer dispatch carries `diff_file_path: <ABS_ARTIFACT_DIR>/reviews/plan/round-NN.diff` and (when narrowed) `scope_hint: <scope_set>` wrapped between `<<<UNTRUSTED-SCOPE-HINT-START id=scope_hint>>>` / `<<<UNTRUSTED-SCOPE-HINT-END id=scope_hint>>>` markers per the reviewer-protocol Reviewer Dispatch Contract. Plan is multi-file, so scope-tagger emits file paths as tags from `referenced_files`. Omit diff redirect and parameter when the artifact directory isn't in a git repository. Follow the fail-loud contract in `using-qrspi/SKILL.md` § Standard Review Loop step 1.
+**Dispatch the round through dispatch-agent's high-level entry.** Run `scripts/dispatch-agent.sh --step plan --round ${ROUND} --artifact-dir <ABS_ARTIFACT_DIR>` (plus the per-skill `--output-dir`/`--artifact`/`--agents` flags below). High-level mode invokes `scripts/review-prep.sh` to emit `<ABS_ARTIFACT_DIR>/reviews/plan/round-${ROUND}.diff` (covering `plan.md` and `tasks/`) and threads `diff_file_path:` into each reviewer prompt; the orchestrator runs no `git diff` Bash redirect of its own. When the artifact directory is not inside a git repository, review-prep skips diff emission and `diff_file_path:` is omitted. For round 01 pass `--base-ref <base-branch>`; on round ≥ 2 review-prep auto-narrows by reading `reviews/plan/round-$((ROUND-1))-commit.txt` (named diagnostics `anchor-file-missing:` / `sha-format-invalid:` halt before the SHA reaches `git diff`). Plan is multi-file, so scope-tagger emits file paths as tags from `referenced_files`. Scope-tag narrowing (when active) reaches reviewers as `scope_hint:` wrapped between `<<<UNTRUSTED-SCOPE-HINT-START id=scope_hint>>>` / `<<<UNTRUSTED-SCOPE-HINT-END id=scope_hint>>>` markers per the reviewer-protocol Reviewer Dispatch Contract.
 
 **Route detection + companion preparation.** Read `config.md` for `route` (`full`|`quick`). Pass `route: full|quick` as an explicit dispatch param to every quality + plan-artifact dispatch (scope-reviewer takes no `route`). Construct wrapped companion bodies once and reuse across all six dispatches — each named artifact wrapped between `<<<UNTRUSTED-ARTIFACT-START id=<name>>>>` / `<<<UNTRUSTED-ARTIFACT-END id=<name>>>>` markers: `companion_goals` (`goals.md`), `companion_research` (`research/summary.md`), `companion_phasing` (`phasing.md`), `companion_design` (`design.md`, **full only**), `companion_structure` (`structure.md`, **full only**).
 
-Reviewers dispatch through the universal chain (`scripts/dispatch-agent.sh --agents` → Task fan-out → `scripts/await-round.sh`). `*-claude` tags route first-party; `*-codex` route third-party. Include `*-codex` peer tags in `REVIEW_AGENTS` only when `second_reviewer: true`; on quick-fix routes the dispatcher omits `companion_design`/`companion_structure` automatically.
+`*-claude` tags route first-party; `*-codex` route third-party. Include `*-codex` peer tags in `REVIEW_AGENTS` only when `second_reviewer: true`; on quick-fix routes the dispatcher omits `companion_design`/`companion_structure` automatically.
 
 ```sh
 REVIEW_STEP="plan"
@@ -371,7 +367,7 @@ REVIEW_ARTIFACT="plan.md"
 REVIEW_AGENTS="quality-claude=qrspi-plan-reviewer,spec-claude=qrspi-plan-spec-reviewer,security-claude=qrspi-plan-security-reviewer,silent-failure-claude=qrspi-plan-silent-failure-hunter,goal-traceability-claude=qrspi-plan-goal-traceability-reviewer,test-coverage-claude=qrspi-plan-test-coverage-reviewer,scope-claude=qrspi-plan-scope-reviewer,quality-codex=qrspi-plan-reviewer,spec-codex=qrspi-plan-spec-reviewer,security-codex=qrspi-plan-security-reviewer,silent-failure-codex=qrspi-plan-silent-failure-hunter,goal-traceability-codex=qrspi-plan-goal-traceability-reviewer,test-coverage-codex=qrspi-plan-test-coverage-reviewer,scope-codex=qrspi-plan-scope-reviewer"
 ```
 
-# Reviewer Dispatch (shared)
+## Reviewer Dispatch (shared)
 
 With `$REVIEW_STEP`, `$REVIEW_ROUND`, `$REVIEW_OUTPUT_DIR`, `$REVIEW_ARTIFACT`, and `$REVIEW_AGENTS` set by the per-skill preamble above, run:
 
@@ -387,25 +383,25 @@ scripts/dispatch-agent.sh --step "$REVIEW_STEP" --round "$REVIEW_ROUND" \
 MODE=first_party TAG=<tag> SUBAGENT_TYPE=<agent-name> MODEL=<resolved-model> PROMPT_FILE=<absolute-path>
 ```
 
-**For every emitted spec line, invoke the Task tool with these arguments (parse the line as space-separated `KEY=VALUE` pairs; values contain no spaces):**
+**For every emitted spec line, issue one subagent dispatch with these arguments (parse the line as space-separated `KEY=VALUE` pairs; values contain no spaces):**
 
 - `subagent_type` = the `SUBAGENT_TYPE` value, verbatim
 - `model` = the `MODEL` value, verbatim
 - `prompt` = the literal string `"DISPATCH_FILE=<PROMPT_FILE-value>"` — a single-line env-var-style reference; the prompt argument has no other content
 
-**Invoke all M Task tool calls in parallel in one orchestrator response** (one Task call per spec line). The reviewer agent body's first instruction is to `Read` its `DISPATCH_FILE` — do not pre-Read the file yourself; the dispatch context belongs in the subagent's window, not the orchestrator's.
+**Issue all M subagent dispatches in parallel in one orchestrator response** (one dispatch per spec line). The reviewer agent body's first instruction is to `Read` its `DISPATCH_FILE` — do not pre-Read the file yourself; the dispatch context belongs in the subagent's window, not the orchestrator's.
 
-**Iron law (orchestrator-side dispatch contract):** invoke the Task tool exactly once per emitted spec line, with `SUBAGENT_TYPE`, `MODEL`, and `PROMPT_FILE` copied verbatim. Skipping a line, deduplicating across lines, modifying any value, or substituting a different subagent_type is a contract violation. The dispatch manifest (`$REVIEW_OUTPUT_DIR/.dispatch-manifest.json`) records expected dispatches; the apply-fix step's "expected tag produced no output" diagnostic catches missed or mis-routed Task invocations.
+**Iron law (orchestrator-side dispatch contract):** issue exactly one subagent dispatch per emitted spec line, with `SUBAGENT_TYPE`, `MODEL`, and `PROMPT_FILE` copied verbatim. Skipping a line, deduplicating across lines, modifying any value, or substituting a different subagent_type is a contract violation. The dispatch manifest (`$REVIEW_OUTPUT_DIR/.dispatch-manifest.json`) records expected dispatches; the apply-fix step's "expected tag produced no output" diagnostic catches missed or mis-routed dispatches.
 
-**Capture each Task return value to disk before draining.** After each Task call returns, write the subagent's reply text (the full Task return string) to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` using the `create` tool, where `<TAG>` is the `TAG` value from the corresponding spec line. This is mandatory regardless of whether the subagent appeared to write per-finding files itself. Rationale: when a subagent cannot use the Write tool (read-only sandbox; missing `allowed-tools` entry; tool denial at runtime) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead. `await-round.sh` recovers those findings via a universal stdout-fallback that reads `.dispatch/<TAG>.raw` and pipes it through `third-party-finding-splitter.sh`; without the captured `.raw` file the fallback has nothing to work with and the round looks (incorrectly) clean.
+**Capture first-party reply text to disk before draining.** Each first-party subagent's reply lives only in main-chat context — no script can recover it later. After each dispatch returns, write the full reply text to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` with the `create` tool, where `<TAG>` is the `TAG` from the corresponding spec line — even when the subagent appears to have written per-finding files itself. When a subagent can't use the Write tool (read-only sandbox; missing `allowed-tools` entry; runtime tool denial) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead, and `await-round.sh`'s universal stdout-fallback recovers them by piping `.dispatch/<TAG>.raw` through `third-party-finding-splitter.sh`. Without the `.raw` capture the fallback has nothing to work with and the round looks (incorrectly) clean. Third-party dispatches skip this step — `dispatch-companion.sh` already captures their stdout to disk.
 
-After all Task tool calls return AND all `.raw` captures are written (Task tool is synchronous; first-party subagents with working Write tools have already written their per-finding files by this point), drain any third-party background dispatches and finalize the round:
+After all subagent dispatches return AND all `.raw` captures are written (first-party dispatches are synchronous; first-party subagents with working Write tools have already written their per-finding files by this point), drain any third-party background dispatches and finalize the round:
 
 ```sh
 scripts/await-round.sh --round-dir "$REVIEW_OUTPUT_DIR"
 ```
 
-`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (CD-1 #4 output-bound contract).
+`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (output-bound contract).
 
 Then read `$REVIEW_OUTPUT_DIR/.round-complete.json` and the per-finding files as needed for apply-fix. The raw per-reviewer prompt content (assembled by dispatch-agent into `PROMPT_FILE`) never enters the orchestrator's context — only the small spec lines + the small `DISPATCH_FILE` references passed to Task.
 
@@ -426,7 +422,7 @@ Present merged `plan.md` to the user — overview for approval, task details for
 3. **Split (post-approval orchestration):** Fan out per-task spec writing, verify file set, reduce plan.md to overview-only, capture `phase_start_commit:`, then write `status: approved` — in this exact transactional order, so an approved `plan.md` is never observable on disk without all corresponding `tasks/task-NN.md` files present. The per-sub-subagent input/output contract lives in `skills/plan/post-approval-split-contract.md`.
 
    **N-threshold carve-out** (N = number of tasks in approved overview):
-   - **N >= 3 (sub-subagent fan-out):** One sub-subagent per task in parallel. Each receives the task section from `plan.md` wrapped as untrusted artifact; the canonical task-file template (Split task file format below) carrying all Slice 5 frontmatter (`reference_gate:`, `reference_artifact:`, `ui:`, `lift_source:`, plus T43's `conditional:` / `conditional_precondition:`); the G7 ID-Hygiene Contract (`goal_ids` is metadata; do NOT echo into the body); and `output_path` (`<artifact_dir>/tasks/task-NN.md`). Each writes exactly one file. Sub-subagents MUST NOT edit `plan.md`. Rationale: parallelism + isolation savings exceed dispatch overhead at N >= 3; combined plan+specs exceeds the 600-line threshold (design line 157) at which main-chat writing saturates the review window.
+   - **N >= 3 (sub-subagent fan-out):** One sub-subagent per task in parallel. Each receives the task section from `plan.md` wrapped as untrusted artifact; the canonical task-file template (Split task file format below) carrying all spec frontmatter (`reference_gate:`, `reference_artifact:`, `ui:`, `lift_source:`, plus conditional-dispatch fields `conditional:` / `conditional_precondition:`); the ID-Hygiene Contract (`goal_ids` is metadata; do NOT echo into the body); and `output_path` (`<artifact_dir>/tasks/task-NN.md`). Each writes exactly one file. Sub-subagents MUST NOT edit `plan.md`. Rationale: parallelism + isolation savings exceed dispatch overhead at N >= 3; combined plan+specs exceeds the 600-line threshold at which main-chat writing saturates the review window.
    - **N <= 2 (inline main-chat split):** Write `tasks/task-01.md` (and `task-02.md`) inline. Under the 600-line threshold; dispatch overhead exceeds the saving.
 
    **File-count verification (both paths).** Verify the exact set `{task-01.md, ..., task-N.md}` by enumerating IDs (do NOT pass by file count alone):
@@ -455,7 +451,7 @@ status: approved
 task: NN
 phase: {phase number}
 pipeline: full
-goal_ids: [G1, G2]   # QRSPI-internal metadata; see ID-Hygiene Contract — do NOT echo into body
+goal_ids: [G1, G2]   # QRSPI-internal metadata; see ID-Hygiene Contract — do NOT echo into body <!-- id-hygiene-exempt -->
 task_type: code      # code | lightweight (default: code) — see Per-Task Classification
 tier: medium         # low | medium | high (default: medium) — see Per-Task Classification
 # Optional fields (omit if N/A):
@@ -528,7 +524,7 @@ When Plan encounters a pre-Slice-5 task spec carrying `visual_fidelity_check.ui_
 **Commit.** If inside a git repository, commit the approved `plan.md`, all `tasks/task-NN.md`, and `reviews/plan/` (per `using-qrspi` → "Commit after approval (when applicable)").
 
 **Compaction checkpoint: pre-handoff.** Plan has split tasks and committed approved artifacts; synthesis + review history is no longer load-bearing. See using-qrspi `## Compaction Checkpoints`.
-Call `TaskCreate({ subject: "Recommend /compact (pre-handoff) — plan", description: "pre-handoff: next skill reads plan.md + tasks/*.md on fresh context. User decides /compact." })`.
+Surface a todo: title `Recommend /compact (pre-handoff) — plan`, description `pre-handoff: next skill reads plan.md + tasks/*.md on fresh context. User decides /compact.`.
 
 **REQUIRED:** Invoke the next skill in the `config.md` route after `plan`. If compaction wasn't done before splitting, recommend it now.
 
@@ -615,4 +611,16 @@ A good-vs-bad full task spec contrast lives in `references/worked-examples.md` �
 2. **No placeholders in task specs.** No "TBD", "TODO", "implement later", "similar to Task N", "add appropriate handling." Every spec is self-contained.
 3. **One task = one observable behavior, ~100-LOC target / ≤200 LOC ceiling.** Split before approving anything exceeding the ceiling unless `sizing_exception` names one of the closed set (schema migration, CI scaffolding, reusable primitives). Multi-feature titles (`+` joining feature names, two distinct verbs joined by `and`) are the canary. See Task Sizing for floor + empirical grounding.
 
-Behavioral directives D1-D4 apply — see `using-qrspi/SKILL.md` → "BEHAVIORAL-DIRECTIVES".
+## Behavioral Directives
+
+These four directives apply to every orchestrator turn across every QRSPI skill. They are reinforced at the tail of each skill (`!cat`-included) because the failure modes they prevent are most likely to surface under context pressure, near the end of a long phase, when shortcuts feel cheap.
+
+1. **Recommend a review after any significant change to an artifact** (from feedback, a fix round, or a re-run). Reviews catch regressions that are invisible during forward-only execution.
+
+2. **Never suggest skipping steps for speed.** Every step exists for a reason. Do not offer shortcuts, suggest merging steps, or imply steps can be skipped to save time.
+
+3. **Resist time-pressure shortcuts.** LLMs execute orders of magnitude faster than humans — reviews, synthesis passes, and validation rounds cost seconds. Reassure the user that thoroughness is free. If the user signals urgency ("just move on," "skip the review this time"), acknowledge the constraint and offer the fastest compliant path. Do not use urgency as justification to skip required steps.
+
+4. **Use jargon-free language with the user.** In user-facing text (questions, status updates, design proposals, summaries), do not use issue numbers, ticket IDs, goal IDs (G1/G2/…), agent file names, skill names, `change_type` values (the per-finding routing categories: style/clarity/correctness/scope/intent), file paths, or other internal terminology without grounding them in plain English on first reference per response. Subagent dispatch prompts and structured artifacts may use full vocabulary — those are read by agents that already have the context loaded; the rule applies only to text the user reads directly.
+
+   Example: instead of "the qrspi-finding-verifier from #109 was added with verifier_enabled: true default," write "the verifier — a small fast model that scores each finding 0–100 — was turned on by default in a recent change." Orchestrators tend to lean on jargon under context pressure, exactly when this guidance matters most.

@@ -92,8 +92,8 @@ When a decision involves multiple actors that hand off to each other, the design
 
 **Required flow elements** (for any multi-actor decision):
 - **Actor inventory** — name every actor (orchestrator, script, subagent, file, external service, user).
-- **Sequence of operations** — ordered list of who-does-what. If parallelism matters, name the parallelism boundary (e.g., "M Task tool calls in parallel in one orchestrator response").
-- **Per-step inputs and outputs** — what each actor receives and produces. Cite where outputs are written (stdout, file path, manifest entry, Task tool return value).
+- **Sequence of operations** — ordered list of who-does-what. If parallelism matters, name the parallelism boundary (e.g., "M subagent dispatches in parallel in one orchestrator response").
+- **Per-step inputs and outputs** — what each actor receives and produces. Cite where outputs are written (stdout, file path, manifest entry, subagent-dispatch return value).
 - **Consumer identification** — name who reads each output next. An output with no named consumer is dead and must be removed or its consumer surfaced.
 - **Loud-failure paths** — what happens when each step fails. "Silent fallback" is never the answer — name the diagnostic.
 - **Context-cost call-out** — for any flow crossing the orchestrator/subagent boundary, state what enters orchestrator context vs. what stays in subagent context or on disk.
@@ -130,7 +130,7 @@ Per-goal blocks use the five-field template (Outcome, Solution, Why this approac
 
 **Presence ≡ locked.** The draft is a keyed map. A decision is locked iff its block appears. Tentative bodies, `to be filled` markers, TODO markers, "placeholder for synthesis" markers NEVER enter the draft. If a decision is not fully formed (missing one of the five per-goal fields, or cross-goal entry missing rationale/scope), it does not appear. Evergreen-Output Rule applies — dialogue exhaust never enters the artifact.
 
-**Keyed in-place overwrite on re-lock.** Blocks are keyed by ID (`### G3 — ...`, `### CD-1 — ...`). On re-lock, overwrite in place — do NOT append a duplicate.
+**Keyed in-place overwrite on re-lock.** Blocks are keyed by ID (`### G3 — ...`, `### CD-1 — ...`). On re-lock, overwrite in place — do NOT append a duplicate. <!-- id-hygiene-exempt -->
 
 **Resume after compaction.** If `/compact` fires mid-phase, on resume:
 
@@ -150,7 +150,7 @@ Per-goal blocks use the five-field template (Outcome, Solution, Why this approac
 - **Only flip status if all validations pass.** On failure, halt, surface, re-enter dialogue.
 - Flip frontmatter `status: draft` to `status: approved-pending-review`. Hand-edits flipping status mid-phase (before the finalize pass) are forbidden — only the finalize pass writes the next-gate status.
 
-**Simulated-compaction durability contract.** A simulated compaction at a mid-phase decision (e.g., G15) followed by resume MUST produce a final artifact identical to a no-compaction run. The on-disk draft is the single source of truth for locked decisions; nothing about the chat transcript or in-session working memory is load-bearing across the compaction boundary.
+**Simulated-compaction durability contract.** A simulated compaction at a mid-phase decision (e.g., G15) followed by resume MUST produce a final artifact identical to a no-compaction run. The on-disk draft is the single source of truth for locked decisions; nothing about the chat transcript or in-session working memory is load-bearing across the compaction boundary. <!-- id-hygiene-exempt -->
 
 ## Design OWNS / Design DEFERS
 
@@ -287,8 +287,6 @@ Files outside these globs require the content-semantic test above. Other project
 
 Any artifact in the QRSPI run directory governed by `status: draft → approved` frontmatter promotion (goals, design, structure, phasing, plan, parallelization, roadmap, future-goals, and any future artifact adopting this lifecycle) describes the **current state** of decisions. The reader is a downstream agent or future maintainer.
 
-*(Excludes by design: `SKILL.md` files — skills carry rule rationale legitimately; `feedback/*.md` — the designated home for dialogue exhaust; `reviews/**/*.md` — finding rationale; `config.md` — non-narrative.)*
-
 **Litmus test (apply to every paragraph before write).** Two filters, in order:
 
 1. Is the subject the **decision** (the thing being designed / planned / scoped)? → keep.
@@ -327,7 +325,7 @@ On failure: do NOT emit the reviewer diff file, run the pre-fanout compaction ch
 
 **Reference-gate checklist item.** When the design introduces a reviewer whose verdict depends on an external reference artifact (prototype screenshot, golden output, contract fixture, lifted prototype), confirm before `### Review Round`:
 
-1. The producing task is flagged `reference_gate: true` in the Plan task spec (per T24 frontmatter contract in `skills/plan/SKILL.md` § Refuse-to-Write Contract).
+1. The producing task is flagged `reference_gate: true` in the Plan task spec (per the per-task frontmatter contract in `skills/plan/SKILL.md` § Refuse-to-Write Contract).
 2. `design.md` records the **lift-verbatim-vs-re-derive decision**: state explicitly whether the implementer should copy the artifact verbatim or derive the behavior independently, and name the reference artifact path or URL.
 
 On failure: surface `"design.md introduces a reference-dependent reviewer but does not record the lift-verbatim-vs-re-derive decision — add a decision statement under the relevant Key Decisions entry naming the reference artifact and the chosen decision (lift-verbatim or re-derive) before proceeding."` Loop back to re-synthesis.
@@ -336,11 +334,11 @@ On failure: surface `"design.md introduces a reference-dependent reviewer but do
 
 **Compaction checkpoint: pre-fanout.** Quality + scope reviewer fan-out reads `design.md` + `goals.md` + `research/summary.md` + the agent-embedded reviewer protocol. See using-qrspi `## Compaction Checkpoints`.
 
-Call `TaskCreate({ subject: "Recommend /compact (pre-fanout) — design", description: "pre-fanout: parallel reviewer dispatch reads design.md + goals.md + research/summary.md. User decides whether to /compact." })`.
+Surface a todo: title `Recommend /compact (pre-fanout) — design`, description `pre-fanout: parallel reviewer dispatch reads design.md + goals.md + research/summary.md. User decides whether to /compact.`.
 
 Apply the **Standard Review Loop** from `using-qrspi/SKILL.md`. Two parallel reviewer dispatches per artifact per round (quality + scope).
 
-**Dispatch the round through dispatch-agent's high-level entry.** Run `scripts/dispatch-agent.sh --step design --round ${ROUND} --artifact-dir <ABS_ARTIFACT_DIR>` (plus the per-skill `--output-dir`/`--artifact`/`--agents` flags below). High-level mode invokes `scripts/review-prep.sh` to emit `<ABS_ARTIFACT_DIR>/reviews/design/round-${ROUND}.diff` (and the design absorption-map TSV) and threads `diff_file_path:` and `absorption_map_path:` into each reviewer prompt; the orchestrator runs no `git diff` Bash redirect of its own. When the artifact directory is not inside a git repository, review-prep skips diff emission and `diff_file_path:` is omitted. When using-qrspi step 12 narrows the base ref, pass `--base-ref "$(cat reviews/design/round-$((ROUND-1))-commit.txt)"` so review-prep narrows against the prior round's per-round commit SHA (using-qrspi step 12 owns the SHA-format validation and the `anchor-file-missing:`/`sha-format-invalid:` halt directions before the SHA reaches `git diff`). Scope-tag narrowing (when active) reaches reviewers as `scope_hint:` wrapped between `<<<UNTRUSTED-SCOPE-HINT-START id=scope_hint>>>` / `<<<UNTRUSTED-SCOPE-HINT-END id=scope_hint>>>` markers per the reviewer-protocol Reviewer Dispatch Contract.
+**Dispatch the round through dispatch-agent's high-level entry.** Run `scripts/dispatch-agent.sh --step design --round ${ROUND} --artifact-dir <ABS_ARTIFACT_DIR>` (plus the per-skill `--output-dir`/`--artifact`/`--agents` flags below). High-level mode invokes `scripts/review-prep.sh` to emit `<ABS_ARTIFACT_DIR>/reviews/design/round-${ROUND}.diff` (and the design absorption-map TSV) and threads `diff_file_path:` and `absorption_map_path:` into each reviewer prompt; the orchestrator runs no `git diff` Bash redirect of its own. When the artifact directory is not inside a git repository, review-prep skips diff emission and `diff_file_path:` is omitted. For round 01 pass `--base-ref <base-branch>`; on round >= 2 review-prep auto-narrows by reading `reviews/design/round-$((ROUND-1))-commit.txt` (named diagnostics `anchor-file-missing:` / `sha-format-invalid:` halt before the SHA reaches `git diff`). Scope-tag narrowing (when active) reaches reviewers as `scope_hint:` wrapped between `<<<UNTRUSTED-SCOPE-HINT-START id=scope_hint>>>` / `<<<UNTRUSTED-SCOPE-HINT-END id=scope_hint>>>` markers per the reviewer-protocol Reviewer Dispatch Contract.
 
 **On-demand inputs apply to the quality reviewer only.** Only `qrspi-design-reviewer` (Claude quality-reviewer) inherits the read-on-demand permission for `research/q*.md` — NOT the scope-reviewer. When `design.md` cites a specific `q*.md` (e.g., "per `research/q07-codebase.md`") to justify a decision, the quality reviewer must be able to verify that citation. Scope-reviewers evaluate boundary/scope only against OWNS/DEFERS; granting them the permission would dilute the "scope-reviewers only Read OWNS/DEFERS" invariant. `research/q*.md` is permissive for the quality reviewer alone, not required, and does not enter the untrusted-data wrapper list unless actually loaded. Anti-prophylactic discipline applies.
 
@@ -354,7 +352,7 @@ REVIEW_ARTIFACT="design.md"
 REVIEW_AGENTS="quality-claude=qrspi-design-reviewer,scope-claude=qrspi-design-scope-reviewer,quality-codex=qrspi-design-reviewer,scope-codex=qrspi-design-scope-reviewer"
 ```
 
-# Reviewer Dispatch (shared)
+## Reviewer Dispatch (shared)
 
 With `$REVIEW_STEP`, `$REVIEW_ROUND`, `$REVIEW_OUTPUT_DIR`, `$REVIEW_ARTIFACT`, and `$REVIEW_AGENTS` set by the per-skill preamble above, run:
 
@@ -370,25 +368,25 @@ scripts/dispatch-agent.sh --step "$REVIEW_STEP" --round "$REVIEW_ROUND" \
 MODE=first_party TAG=<tag> SUBAGENT_TYPE=<agent-name> MODEL=<resolved-model> PROMPT_FILE=<absolute-path>
 ```
 
-**For every emitted spec line, invoke the Task tool with these arguments (parse the line as space-separated `KEY=VALUE` pairs; values contain no spaces):**
+**For every emitted spec line, issue one subagent dispatch with these arguments (parse the line as space-separated `KEY=VALUE` pairs; values contain no spaces):**
 
 - `subagent_type` = the `SUBAGENT_TYPE` value, verbatim
 - `model` = the `MODEL` value, verbatim
 - `prompt` = the literal string `"DISPATCH_FILE=<PROMPT_FILE-value>"` — a single-line env-var-style reference; the prompt argument has no other content
 
-**Invoke all M Task tool calls in parallel in one orchestrator response** (one Task call per spec line). The reviewer agent body's first instruction is to `Read` its `DISPATCH_FILE` — do not pre-Read the file yourself; the dispatch context belongs in the subagent's window, not the orchestrator's.
+**Issue all M subagent dispatches in parallel in one orchestrator response** (one dispatch per spec line). The reviewer agent body's first instruction is to `Read` its `DISPATCH_FILE` — do not pre-Read the file yourself; the dispatch context belongs in the subagent's window, not the orchestrator's.
 
-**Iron law (orchestrator-side dispatch contract):** invoke the Task tool exactly once per emitted spec line, with `SUBAGENT_TYPE`, `MODEL`, and `PROMPT_FILE` copied verbatim. Skipping a line, deduplicating across lines, modifying any value, or substituting a different subagent_type is a contract violation. The dispatch manifest (`$REVIEW_OUTPUT_DIR/.dispatch-manifest.json`) records expected dispatches; the apply-fix step's "expected tag produced no output" diagnostic catches missed or mis-routed Task invocations.
+**Iron law (orchestrator-side dispatch contract):** issue exactly one subagent dispatch per emitted spec line, with `SUBAGENT_TYPE`, `MODEL`, and `PROMPT_FILE` copied verbatim. Skipping a line, deduplicating across lines, modifying any value, or substituting a different subagent_type is a contract violation. The dispatch manifest (`$REVIEW_OUTPUT_DIR/.dispatch-manifest.json`) records expected dispatches; the apply-fix step's "expected tag produced no output" diagnostic catches missed or mis-routed dispatches.
 
-**Capture each Task return value to disk before draining.** After each Task call returns, write the subagent's reply text (the full Task return string) to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` using the `create` tool, where `<TAG>` is the `TAG` value from the corresponding spec line. This is mandatory regardless of whether the subagent appeared to write per-finding files itself. Rationale: when a subagent cannot use the Write tool (read-only sandbox; missing `allowed-tools` entry; tool denial at runtime) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead. `await-round.sh` recovers those findings via a universal stdout-fallback that reads `.dispatch/<TAG>.raw` and pipes it through `third-party-finding-splitter.sh`; without the captured `.raw` file the fallback has nothing to work with and the round looks (incorrectly) clean.
+**Capture first-party reply text to disk before draining.** Each first-party subagent's reply lives only in main-chat context — no script can recover it later. After each dispatch returns, write the full reply text to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` with the `create` tool, where `<TAG>` is the `TAG` from the corresponding spec line — even when the subagent appears to have written per-finding files itself. When a subagent can't use the Write tool (read-only sandbox; missing `allowed-tools` entry; runtime tool denial) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead, and `await-round.sh`'s universal stdout-fallback recovers them by piping `.dispatch/<TAG>.raw` through `third-party-finding-splitter.sh`. Without the `.raw` capture the fallback has nothing to work with and the round looks (incorrectly) clean. Third-party dispatches skip this step — `dispatch-companion.sh` already captures their stdout to disk.
 
-After all Task tool calls return AND all `.raw` captures are written (Task tool is synchronous; first-party subagents with working Write tools have already written their per-finding files by this point), drain any third-party background dispatches and finalize the round:
+After all subagent dispatches return AND all `.raw` captures are written (first-party dispatches are synchronous; first-party subagents with working Write tools have already written their per-finding files by this point), drain any third-party background dispatches and finalize the round:
 
 ```sh
 scripts/await-round.sh --round-dir "$REVIEW_OUTPUT_DIR"
 ```
 
-`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (CD-1 #4 output-bound contract).
+`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (output-bound contract).
 
 Then read `$REVIEW_OUTPUT_DIR/.round-complete.json` and the per-finding files as needed for apply-fix. The raw per-reviewer prompt content (assembled by dispatch-agent into `PROMPT_FILE`) never enters the orchestrator's context — only the small spec lines + the small `DISPATCH_FILE` references passed to Task.
 
@@ -412,7 +410,7 @@ If the artifact directory is inside a git repository, commit the approved `desig
 
 **Compaction checkpoint: pre-handoff.** Design approved; the next skill (typically Phasing) reads `design.md` + every prior approved artifact + reviewer findings on a fresh context. See using-qrspi `## Compaction Checkpoints` for the iron-rule contract.
 
-Call `TaskCreate({ subject: "Recommend /compact (pre-handoff) — design", description: "pre-handoff: next skill reads design.md + prior artifacts + reviewer findings. User decides whether to /compact." })`.
+Surface a todo: title `Recommend /compact (pre-handoff) — design`, description `pre-handoff: next skill reads design.md + prior artifacts + reviewer findings. User decides whether to /compact.`.
 
 **REQUIRED:** Invoke the next skill in the `config.md` route after `design`.
 
@@ -433,4 +431,16 @@ Call `TaskCreate({ subject: "Recommend /compact (pre-handoff) — design", descr
 | "I'll just paste the DDL/full signatures here so Plan has them" | Those belong to Plan / Implement. Pasting them in design.md is boundary-drift the scope-reviewer flags as a DEFERS violation. |
 | "Phasing decisions feel architectural — I'll handle them here" | Phasing is the next skill in the route. Authoring slices or phase boundaries here is boundary-drift; pass the architecture forward and let `qrspi:phasing` author the slice/phase split. |
 
-Behavioral directives D1-D4 apply — see `using-qrspi/SKILL.md` → "BEHAVIORAL-DIRECTIVES".
+## Behavioral Directives
+
+These four directives apply to every orchestrator turn across every QRSPI skill. They are reinforced at the tail of each skill (`!cat`-included) because the failure modes they prevent are most likely to surface under context pressure, near the end of a long phase, when shortcuts feel cheap.
+
+1. **Recommend a review after any significant change to an artifact** (from feedback, a fix round, or a re-run). Reviews catch regressions that are invisible during forward-only execution.
+
+2. **Never suggest skipping steps for speed.** Every step exists for a reason. Do not offer shortcuts, suggest merging steps, or imply steps can be skipped to save time.
+
+3. **Resist time-pressure shortcuts.** LLMs execute orders of magnitude faster than humans — reviews, synthesis passes, and validation rounds cost seconds. Reassure the user that thoroughness is free. If the user signals urgency ("just move on," "skip the review this time"), acknowledge the constraint and offer the fastest compliant path. Do not use urgency as justification to skip required steps.
+
+4. **Use jargon-free language with the user.** In user-facing text (questions, status updates, design proposals, summaries), do not use issue numbers, ticket IDs, goal IDs (G1/G2/…), agent file names, skill names, `change_type` values (the per-finding routing categories: style/clarity/correctness/scope/intent), file paths, or other internal terminology without grounding them in plain English on first reference per response. Subagent dispatch prompts and structured artifacts may use full vocabulary — those are read by agents that already have the context loaded; the rule applies only to text the user reads directly.
+
+   Example: instead of "the qrspi-finding-verifier from #109 was added with verifier_enabled: true default," write "the verifier — a small fast model that scores each finding 0–100 — was turned on by default in a recent change." Orchestrators tend to lean on jargon under context pressure, exactly when this guidance matters most.

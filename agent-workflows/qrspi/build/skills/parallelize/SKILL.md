@@ -86,7 +86,7 @@ This applies regardless of how simple the phase appears.
 
 1. **Feature branch:** `qrspi/{slug}/main` (e.g., `qrspi/user-auth/main`). Created by Implement from the current branch (typically `main`) at the start of the first phase. For subsequent phases, the feature branch already exists.
 
-   **Why `/main`, not bare `qrspi/{slug}`** (F-14): git stores refs hierarchically and cannot have both a leaf ref `qrspi/{slug}` and a namespace `qrspi/{slug}/...` simultaneously. Naming the feature branch `qrspi/{slug}/main` makes it a sibling of the task branches under the `qrspi/{slug}/` namespace — all four kinds of branches (feature `main`, `task-NN`, `task-NNa`, `stage-after-W{N}`) coexist as namespace siblings. Bare `qrspi/{slug}` would deadlock the very first task-branch creation with `fatal: cannot lock ref ... 'refs/heads/qrspi/{slug}' exists`.
+   **Why `/main`, not bare `qrspi/{slug}`** (F-14): git stores refs hierarchically and cannot have both a leaf ref `qrspi/{slug}` and a namespace `qrspi/{slug}/...` simultaneously. Naming the feature branch `qrspi/{slug}/main` makes it a sibling of the task branches under the `qrspi/{slug}/` namespace — all four kinds of branches (feature `main`, `task-NN`, `task-NNa`, `stage-after-W{N}`) coexist as namespace siblings. Bare `qrspi/{slug}` would deadlock the very first task-branch creation with `fatal: cannot lock ref ... 'refs/heads/qrspi/{slug}' exists`. <!-- id-hygiene-exempt -->
 2. **Task branches — base depends on execution mode:**
    - **Wave:** A set of tasks that share a base AND have no file overlap. Wave numbering does not imply dispatch ordering — Implement's runtime rule is "dispatch every Wave whose dependencies are satisfied each tick."
    - **Parallel:** Every task in the Wave shares the Wave's *base tip* (see Hybrid below for Waves beyond Wave 1; Wave 1's base is the feature branch tip). Tasks in a Wave are independent by construction (no file overlap, no logical dependency).
@@ -95,7 +95,7 @@ This applies regardless of how simple the phase appears.
    - **Single-parent across Waves:** When a downstream task depends on exactly one task from a prior Wave, name that task's tip directly as the base — no stage commit needed.
    - **Baseline fix (`task-00`) interaction:** When Implement's baseline tests fail and the user chooses Auto-fix (see `implement/SKILL.md` → "Baseline Tests"), `task-00` is injected as a phase-level predecessor. `task-00`'s base is the feature branch tip; every other task in the phase then takes `task-00`'s tip as its base (or as one of its parents in the multi-parent case). This injection happens at runtime — Parallelize does not anticipate it. Implement persists the injection by appending a `task-00` row to the Branch Map *and* writing a `## Runtime Adjustments` section to `parallelization.md` that lists every task whose effective base changed; the original Branch Map rows are not rewritten. Readers (human or agent) reconstruct effective bases by reading the Branch Map and overlaying `## Runtime Adjustments`.
    - **Re-fork semantics (re-run, fix-round, replan):** Once a task branch exists, it is canonical for that task. Implementer-fix-round dispatches reuse the existing branch and add commits. Re-forking only happens at fresh worktree creation: a new task in a new phase, a replan-introduced task, or an explicit user-requested reset. Never re-fork an existing task branch silently — downstream task branches that descend from it would be invalidated.
-   - **Reference-gate wave termination:** When a task carries `reference_gate: true` in its frontmatter (introduced by T24's per-task spec contract), it acts as a **wave-terminating task** — it ends its Wave, and no dependent task in any later Wave may dispatch until the reference-gated task clears. Concretely: (1) the reference-gated task occupies its own Wave (it cannot share a Wave with independent tasks, since independent tasks might otherwise dispatch in the same slot); (2) every task that depends on the reference-gated task lands in the next Wave at the earliest; (3) `parallelization.md` emits an explicit note for each reference-gated task (canonical shape: `Reference gate: task-NN ({task name}) — dependents waiting: task-XX, task-YY, task-ZZ`). If a plan contains a reference-gated task, Parallelize applies this rule automatically — it is not an operator override. A reference-gated task that has no dependents still terminates its Wave (it may not run in parallel with other tasks in its Wave), but the "dependents waiting" list is empty.
+   - **Reference-gate wave termination:** When a task carries `reference_gate: true` in its frontmatter (per the per-task spec contract in `skills/plan/SKILL.md`), it acts as a **wave-terminating task** — it ends its Wave, and no dependent task in any later Wave may dispatch until the reference-gated task clears. Concretely: (1) the reference-gated task occupies its own Wave (it cannot share a Wave with independent tasks, since independent tasks might otherwise dispatch in the same slot); (2) every task that depends on the reference-gated task lands in the next Wave at the earliest; (3) `parallelization.md` emits an explicit note for each reference-gated task (canonical shape: `Reference gate: task-NN ({task name}) — dependents waiting: task-XX, task-YY, task-ZZ`). If a plan contains a reference-gated task, Parallelize applies this rule automatically — it is not an operator override. A reference-gated task that has no dependents still terminates its Wave (it may not run in parallel with other tasks in its Wave), but the "dependents waiting" list is empty.
 
    - **Symbolic base vocabulary** (the only values allowed in the `Base` column):
      - `feature branch tip` — the tip of `qrspi/{slug}/main` at runtime
@@ -108,8 +108,6 @@ This applies regardless of how simple the phase appears.
 4. **PR target:** Test creates the PR from the feature branch to the base branch.
 
 > **Why the base-naming rule matters.** A common misread is *"all task branches always fork from the feature branch."* That works for parallel-only phases but breaks sequential dependencies — task-N's worktree would start without task-(N-1)'s code. The correct rule is base-from-feature-tip for Wave 1 parallel members, base-from-previous-tip for sequential-chain members, base-from-stage-commit when a Wave has multi-parent dependencies, base-from-task-NN-tip when a downstream task has a single prior-Wave parent, and base-from-task-00-tip after a baseline fix is injected. Parallelize records the symbolic name; Implement resolves it to a concrete commit and creates stage commits as needed.
-
-## Multi-Actor Flow Check
 
 ## Multi-Actor Flow Check
 
@@ -140,7 +138,7 @@ Diagnostic template:
 
 **Compaction checkpoint: pre-fanout.** Steps 2–8 below read every current-phase task spec, synthesize the dependency graph + Waves + Branch Map, and render the Mermaid diagram into `parallelization.md`. The synthesis subagent (or inline synthesis) reads many tasks and produces large output. See using-qrspi `## Compaction Checkpoints` for the iron-rule contract.
 
-Call `TaskCreate({ subject: "Recommend /compact (pre-fanout) — parallelize", description: "pre-fanout: dependency-graph synthesis reads every current-phase task spec; large output. User decides whether to /compact." })`.
+Surface a todo: title `Recommend /compact (pre-fanout) — parallelize`, description `pre-fanout: dependency-graph synthesis reads every current-phase task spec; large output. User decides whether to /compact.`.
 
 1. Identify current phase's tasks from `plan.md` phase definitions
 2. For each task, list dependencies and files-touched (read each `tasks/task-NN.md` or `fixes/{type}-round-NN/*.md`)
@@ -174,8 +172,6 @@ The implementer running parallelize does NOT auto-apply patches. Patches are adv
 ## Evergreen-Output Rule
 
 Any artifact in the QRSPI run directory governed by `status: draft → approved` frontmatter promotion (goals, design, structure, phasing, plan, parallelization, roadmap, future-goals, and any future artifact adopting this lifecycle) describes the **current state** of decisions. The reader is a downstream agent or future maintainer.
-
-*(Excludes by design: `SKILL.md` files — skills carry rule rationale legitimately; `feedback/*.md` — the designated home for dialogue exhaust; `reviews/**/*.md` — finding rationale; `config.md` — non-narrative.)*
 
 **Litmus test (apply to every paragraph before write).** Two filters, in order:
 
@@ -246,13 +242,13 @@ On rejection, write the user's feedback to `feedback/parallelize-round-{NN}.md` 
 
 **Compaction checkpoint: pre-fanout.** Reviewer fan-out (quality + scope, plus Codex parallels when enabled) reads `parallelization.md` plus referenced inputs after the dependency-graph synthesis + Mermaid render; each reviewer may produce >10K tokens of findings output. See using-qrspi `## Compaction Checkpoints` for the iron-rule contract.
 
-Call `TaskCreate({ subject: "Recommend /compact (pre-fanout) — parallelize", description: "pre-fanout: quality + scope reviewer fan-out after dependency-graph synthesis. User decides whether to /compact." })`.
+Surface a todo: title `Recommend /compact (pre-fanout) — parallelize`, description `pre-fanout: quality + scope reviewer fan-out after dependency-graph synthesis. User decides whether to /compact.`.
 
 After writing `parallelization.md` (and after every revision), run one review round per the standard QRSPI review-round flow (see `using-qrspi/SKILL.md` → "Review Round Flow"). Two parallel reviewer dispatches per artifact per round (quality + scope) — same artifact, complementary lenses, all emitting 5-field findings (`finding_id`, `severity`, `change_type`, `message`, `referenced_files`).
 
-**Dispatch the round through dispatch-agent's high-level entry.** Run `scripts/dispatch-agent.sh --step parallelize --round ${ROUND} --artifact-dir <ABS_ARTIFACT_DIR>` (plus the per-skill `--output-dir`/`--artifact`/`--agents` flags below). High-level mode invokes `scripts/review-prep.sh` to emit `<ABS_ARTIFACT_DIR>/reviews/parallelize/round-${ROUND}.diff` and threads `diff_file_path:` into each reviewer prompt; the orchestrator runs no `git diff` Bash redirect of its own. When the artifact directory is not inside a git repository, review-prep skips diff emission and `diff_file_path:` is omitted. When using-qrspi step 12 narrows the base ref, pass `--base-ref "$(cat reviews/parallelize/round-$((ROUND-1))-commit.txt)"` so review-prep narrows against the prior round's per-round commit SHA (using-qrspi step 12 owns the SHA-format validation and the `anchor-file-missing:`/`sha-format-invalid:` halt directions before the SHA reaches `git diff`). Scope-tag narrowing (when active) reaches reviewers as `scope_hint:` wrapped between `<<<UNTRUSTED-SCOPE-HINT-START id=scope_hint>>>` / `<<<UNTRUSTED-SCOPE-HINT-END id=scope_hint>>>` markers per the reviewer-protocol Reviewer Dispatch Contract.
+**Dispatch the round through dispatch-agent's high-level entry.** Run `scripts/dispatch-agent.sh --step parallelize --round ${ROUND} --artifact-dir <ABS_ARTIFACT_DIR>` (plus the per-skill `--output-dir`/`--artifact`/`--agents` flags below). High-level mode invokes `scripts/review-prep.sh` to emit `<ABS_ARTIFACT_DIR>/reviews/parallelize/round-${ROUND}.diff` and threads `diff_file_path:` into each reviewer prompt; the orchestrator runs no `git diff` Bash redirect of its own. When the artifact directory is not inside a git repository, review-prep skips diff emission and `diff_file_path:` is omitted. For round 01 pass `--base-ref <base-branch>`; on round >= 2 review-prep auto-narrows by reading `reviews/parallelize/round-$((ROUND-1))-commit.txt` (named diagnostics `anchor-file-missing:` / `sha-format-invalid:` halt before the SHA reaches `git diff`). Scope-tag narrowing (when active) reaches reviewers as `scope_hint:` wrapped between `<<<UNTRUSTED-SCOPE-HINT-START id=scope_hint>>>` / `<<<UNTRUSTED-SCOPE-HINT-END id=scope_hint>>>` markers per the reviewer-protocol Reviewer Dispatch Contract.
 
-The round's reviewers dispatch through the universal dispatch chain (`scripts/dispatch-agent.sh` → Task fan-out → `scripts/await-round.sh`). Set the per-skill dispatch parameters below, then include the shared reviewer-dispatch prose. Include the `*-codex` peer tags in `REVIEW_AGENTS` only when `second_reviewer: true`; otherwise list only the `*-claude` tags.
+The round's reviewers dispatch through the universal dispatch chain (`scripts/dispatch-agent.sh` → subagent fan-out → `scripts/await-round.sh`). Set the per-skill dispatch parameters below, then include the shared reviewer-dispatch prose. Include the `*-codex` peer tags in `REVIEW_AGENTS` only when `second_reviewer: true`; otherwise list only the `*-claude` tags.
 
 ```sh
 REVIEW_STEP="parallelize"
@@ -262,7 +258,7 @@ REVIEW_ARTIFACT="parallelization.md"
 REVIEW_AGENTS="quality-claude=qrspi-parallelize-reviewer,scope-claude=qrspi-parallelize-scope-reviewer,quality-codex=qrspi-parallelize-reviewer,scope-codex=qrspi-parallelize-scope-reviewer"
 ```
 
-# Reviewer Dispatch (shared)
+## Reviewer Dispatch (shared)
 
 With `$REVIEW_STEP`, `$REVIEW_ROUND`, `$REVIEW_OUTPUT_DIR`, `$REVIEW_ARTIFACT`, and `$REVIEW_AGENTS` set by the per-skill preamble above, run:
 
@@ -278,25 +274,25 @@ scripts/dispatch-agent.sh --step "$REVIEW_STEP" --round "$REVIEW_ROUND" \
 MODE=first_party TAG=<tag> SUBAGENT_TYPE=<agent-name> MODEL=<resolved-model> PROMPT_FILE=<absolute-path>
 ```
 
-**For every emitted spec line, invoke the Task tool with these arguments (parse the line as space-separated `KEY=VALUE` pairs; values contain no spaces):**
+**For every emitted spec line, issue one subagent dispatch with these arguments (parse the line as space-separated `KEY=VALUE` pairs; values contain no spaces):**
 
 - `subagent_type` = the `SUBAGENT_TYPE` value, verbatim
 - `model` = the `MODEL` value, verbatim
 - `prompt` = the literal string `"DISPATCH_FILE=<PROMPT_FILE-value>"` — a single-line env-var-style reference; the prompt argument has no other content
 
-**Invoke all M Task tool calls in parallel in one orchestrator response** (one Task call per spec line). The reviewer agent body's first instruction is to `Read` its `DISPATCH_FILE` — do not pre-Read the file yourself; the dispatch context belongs in the subagent's window, not the orchestrator's.
+**Issue all M subagent dispatches in parallel in one orchestrator response** (one dispatch per spec line). The reviewer agent body's first instruction is to `Read` its `DISPATCH_FILE` — do not pre-Read the file yourself; the dispatch context belongs in the subagent's window, not the orchestrator's.
 
-**Iron law (orchestrator-side dispatch contract):** invoke the Task tool exactly once per emitted spec line, with `SUBAGENT_TYPE`, `MODEL`, and `PROMPT_FILE` copied verbatim. Skipping a line, deduplicating across lines, modifying any value, or substituting a different subagent_type is a contract violation. The dispatch manifest (`$REVIEW_OUTPUT_DIR/.dispatch-manifest.json`) records expected dispatches; the apply-fix step's "expected tag produced no output" diagnostic catches missed or mis-routed Task invocations.
+**Iron law (orchestrator-side dispatch contract):** issue exactly one subagent dispatch per emitted spec line, with `SUBAGENT_TYPE`, `MODEL`, and `PROMPT_FILE` copied verbatim. Skipping a line, deduplicating across lines, modifying any value, or substituting a different subagent_type is a contract violation. The dispatch manifest (`$REVIEW_OUTPUT_DIR/.dispatch-manifest.json`) records expected dispatches; the apply-fix step's "expected tag produced no output" diagnostic catches missed or mis-routed dispatches.
 
-**Capture each Task return value to disk before draining.** After each Task call returns, write the subagent's reply text (the full Task return string) to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` using the `create` tool, where `<TAG>` is the `TAG` value from the corresponding spec line. This is mandatory regardless of whether the subagent appeared to write per-finding files itself. Rationale: when a subagent cannot use the Write tool (read-only sandbox; missing `allowed-tools` entry; tool denial at runtime) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead. `await-round.sh` recovers those findings via a universal stdout-fallback that reads `.dispatch/<TAG>.raw` and pipes it through `third-party-finding-splitter.sh`; without the captured `.raw` file the fallback has nothing to work with and the round looks (incorrectly) clean.
+**Capture first-party reply text to disk before draining.** Each first-party subagent's reply lives only in main-chat context — no script can recover it later. After each dispatch returns, write the full reply text to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` with the `create` tool, where `<TAG>` is the `TAG` from the corresponding spec line — even when the subagent appears to have written per-finding files itself. When a subagent can't use the Write tool (read-only sandbox; missing `allowed-tools` entry; runtime tool denial) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead, and `await-round.sh`'s universal stdout-fallback recovers them by piping `.dispatch/<TAG>.raw` through `third-party-finding-splitter.sh`. Without the `.raw` capture the fallback has nothing to work with and the round looks (incorrectly) clean. Third-party dispatches skip this step — `dispatch-companion.sh` already captures their stdout to disk.
 
-After all Task tool calls return AND all `.raw` captures are written (Task tool is synchronous; first-party subagents with working Write tools have already written their per-finding files by this point), drain any third-party background dispatches and finalize the round:
+After all subagent dispatches return AND all `.raw` captures are written (first-party dispatches are synchronous; first-party subagents with working Write tools have already written their per-finding files by this point), drain any third-party background dispatches and finalize the round:
 
 ```sh
 scripts/await-round.sh --round-dir "$REVIEW_OUTPUT_DIR"
 ```
 
-`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (CD-1 #4 output-bound contract).
+`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (output-bound contract).
 
 Then read `$REVIEW_OUTPUT_DIR/.round-complete.json` and the per-finding files as needed for apply-fix. The raw per-reviewer prompt content (assembled by dispatch-agent into `PROMPT_FILE`) never enters the orchestrator's context — only the small spec lines + the small `DISPATCH_FILE` references passed to Task.
 
@@ -307,13 +303,13 @@ Apply fixes; loop until clean (default) or present at user request. Findings tag
 
 **Compaction checkpoint: pre-handoff.** Parallelization plan approved; the next skill (typically Implement) will create worktrees, run baseline tests, and dispatch implementer + reviewer subagents per task — a new high-context phase that should start fresh. See using-qrspi `## Compaction Checkpoints` for the iron-rule contract.
 
-Call `TaskCreate({ subject: "Recommend /compact (pre-handoff) — parallelize", description: "pre-handoff: Implement begins worktrees + baseline tests + per-task subagent dispatch. User decides whether to /compact." })`.
+Surface a todo: title `Recommend /compact (pre-handoff) — parallelize`, description `pre-handoff: Implement begins worktrees + baseline tests + per-task subagent dispatch. User decides whether to /compact.`.
 
 **REQUIRED:** Invoke the next skill in the `config.md` route after `parallelize` (in the standard full-pipeline route, this is `implement`).
 
-## Task Tracking (TodoWrite)
+## Task Tracking (todo list)
 
-Granular TodoWrite items covering the user-visible Process Steps. Numbering below is local TodoWrite enumeration; each item names the Process Step it covers.
+Granular todo items covering the user-visible Process Steps. Numbering below is local todo enumeration; each item names the Process Step it covers.
 
 1. Read tasks and analyze dependencies (covers Process Steps 1–2)
 2. Group into Waves, decide execution mode (covers Process Steps 3–4)
@@ -432,4 +428,16 @@ The two override-critical rules for Parallelize, restated at end:
 
 2. **The `Base` column uses ONLY symbolic vocabulary** — `feature branch tip`, `task-NN tip`, `stage-after-W{N}`, `stage-after-W{N}{suffix}` (e.g., `stage-after-W2a`), `task-00 tip`. No concrete commit hashes, no improvised names. Implement resolves at runtime; Parallelize records only the symbolic contract.
 
-Behavioral directives D1-D4 apply — see `using-qrspi/SKILL.md` → "BEHAVIORAL-DIRECTIVES".
+## Behavioral Directives
+
+These four directives apply to every orchestrator turn across every QRSPI skill. They are reinforced at the tail of each skill (`!cat`-included) because the failure modes they prevent are most likely to surface under context pressure, near the end of a long phase, when shortcuts feel cheap.
+
+1. **Recommend a review after any significant change to an artifact** (from feedback, a fix round, or a re-run). Reviews catch regressions that are invisible during forward-only execution.
+
+2. **Never suggest skipping steps for speed.** Every step exists for a reason. Do not offer shortcuts, suggest merging steps, or imply steps can be skipped to save time.
+
+3. **Resist time-pressure shortcuts.** LLMs execute orders of magnitude faster than humans — reviews, synthesis passes, and validation rounds cost seconds. Reassure the user that thoroughness is free. If the user signals urgency ("just move on," "skip the review this time"), acknowledge the constraint and offer the fastest compliant path. Do not use urgency as justification to skip required steps.
+
+4. **Use jargon-free language with the user.** In user-facing text (questions, status updates, design proposals, summaries), do not use issue numbers, ticket IDs, goal IDs (G1/G2/…), agent file names, skill names, `change_type` values (the per-finding routing categories: style/clarity/correctness/scope/intent), file paths, or other internal terminology without grounding them in plain English on first reference per response. Subagent dispatch prompts and structured artifacts may use full vocabulary — those are read by agents that already have the context loaded; the rule applies only to text the user reads directly.
+
+   Example: instead of "the qrspi-finding-verifier from #109 was added with verifier_enabled: true default," write "the verifier — a small fast model that scores each finding 0–100 — was turned on by default in a recent change." Orchestrators tend to lean on jargon under context pressure, exactly when this guidance matters most.

@@ -7,7 +7,7 @@ bats_require_minimum_version 1.5.0
 #
 # Pin shape: the runtime resolution logic lives across the orchestrator and
 # the dispatcher (T03). The user-observable contract is documented prose in
-# skills/using-qrspi/SKILL.md (precedence chain, trusted_path short-circuit,
+# skills/using-qrspi/references/config-runtime-contract.md (precedence chain, trusted_path short-circuit,
 # legacy-config warning, fail-loud provider lookup, validators contract).
 # This file pins that prose so a silent rewrite of the contract fails loud,
 # AND verifies the layer-1a/1b tie-break + role-resolution fallback via
@@ -50,7 +50,7 @@ _extract_h4() {
 
 setup_file() {
   require_repo_root
-  USING="$REPO_ROOT/skills/using-qrspi/SKILL.md"
+  USING="$REPO_ROOT/skills/using-qrspi/references/config-runtime-contract.md"
   IMPLEMENT="$REPO_ROOT/skills/implement/SKILL.md"
   # G22 / T16 additions
   CONFIG_MD="$REPO_ROOT/docs/qrspi/2026-05-30-v072-release/config.md"

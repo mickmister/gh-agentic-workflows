@@ -28,9 +28,18 @@ NO TASK DISPATCH WITHOUT APPROVED INPUTS
 
 Mode-conditional "approved inputs": **full pipeline** — `parallelization.md` must exist with `status: approved` (the Branch Map is the dispatch contract); **quick fix** — every `tasks/*.md` (or `fixes/{type}-round-NN/*.md`) targeted by this run must have `status: approved`. Refuse to run if missing and name the artifact.
 
-## Batch Gate (the only point where Implement hands control back)
+## Once-Per-Implement-Entry Reference Files (Read on Trigger)
 
-A **batch** is the set of tasks Implement dispatched together for the current phase or fix dispatch — distinct from a **wave**, which is the concurrency grouping inside a batch (full pipeline only; defined by `parallelization.md` `### Wave N`). A batch contains one or more waves; the gate is per-batch.
+Two read-on-demand reference files cover every one-shot concern. Read each on its trigger; do NOT re-read mid-loop. **"Implement entry"** = first activation of Implement (per phase in full pipeline; per quick-fix batch in quick mode). **"Batch end"** = every task in the current batch has reached terminal status and the gate is about to render.
+
+- **On Implement entry, before any per-task dispatch.** Read `references/implement-entry.md` — sections fire in order: (1) Smoke check (halt gate: verifier-agent readability, sidecar write path + `phase:` ordinal backfill, `verifier_enabled` snapshot); (2) Task-count read (skip-decision gate: `N=0` halts, `N=1` skips Parallelize+Integrate, `N>1` runs full pipeline; filesystem-error handling and `reviews/implement-entry-decisions.md` audit fields in-file); (3) Run-entry artifact preconditions, config validation, Phase-Level Configuration prompt (`review_depth`, `review_mode`), Subagent Permissions, Baseline Tests handling. Fix-task dispatches reuse `config.md` and do not re-read.
+- **At batch end, before the batch gate.** Read `references/batch-end.md` — OBC script invocation, `reviews/implement/orchestration-boundary.md` section schema (`## Boundary violations` vs `## Dispatch defects`), fail-soft vs fail-loud semantics, autopilot precedence ladder, `## Dispatch defects` suppression of option (c), and Batch Gate Red Flags STOP list.
+
+The per-topic H2s further down (Branch Model, Process Steps, OBC) are anchors for mid-loop cross-references; they do NOT duplicate the once-per-entry content above.
+
+## Batch Gate
+
+The batch gate is the only point where Implement hands control back. A **batch** is the set of tasks Implement dispatched together for the current phase or fix dispatch — distinct from a **wave**, which is the concurrency grouping inside a batch (full pipeline only; defined by `parallelization.md` `### Wave N`). A batch contains one or more waves; the gate is per-batch.
 
 The **batch gate** is the human gate Implement presents after every task in the batch reaches one of: (a) **Clean** — TDD + review with no unresolved findings; (b) **Accepted-with-issues** — findings the user explicitly accepted (logged, non-blocking); (c) **Skipped-by-user**. Until every task is in (a)/(b)/(c), Implement keeps driving the per-task loop and does NOT route to the next step. Without this gate, the model rationalizes "this one task is done, just integrate it" and per-task integration breaks the cross-task review's premise.
 
@@ -38,69 +47,9 @@ The batch composition is mode-specific: **full pipeline** — every task in `par
 
 The isolated baseline-fix dispatch (singleton `task-00.md` / `task-00b.md`) that runs BEFORE the main dispatch when baseline auto-fix triggers is NOT its own batch — it auto-continues into the main dispatch, and only the main dispatch's gate fires. The baseline-fix task still must satisfy input-approval gating.
 
-## Artifact Gating
-
-Two layers — distinct concerns:
-
-**Run-entry preconditions (must exist + approved before Implement dispatches anything).** Mode-dependent (derived from `config.md.route`):
-
-- **Full pipeline:** `parallelization.md`, `plan.md`, `tasks/*.md` (or `fixes/{type}-round-NN/*.md`), `design.md`, `phasing.md`, `structure.md`, `config.md`.
-- **Quick fix:** `plan.md`, `tasks/*.md` (or `fixes/{type}-round-NN/*.md`), `goals.md`, `research/summary.md`, `config.md`.
-
-If any required artifact is missing or not approved, refuse to run and name it.
-
-**Per-dispatch prompt composition (which subset rides in each subagent prompt).** Each per-task dispatch reads the task file's `pipeline` field (the per-task source of truth — independent of the run-level mode) and embeds:
-
-| Input | `pipeline: quick` | `pipeline: full` |
-|-------|-------------------|-------------------|
-| `task-NN.md` (full text) | Yes | Yes |
-| `goals.md` (approved) | Yes | Yes |
-| `research/summary.md` (approved) | Yes | No |
-| `design.md` (approved) | No | Yes |
-| `structure.md` (approved) | No | Yes |
-| `parallelization.md` (approved) | No | Yes |
-
-### Config Validation
-
-Per `using-qrspi/references/config-runtime-contract.md` § Config Validation Procedure. Implement validates `route`, `second_reviewer`, and (after Phase-Level Configuration) `review_depth` and `review_mode`.
-
-<HARD-GATE>
-Do NOT dispatch implementer subagents without the mode-appropriate approved inputs. Do NOT dispatch parallel tasks (full pipeline) that touch overlapping files — re-verify against the Branch Map at runtime (`tasks/*.md` may have been edited after Parallelize approval). Do NOT create worktrees on main/master without a feature branch. Do NOT advance to the next route step until every task is in one of the three terminal states (clean / accepted-with-issues / skipped-by-user). Do NOT skip the formal reviewer dispatch on the assumption that the implementer's self-review covers it (or vice versa: do NOT have a reviewer modify code) — each role is a separate subagent dispatch.
-</HARD-GATE>
-
-## Phase-Level Configuration (Runtime)
-
-`review_depth` and `review_mode` are runtime concerns. At Implement entry (per phase in full pipeline; per quick-fix batch in quick mode), ask: (1) **Review depth** — Quick (4 correctness reviewers) or Deep (all 8); (2) **Review mode** — Single round or Loop until clean. Write to `config.md` as `review_depth` and `review_mode`. Fix-task dispatches reuse — do not re-ask. Source of truth is `config.md`.
-
-### Round Counting (Definition)
-
-1. **Round = one review→fix iteration.** Orchestrator emits the round-NN diff (HEAD-advanced — see § Per-Task Convergence Narrowing), dispatches the round's reviewer fan-out, fans in findings + notifications, dispatches the fix-cycle implementer (if findings), concludes when that implementer reports DONE.
-2. **Per-round artifacts share the round number.** One `reviews/tasks/task-NN/round-NN/` directory and one `reviews/tasks/task-NN/round-NN.diff` per round.
-3. **Fix-loop cap counts rounds, not dispatches.** `review_mode: loop_until_clean` caps at **3 rounds**. After round-3's fix-cycle, dispatch a round-4 review pass; clean → clean-after-3-fixes; still-issues → escalate (no 4th fix-cycle).
-
-**Notification-driven dispatches do NOT advance the round counter.** When a task's fix triggers a sibling-impact notification on another in-batch task, that sibling gets its own fix-cycle dispatch at the SAME round number — same `round-NN/` directory, ZERO consumption of the 3-round budget. The cap counts review→fix iterations on the originating task, not bookkeeping ripple. Full mechanics in `references/per-task-routing.md` § Round-Level Notification Sweep.
-
-**Verify the round counter against `reviews/tasks/task-NN/round-*/` directories on disk** — do not infer from chat history.
-
-## Implement-Entry Smoke Check
-
-Read `references/entry-smoke-check.md` before dispatching the first per-task wave each phase — one-shot gate covering verifier-agent readability, sidecar write path + `phase:` ordinal backfill, and `verifier_enabled` snapshot.
-
-## Implement-Entry Task-Count Read and Dynamic Skip
-
-Runs immediately after the smoke check, before any per-task / Parallelize / Integrate dispatch. One-shot per Implement entry. Count files matching `tasks/task-[0-9][0-9].md` (or `tasks/task-[0-9][0-9][a-z].md` for letter-suffix splits) with `status: approved`, excluding `tasks/task-00*.md`. Bind to `N`:
-
-- **N=0** — Halt; append `branch: halt-zero-tasks` to `reviews/implement-entry-decisions.md`. Unconditional.
-- **N=1** — **Skip both Parallelize and Integrate dispatch.** Append `branch: skip-parallelize-integrate` as a **hard precondition** (audit-write failure aborts with a named diagnostic). Per-task dispatch the single approved task. Skip is dynamic and count-based — independent of `config.md: pipeline:`. Artifact gating for `parallelization.md` is suspended on this branch.
-- **N>1** — Full-pipeline: Parallelize, per-task dispatch, Integrate. Append `branch: run-full-pipeline` (best-effort).
-
-`reviews/implement-entry-decisions.md` is append-only with `timestamp`, `task_count` (integer; `null` on halt), `branch`. Filesystem-error branches (`halt-tasks-dir-io-error`, `halt-unreadable-task-file`) attempt one best-effort append with `task_count: null` before halting.
-
-Read `references/task-count-dynamic-skip.md` when entering Implement and counting approved task files (any `N` value, especially N=0 or filesystem-error branches) — full audit YAML schemas, filesystem error handling, security tradeoff rationale, and I/O-error WARN format.
+Read `references/batch-gate-autopilot.md` when actually rendering the gate (interactive menu rendering or autopilot branch evaluation) — full menu rendering, batch summary, advance menus, and gate-level reviewer dispatch detail. Batch-end mechanics (OBC invocation, autopilot precedence ladder, `## Dispatch defects` suppression of option (c)) live in `references/batch-end.md` per § Once-Per-Implement-Entry Reference Files above.
 
 ## Branch Model — Runtime Resolution (Full Pipeline)
-
-# Branch Model — Runtime Resolution (Full Pipeline)
 
 In full pipeline mode, Implement consumes the symbolic Branch Map from `parallelization.md` (see `parallelize/SKILL.md` § Branch Model). At runtime, Implement resolves each `Base` as follows:
 
@@ -117,15 +66,7 @@ Walk the Branch Map in Wave-dispatch order. Before starting a Wave, verify every
 
 In quick fix mode, there is no Branch Map. Each task forks directly from the feature branch tip into its own worktree. The re-fork prohibition still applies.
 
-## Subagent Permissions
-
-Subagent containment is the runtime sandbox's responsibility (auto-mode plus Claude's judgment); there is no in-pipeline worktree wall. Subagents should be dispatched with the task's worktree path `.worktrees/{slug}/task-NN[a-z]?/` named in the prompt and treat that path as their working scope. The optional `[a-z]?` letter suffix supports Plan-induced task splits like `task-07a`/`task-07b`.
-
-**Recommended:** run sessions with `--dangerously-skip-permissions` enabled so per-tool approval prompts do not stall subagents.
-
 ## Process Steps
-
-# Process Steps — full per-step procedure (full pipeline + quick fix)
 
 This file is `!cat`-included under the `## Process Steps` H2 in `skills/implement/SKILL.md`. The order matters: baseline tests run **before** per-task worktree creation so that a baseline failure can inject `task-00` (full pipeline) or be classified as the first quick-fix task without violating the re-fork prohibition.
 
@@ -152,14 +93,14 @@ Branch on mode (derived from `config.md.route` per § Overview) at the start. Bo
         - Create any required `stage-after-W{N}` branch (merging the named Wave's leaves).
         - Create the per-task worktree at `.worktrees/{slug}/task-NN/`. Verify `.worktrees/` is in `.gitignore`.
 
-          **Worktree-local exclude append (T38 worktree-local-exclude invariant).** Immediately after `git worktree add` succeeds and before dispatching the implementer subagent, append the line `.qrspi-commit-msg.txt` to `.worktrees/{slug}/task-NN/.git/info/exclude` (creating the file if it does not exist). This append happens once at worktree creation time, independent of any per-commit ordering, and satisfies the worktree-local-exclude invariant declared in `skills/implementer-protocol/SKILL.md` § Commit hygiene invariants for every commit cycle the implementer runs in this worktree. The append does not pollute the target repo's committed `.gitignore` (the exclude file is worktree-local under `.git/`).
+          **Worktree-local exclude append.** Immediately after `git worktree add` succeeds and before dispatching the implementer subagent, append the line `.qrspi-commit-msg.txt` to `.worktrees/{slug}/task-NN/.git/info/exclude` (creating the file if it does not exist). This append happens once at worktree creation time, independent of any per-commit ordering, and satisfies the worktree-local-exclude invariant declared in `skills/implementer-protocol/SKILL.md` § Commit hygiene invariants for every commit cycle the implementer runs in this worktree. The append does not pollute the target repo's committed `.gitignore` (the exclude file is worktree-local under `.git/`).
 
           **Resume precondition.** Before attempting `git worktree add`, if any leftover state exists for `task-NN`, see `references/resume-preconditions.md` for the four-case classification table and the inspect-and-decide procedure.
         - Fire the wave's per-task flows concurrently — for each task, dispatch the implementer subagent (multiple subagent dispatches in a single message; each with the task's worktree path named in the prompt) per § Per-Task Execution.
         - Wait for every task in the wave to reach a terminal status (per the per-task fix loop).
         - If the next Wave needs a `stage-after-W{N}` stage commit composed from this Wave's leaves, create it now.
     - **Quick fix:** for each task in the batch (no waves):
-        - Create the per-task worktree at `.worktrees/{slug}/task-NN/`, forked from feature branch tip. Verify `.worktrees/` is in `.gitignore`. Apply the same Resume precondition behavior. Apply the same **worktree-local exclude append** (T38 worktree-local-exclude invariant): immediately after `git worktree add` succeeds and before dispatching the implementer subagent, append the line `.qrspi-commit-msg.txt` to `.worktrees/{slug}/task-NN/.git/info/exclude` (creating the file if it does not exist).
+        - Create the per-task worktree at `.worktrees/{slug}/task-NN/`, forked from feature branch tip. Verify `.worktrees/` is in `.gitignore`. Apply the same Resume precondition behavior. Apply the same **worktree-local exclude append**: immediately after `git worktree add` succeeds and before dispatching the implementer subagent, append the line `.qrspi-commit-msg.txt` to `.worktrees/{slug}/task-NN/.git/info/exclude` (creating the file if it does not exist).
         - Dispatch the implementer subagent per § Per-Task Execution (multiple in parallel if the batch has multiple fix tasks; they are file-disjoint by quick-fix construction).
         - Wait for every task to reach a terminal status.
 
@@ -168,22 +109,6 @@ Branch on mode (derived from `config.md.route` per § Overview) at the start. Bo
 8. When every task in the batch has reached a terminal state AND the OBC step has completed without a halt, present the batch gate (see § Batch Gate).
 
 9. On user "continue", invoke the next route step (see § Terminal State for the routing algorithm).
-
-## Baseline Tests
-
-Run baseline tests in a single throwaway worktree at `.worktrees/{slug}/baseline/` (forked from the feature branch tip). If a prior baseline worktree exists from a halted run, delete it first.
-
-If tests fail, present failure summary with 3 options:
-
-- **(a) Auto-fix (recommended):** Inject baseline fix task `task-00` with all others depending on it. Implement writes `task-00.md` with `status: approved` (runtime-generated; approval asserted so the Iron Law gate passes on dispatch). `task-00` uses `task: 0` and inherits the run's mode in `pipeline:`.
-    - **Full pipeline:** Append one row to the Branch Map (`task-00 → qrspi/{slug}/task-00 (base: feature branch tip)`) without rewriting existing rows. Append a `## Runtime Adjustments` section listing tasks whose effective base changed. Implement reads the Branch Map first, then applies `## Runtime Adjustments` overrides on top. Repeated failures inject `task-00b`, `task-00c`, etc.
-    - **Quick fix:** `task-00` is its own isolated dispatch event — no Branch Map, no `## Runtime Adjustments`. Write `tasks/task-00.md` with `status: approved`, dispatch as a standalone event with task set `{tasks/task-00.md}`, then dispatch the originally-requested task set as a separate event (excluding the runtime-written singletons).
-- **(b) Proceed anyway:** Log failures to `reviews/baseline-failures.md`.
-- **(c) Stop:** Halt the pipeline.
-
-**Invariant — baseline worktree gone before any per-task worktree exists.** Auto-fix deletes it as the first sub-step of Process Step 5; Proceed-anyway deletes it immediately after writing `reviews/baseline-failures.md`; Stop requires no deletion.
-
-## Multi-Actor Flow Check
 
 ## Multi-Actor Flow Check
 
@@ -220,7 +145,7 @@ Dispatch tasks in the wave order Parallelize specified — read from the Branch 
 
 **Per-task state main chat tracks across the wave.** Per task: (a) per-task phase (implementer / reviewers / fix-cycle K / terminal); (b) retained implementer-fix subagent ID, indexed by task number for subagent-continuation messages across fix cycles (do NOT mix IDs across tasks); (c) per-task fix-cycle count (each task has its own 0–3 budget); (d) per-task review log file `reviews/tasks/task-NN-review.md`. Session-scoped — a restart drops IDs. Prefer splitting waves > ~3 concurrent tasks at Parallelize time.
 
-**Stage-commit parent-validation fence (T20a).** Wrap `git merge --no-ff` with the `validate-stage-commit-parents.sh` wrap — pre-merge `--capture`, the merge itself, post-merge `--validate`, in that order with nothing between:
+**Stage-commit parent-validation fence.** Wrap `git merge --no-ff` with the `validate-stage-commit-parents.sh` wrap — pre-merge `--capture`, the merge itself, post-merge `--validate`, in that order with nothing between:
 
 ```
 scripts/validate-stage-commit-parents.sh --capture --wave-id W{N} \
@@ -247,6 +172,23 @@ In quick fix mode, there are no waves — Process Step 6 dispatches the entire b
 
 Same TDD + review flow per task across full-pipeline waves and quick-fix dispatches. Main chat orchestrates; all code execution, file changes, and git operations are delegated to subagents.
 
+### Per-Task Input Routing (Prompt Composition)
+
+Each per-task dispatch reads the task file's `pipeline` field (the per-task source of truth — independent of the run-level mode) and embeds:
+
+| Input | `pipeline: quick` | `pipeline: full` |
+|-------|-------------------|-------------------|
+| `task-NN.md` (full text) | Yes | Yes |
+| `goals.md` (approved) | Yes | Yes |
+| `research/summary.md` (approved) | Yes | No |
+| `design.md` (approved) | No | Yes |
+| `structure.md` (approved) | No | Yes |
+| `parallelization.md` (approved) | No | Yes |
+
+<HARD-GATE>
+Do NOT dispatch implementer subagents without the mode-appropriate approved inputs. Do NOT dispatch parallel tasks (full pipeline) that touch overlapping files — re-verify against the Branch Map at runtime (`tasks/*.md` may have been edited after Parallelize approval). Do NOT create worktrees on main/master without a feature branch. Do NOT advance to the next route step until every task is in one of the three terminal states (clean / accepted-with-issues / skipped-by-user). Do NOT skip the formal reviewer dispatch on the assumption that the implementer's self-review covers it (or vice versa: do NOT have a reviewer modify code) — each role is a separate subagent dispatch.
+</HARD-GATE>
+
 ### Iron Law (per task)
 
 ```
@@ -266,9 +208,17 @@ Main chat dispatches implementer + reviewer + fix-round subagents, aggregates fi
 
 Implementer self-review (the `qrspi-implementer` body's "Before Reporting Back: Self-Review" section) is encouraged. What is banned is main chat substituting that self-review for the formal reviewer dispatch: every per-task flow runs the configured reviewer set as separate subagent dispatches, regardless of how clean the implementer's self-review looked. Reviewer subagents never modify code; findings go back to main chat, which dispatches an implementer-fix subagent.
 
-### Subagent Roster
+### Round Counting (Definition)
 
-# Subagent Roster + Routing
+1. **Round = one review→fix iteration.** Orchestrator emits the round-NN diff (HEAD-advanced — see § Per-Task Convergence Narrowing), dispatches the round's reviewer fan-out, fans in findings + notifications, dispatches the fix-cycle implementer (if findings), concludes when that implementer reports DONE.
+2. **Per-round artifacts share the round number.** One `reviews/tasks/task-NN/round-NN/` directory and one `reviews/tasks/task-NN/round-NN.diff` per round.
+3. **Fix-loop cap counts rounds, not dispatches.** `review_mode: loop_until_clean` caps at **3 rounds**. After round-3's fix-cycle, dispatch a round-4 review pass; clean → clean-after-3-fixes; still-issues → escalate (no 4th fix-cycle).
+
+**Notification-driven dispatches do NOT advance the round counter.** When a task's fix triggers a sibling-impact notification on another in-batch task, that sibling gets its own fix-cycle dispatch at the SAME round number — same `round-NN/` directory, ZERO consumption of the 3-round budget. The cap counts review→fix iterations on the originating task, not bookkeeping ripple. Full mechanics in `references/per-task-routing.md` § Round-Level Notification Sweep.
+
+**Verify the round counter against `reviews/tasks/task-NN/round-*/` directories on disk** — do not infer from chat history.
+
+### Subagent Roster
 
 The per-task flow dispatches subagents defined under `agents/`. Each agent file carries its full prompt body, tool list, and dispatch-parameter contract; main chat invokes them via `dispatch(subagent_type: <agent-name>)`.
 
@@ -300,8 +250,6 @@ Correctness checks if code is right and safe — always runs. Thoroughness check
 
 ### Per-Task Routing (`task_type`)
 
-# Per-Task Routing (`task_type`)
-
 Before dispatching the implementer for a task, main chat reads `task_type` from the task's `tasks/task-NN.md` frontmatter and resolves three per-task flags:
 
 ```
@@ -327,7 +275,7 @@ Tasks that omit `task_type:` default to `code` and proceed through the standard 
 
 **Gate-level reviewer (cross-task).** The Batch Gate's `qrspi-implement-gate-reviewer` is gated by `config.second_reviewer` (config-level), not per-task `task_type`. A wave mixing `code` and `lightweight` tasks still gets the gate-level Codex parallel if config enables it.
 
-#### Tier Resolution Chain (per dispatch — G22 / design.md CD-1)
+#### Tier Resolution Chain (per dispatch)
 
 Every implementer and reviewer dispatch resolves its `(vendor, model)` pair through the tier chain owned by `scripts/_resolve-lib.sh`, at the dispatch boundary, BEFORE the dispatch primitive is composed. Strict precedence (first match wins); the resolved tier is mapped via `config.md`'s `model_routing:` block:
 
@@ -344,33 +292,11 @@ A tier configured as `none` HALTS LOUDLY with a diagnostic naming the unconfigur
 
 **Dispatch-site forwarding.** First-party dispatches pass the resolved model into the host's subagent dispatch primitive; third-party dispatches pipe their prompt to `scripts/dispatch-companion.sh` with `--vendor <resolved-vendor> --model <resolved-model>`.
 
-#### G5 default routing reference (default `model_routing:` table)
-
-The initial G5 deliverable — the agent-class-to-`(provider, model)` mapping that ships as the default `model_routing:` block in `config.md`. Each row's rationale is verbatim from design.md G5; operators may edit `config.md` to deviate per-run.
-
-| Agent class                         | Default route                       | Default-tier band                | Rationale (verbatim from design.md G5) |
-|-------------------------------------|-------------------------------------|----------------------------------|----------------------------------------|
-| `qrspi-research-collator`           | DeepSeek V3 (or current cheap tier) | cheap-model eligible             | Mechanical verbatim extraction; no synthesis. Cheap model is sufficient — the cost-per-collation dominates Wave fan-out at scale. |
-| `qrspi-implementer-lightweight`     | DeepSeek V3 (or current cheap tier) | cheap-model eligible             | Single-pass execution of well-specified lightweight tasks. Reviewer fan-out catches drift; routing the implementer to cheap saves dominant Wave token cost. |
-| `qrspi-research-specialist`         | DeepSeek V3, citation-density gated | cheap-model eligible (conditional) | Question-scoped research with structured output. Cheap model is sufficient WHEN citation density meets the floor; below-floor output triggers one re-run on the trusted model (see § Specialist Citation-Density Validator). |
-| general-purpose / Explore agent     | Sonnet (Claude)                     | trusted                          | General-purpose exploration that may surface ambiguous findings; cheap-model misreads here propagate through every downstream consumer. Stay trusted. |
-| `qrspi-test-writer`                 | Sonnet (Claude)                     | trusted                          | Test authoring is high-leverage — a bad test pins a wrong contract. Stay trusted; cost is dominated by reviewer fan-out, not test-writer dispatches. |
-
-The matrix is observable via the T07 `test-routing-matrix-application.bats` pin and is the Slice 1 acceptance deliverable for G5. Implement consumes the matrix at every dispatch through the Tier Resolution Chain; operator-edited `model_routing:` entries override the defaults without code changes.
-
-#### Specialist Citation-Density Validator (post-output, trusted-model re-run)
-
-Every `qrspi-research-specialist` dispatch is wrapped with a post-output validator that measures citation density of the returned `q*.md` report against `validators.citation_density_floor:` in `config.md` (default `0.05`). Runs at the per-dispatch boundary, AFTER the specialist's report is written and BEFORE the report enters downstream collation:
-
-1. **Above-floor:** report proceeds unchanged. No re-run, no rerun-count increment.
-2. **Below-floor:** re-runs the specialist EXACTLY ONCE on the trusted model (the role's `trusted_path:` route, or the trusted-tier default), with the same `question_body`/`question_ids`. The rerun count is incremented in this task's telemetry record.
-3. **Second below-floor (re-run also fails):** emit a loud diagnostic naming the below-floor density value and exit non-zero. The orchestrator treats non-zero as a specialist-dispatch FAILURE (NOT a zero-exit-with-empty-body) and may retry on a different topic angle, escalate to a higher tier, or proceed degraded per the BLOCKED escape hatch — the validator does NOT silently forward below-floor output to consumers.
-
-Hook details live in `skills/research/SKILL.md` § Citation-Density Post-Validation Hook.
+**Default routing matrix.** Agent-class → tier-band defaults (cheap / trusted) for every QRSPI agent class live in `skills/_shared/model-routing-defaults.md`. Implement consumes the matrix at every dispatch through the chain above; operators override per-run by editing `config.md`'s `model_routing:` block.
 
 #### Per-Task Telemetry Emission (`reviews/telemetry/round-NN/task-NN.json`)
 
-Every task in every round emits one JSON object to `<ABS_ARTIFACT_DIR>/reviews/telemetry/round-NN/task-NN.json` at task-DONE time (after the per-task fix loop terminates), regardless of outcome (success, BLOCKED, escalated). The G5 living-config matrix is tuned from this corpus.
+Every task in every round emits one JSON object to `<ABS_ARTIFACT_DIR>/reviews/telemetry/round-NN/task-NN.json` at task-DONE time (after the per-task fix loop terminates), regardless of outcome (success, BLOCKED, escalated). The living-config routing matrix is tuned from this corpus.
 
 Required fields:
 
@@ -383,9 +309,9 @@ Required fields:
 
 #### Per-Task Reviewer Dispatch: DONE-Report Companion Wiring
 
-Per the T15 implementer-protocol hygiene contract, every per-task reviewer dispatch (correctness AND thoroughness, every round) MUST include `companion_done_report` (wrapped body of this round's implementer DONE report between `<<<UNTRUSTED-ARTIFACT-START id=done-report>>>` and END markers) and `done_report_path` (absolute path). Omitting either is a hygiene-contract violation; the reviewer's pre-flight fails loud per `skills/implementer-protocol/SKILL.md` § Unacknowledged Hygiene Hits.
+Per the implementer-protocol hygiene contract, every per-task reviewer dispatch (correctness AND thoroughness, every round) MUST include `companion_done_report` (wrapped body of this round's implementer DONE report between `<<<UNTRUSTED-ARTIFACT-START id=done-report>>>` and END markers) and `done_report_path` (absolute path). Omitting either is a hygiene-contract violation; the reviewer's pre-flight fails loud per `skills/implementer-protocol/SKILL.md` § Unacknowledged Hygiene Hits.
 
-#### Conditional-Dispatch Precondition Evaluation (T43)
+#### Conditional-Dispatch Precondition Evaluation
 
 Before any per-task dispatch fires — pre-implementer test-writer, RED-gate, implementer — main chat reads `conditional:` and `conditional_precondition:` from the task's frontmatter. `conditional:` absent or `false` → unconditionally dispatched. `conditional: true` → evaluate `conditional_precondition:` (self-describing predicate verifiable against on-disk artifacts + git state without a subagent). Met → proceed. Not met → short-circuit (no test-writer, no RED gate, no implementer); orchestrator synthesizes a terminal DONE report with `status: skipped` and the precondition-evaluation result as `rationale:`. Batch-gate accounting treats `skipped` as terminal, distinct from `clean` and `accepted-with-issues`. Log the resolved decision to the round's audit trail.
 
@@ -422,8 +348,6 @@ For TDD tasks (`task_type: code` or absent), main chat runs a two-step pre-imple
 **Behavioral observability.** End-to-end against a `task_type: code` task, the dispatch log records test-writer entry before implementer entry on the proceed path. On `infrastructure-failure`, vacuous-RED, adapter-classification-failure, or test-writer dispatch-failure paths, the gate halts with the named diagnostic and no implementer dispatch occurs.
 
 Full procedure (dispatch shape, three distinct non-overlapping pause diagnostics, adapter classification table, `prewritten_red_tests:` proceed signal):
-
-# Pre-Implementer Test-Writer Dispatch + RED-Verification Gate
 
 Read this file when running the two-step pre-implementer flow for `task_type: code` (or absent `task_type:`) tasks BEFORE the implementer dispatch. Lightweight tasks bypass this gate entirely; proceed directly to § Dispatching the Implementer.
 
@@ -525,11 +449,10 @@ All reviewer and fix work is dispatched via subagents; main chat only aggregates
      Shared verifier-dispatch snippet, `!cat`-included into:
        - skills/using-qrspi/SKILL.md   (artifact-level Apply-fix protocol)
        - skills/implement/SKILL.md     (task-level Apply-fix protocol)
-     Source of truth: design.md CD-4 §H + structure.md Slice 1.1.
-     Mirrors skills/_shared/reviewer-dispatch-prose.md (CD-1 §11). The two
+     Mirrors skills/_shared/reviewer-dispatch-prose.md. The two
      snippets are deliberately separate because each names a different
      `dispatch-agent.sh` mode flag at the call site (the load-bearing
-     difference) — see design.md CD-4 §H rationale (L494). -->
+     difference). -->
 
 ## Verifier Dispatch
 
@@ -537,7 +460,7 @@ The verifier round dispatches one verifier per reviewer finding through the
 universal `dispatch-agent.sh` entry point and consumes scored sidecars
 through `scripts/verifier-fan-in.sh`. The orchestrator NEVER loops per
 finding and NEVER chat-parses verifier output to compute the kept set —
-the script is the only path (CD-4 iron rule).
+the script is the only path (iron rule).
 
 The orchestrator-side flow is exactly four Bash invocations plus one
 parallel subagent-dispatch batch:
@@ -658,7 +581,7 @@ REVIEW_ARTIFACT="<repo-relative production subject-code path(s), space-joined>"
 REVIEW_AGENTS="..."
 ```
 
-# Reviewer Dispatch (shared)
+## Reviewer Dispatch (shared)
 
 With `$REVIEW_STEP`, `$REVIEW_ROUND`, `$REVIEW_OUTPUT_DIR`, `$REVIEW_ARTIFACT`, and `$REVIEW_AGENTS` set by the per-skill preamble above, run:
 
@@ -684,7 +607,7 @@ MODE=first_party TAG=<tag> SUBAGENT_TYPE=<agent-name> MODEL=<resolved-model> PRO
 
 **Iron law (orchestrator-side dispatch contract):** issue exactly one subagent dispatch per emitted spec line, with `SUBAGENT_TYPE`, `MODEL`, and `PROMPT_FILE` copied verbatim. Skipping a line, deduplicating across lines, modifying any value, or substituting a different subagent_type is a contract violation. The dispatch manifest (`$REVIEW_OUTPUT_DIR/.dispatch-manifest.json`) records expected dispatches; the apply-fix step's "expected tag produced no output" diagnostic catches missed or mis-routed dispatches.
 
-**Capture each subagent return value to disk before draining.** After each dispatch returns, write the subagent's reply text (the full return string) to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` using the `create` tool, where `<TAG>` is the `TAG` value from the corresponding spec line. This is mandatory regardless of whether the subagent appeared to write per-finding files itself. Rationale: when a subagent cannot use the Write tool (read-only sandbox; missing `allowed-tools` entry; tool denial at runtime) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead. `await-round.sh` recovers those findings via a universal stdout-fallback that reads `.dispatch/<TAG>.raw` and pipes it through `third-party-finding-splitter.sh`; without the captured `.raw` file the fallback has nothing to work with and the round looks (incorrectly) clean.
+**Capture first-party reply text to disk before draining.** Each first-party subagent's reply lives only in main-chat context — no script can recover it later. After each dispatch returns, write the full reply text to `$REVIEW_OUTPUT_DIR/.dispatch/<TAG>.raw` with the `create` tool, where `<TAG>` is the `TAG` from the corresponding spec line — even when the subagent appears to have written per-finding files itself. When a subagent can't use the Write tool (read-only sandbox; missing `allowed-tools` entry; runtime tool denial) it emits findings via the `<<<FINDING-BOUNDARY>>>` stdout contract instead, and `await-round.sh`'s universal stdout-fallback recovers them by piping `.dispatch/<TAG>.raw` through `third-party-finding-splitter.sh`. Without the `.raw` capture the fallback has nothing to work with and the round looks (incorrectly) clean. Third-party dispatches skip this step — `dispatch-companion.sh` already captures their stdout to disk.
 
 After all subagent dispatches return AND all `.raw` captures are written (first-party dispatches are synchronous; first-party subagents with working Write tools have already written their per-finding files by this point), drain any third-party background dispatches and finalize the round:
 
@@ -692,7 +615,7 @@ After all subagent dispatches return AND all `.raw` captures are written (first-
 scripts/await-round.sh --round-dir "$REVIEW_OUTPUT_DIR"
 ```
 
-`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (CD-1 #4 output-bound contract).
+`await-round` is no-op-safe — first-party-only rounds still call it; it returns immediately after reading the manifest. It writes a small `$REVIEW_OUTPUT_DIR/.round-complete.json` summary and (for third-party dispatches OR any entry that produced no per-finding files but has a `.dispatch/<TAG>.raw` capture) materializes per-finding files via `third-party-finding-splitter.sh`. It does NOT echo captured subagent payloads (output-bound contract).
 
 Then read `$REVIEW_OUTPUT_DIR/.round-complete.json` and the per-finding files as needed for apply-fix. The raw per-reviewer prompt content (assembled by dispatch-agent into `PROMPT_FILE`) never enters the orchestrator's context — only the small spec lines + the small `DISPATCH_FILE` references passed to Task.
 
@@ -711,7 +634,7 @@ After this round's reviewer fan-in completes and BEFORE preparing the next round
 
 ### Per-Task Convergence Narrowing
 
-Per-task review rounds reuse the convergence machinery from `using-qrspi/SKILL.md` § Standard Review Loop — using-qrspi step 6 (scope-tagger dispatch), step 11 (per-round commit), step 12 (ref selection). Only paths and the default `<ref>` differ. Per-task is multi-file, so the tagger always fires its multi-file branch (file-path tags). When `scope_tagger_enabled: false` in `config.md`, this whole subsection is a no-op — every round dispatches with `<ref>=<task-base-commit>` and no `scope_hint`.
+Per-task review rounds reuse the convergence machinery from `using-qrspi/SKILL.md` § Standard Review Loop — the apply-fix-protocol scope-tagger dispatch, step 11 (per-round commit), step 12 (ref selection). Only paths and the default `<ref>` differ. Per-task is multi-file, so the tagger always fires its multi-file branch (file-path tags). When `scope_tagger_enabled: false` in `config.md`, this whole subsection is a no-op — every round dispatches with `<ref>=<task-base-commit>` and no `scope_hint`.
 
 **Per-task per-round commit anchor.** `reviews/tasks/task-NN/round-NN-commit.txt` is written by `scripts/round-prepare.sh` (auto-invoked via `dispatch-agent.sh`'s pre-flight) when the orchestrator passes `--implementer-commit <SHA>`. The script consolidates the three SHA-correctness checks (missing-flag → exit 10; across-rounds advance → exit 12; within-round equality → exit 11) and writes the anchor on exit 0 as `<40-char SHA>\n`. Main chat does NOT compute the anchor itself.
 
@@ -722,7 +645,7 @@ Per-task review rounds reuse the convergence machinery from `using-qrspi/SKILL.m
 
 Both checks fire before the anchor write, so a failed verification leaves no `round-NN-commit.txt` on disk. Do NOT have main chat run `git commit` itself.
 
-**Step 6 (scope-tagger dispatch).** After per-round reviewer fan-in completes, dispatch one `qrspi-scope-tagger` subagent. Per-task parameter substitutions:
+**Scope-tagger dispatch — per-task substitutions.** After per-round reviewer fan-in completes, dispatch one `qrspi-scope-tagger` subagent. Per-task parameter substitutions:
 
 - `round_subdir`: `<ABS_ARTIFACT_DIR>/reviews/tasks/task-NN/round-NN/`
 - `output_path`: `<ABS_ARTIFACT_DIR>/reviews/tasks/task-NN/round-NN-scope-set.txt`
@@ -732,7 +655,7 @@ Both checks fire before the anchor write, so a failed verification leaves no `ro
 
 Apply the same structural validation and full-artifact-fallback transcript diagnostic the artifact-level path uses. A malformed scope-set file routes through the verifier-round failure menu with diagnostic `"Scope-tagger emitted malformed scope-set for round NN: <reason>"`; do NOT silently broaden.
 
-**Step 12 (ref selection) — per-task convergence comparison.** Between rounds NN and NN+1, `round-prepare.sh` runs `decide_narrow`: compare `reviews/tasks/task-NN/round-NN-scope-set.txt` against `reviews/tasks/task-NN/round-(NN-1)-scope-set.txt` using the convergence-rule table from using-qrspi step 12 (ref selection) (equal/proper-subset → narrow; superset/partial/disjoint → broaden; either set empty → broaden; `<full>` ∈ either set → broaden). Per-task uses `<ref>=<task-base-commit>` as broaden default (not `<base-branch>` — worktree-relative). The narrow decision invokes using-qrspi step 12's anchor-file lookup verbatim: `git diff "$(cat reviews/tasks/task-NN/round-<NN-1>-commit.txt)" -- <artifact-path>` (`decide_narrow` validates SHA shape and halts non-zero with `anchor-file-missing:` / `sha-format-invalid:` before passing the SHA to `git diff`; the `narrow-round-empty-diff:` diagnostic fires AFTER on an empty narrow-round diff against the prior round's anchor). No `HEAD~1` shorthand is used and no silent fallback to base-branch fires on a missing/malformed anchor file — the script halts and main chat surfaces the diagnostic. Main chat reads `<ref>` and `narrowed` from `<round-dir>/.round-prepare.json`. Rounds 1 and 2 always broaden. Missing-scope-set / `scope_tagger_enabled=false` short-circuits to broaden. The test-step opt-out does not apply (per-task Implement is in scope). When broadening due to a missing scope-set, apply the I10 distinguishability rule substituting per-task paths — `reviews/tasks/task-NN/round-(NN-1)-scope-set.txt` and `reviews/tasks/task-NN/round-NN-scope-set.txt` — into the diagnostics. Fail-loud / do NOT silently broaden on malformed inputs.
+**Ref selection — per-task convergence comparison.** Between rounds NN and NN+1, `round-prepare.sh` runs `decide_narrow`: compare `reviews/tasks/task-NN/round-NN-scope-set.txt` against `reviews/tasks/task-NN/round-(NN-1)-scope-set.txt` using the convergence-rule table in apply-fix-protocol (equal/proper-subset → narrow; superset/partial/disjoint → broaden; either set empty → broaden; `<full>` ∈ either set → broaden). Per-task uses `<ref>=<task-base-commit>` as broaden default (not `<base-branch>` — worktree-relative). The narrow decision invokes the apply-fix-protocol anchor-file lookup verbatim: `git diff "$(cat reviews/tasks/task-NN/round-<NN-1>-commit.txt)" -- <artifact-path>` (`decide_narrow` validates SHA shape and halts non-zero with `anchor-file-missing:` / `sha-format-invalid:` before passing the SHA to `git diff`; the `narrow-round-empty-diff:` diagnostic fires AFTER on an empty narrow-round diff against the prior round's anchor). No `HEAD~1` shorthand is used and no silent fallback to base-branch fires on a missing/malformed anchor file — the script halts and main chat surfaces the diagnostic. Main chat reads `<ref>` and `narrowed` from `<round-dir>/.round-prepare.json`. Rounds 1 and 2 always broaden. Missing-scope-set / `scope_tagger_enabled=false` short-circuits to broaden. The test-step opt-out does not apply (per-task Implement is in scope). When broadening due to a missing scope-set, apply the distinguishability rule from apply-fix-protocol substituting per-task paths — `reviews/tasks/task-NN/round-(NN-1)-scope-set.txt` and `reviews/tasks/task-NN/round-NN-scope-set.txt` — into the diagnostics. Fail-loud / do NOT silently broaden on malformed inputs.
 
 **`$SCOPE_HINT` population.** When step 12 narrows for round NN+1, `$SCOPE_HINT` is the comma-separated content of `scope_set` (joined with `, `); when step 12 broadens, `$SCOPE_HINT` is the empty string. Reviewer agents treat the empty-value form as semantically identical to absence per the reviewer-protocol contract.
 
@@ -772,44 +695,17 @@ When a task reaches DONE and its frontmatter carries `reference_gate: true`, HAL
 
 Read `references/fix-task-routing.md` when handling fix tasks from integration, CI, or test failures — routing rules for the fix dispatch.
 
-## Orchestration Boundary Observability Check (Phase-End)
+## Orchestration Boundary Observability Check (Batch-End)
 
-Process Step 7. Runs once per phase, at phase end after every task reaches a terminal state, immediately before the batch gate. The phase-end position is load-bearing: the stage-commit chain authored by wave-dispatch is where commit-based orchestration drift (main chat committing into the phase range under its own author identity instead of a `qrspi-<agent>` marker) is most likely to surface.
+Process Step 7. Runs once per batch, at batch end after every task reaches a terminal state, immediately before the batch gate.
 
-### Step N — Orchestration boundary observability check
+If `scripts/orchestration-boundary-check.sh` is absent or not executable at invocation time, the orchestrator writes `obc-script-absent: scripts/orchestration-boundary-check.sh not found or not executable` under `## Dispatch defects` in `<ABS_ARTIFACT_DIR>/reviews/implement/orchestration-boundary.md` and halts before invocation unconditionally.
 
-Before presenting the batch-gate menu, verify the OBC script is present: if `scripts/orchestration-boundary-check.sh` is absent or not executable at invocation time, the orchestrator writes a `## Dispatch defects` section to `<ABS_ARTIFACT_DIR>/reviews/implement/orchestration-boundary.md` containing `obc-script-absent: scripts/orchestration-boundary-check.sh not found or not executable` and halts per § Batch Gate without attempting invocation. Otherwise, run `scripts/orchestration-boundary-check.sh --phase implement --artifact-dir "<ABS_ARTIFACT_DIR>"`. The script runs `git status --porcelain` (catches uncommitted main-chat edits; `reviews/` allowlisted) and `git log <phase-base>..HEAD --format='%H %an' | awk '$2 !~ /^qrspi-/ {print $1}'` (catches main-chat-committed edits; subagent commits carry the `qrspi-<agent-name>` author marker).
-
-Findings go to `reviews/implement/orchestration-boundary.md` under up to two sections: `## Boundary violations` (uncommitted-edit, non-subagent-commit) and `## Dispatch defects` (script-absent, phase-base unreadable, git crash, named-diagnostic classes — `sha-format-invalid`, `obc-unknown-phase`, `obc-author-name-malformed`, `wave-1-sidecar-missing`/`malformed`). Each header emits only when populated; clean run produces byte-empty file. OBC exits 0 when `## Dispatch defects` empty (regardless of boundary-violations) and non-zero when non-empty.
-
-Boundary violations are fail-soft (batch-gate menu). Dispatch defects are fail-loud — `## Dispatch defects` non-empty halts phase advancement unconditionally. Interactive: automatic halt (no acknowledge-and-continue); autopilot dispatch-defects halt branch in § Batch Gate.
-
-## Batch Gate (After All Tasks)
-
-**Orchestration-boundary violations.** When `## Dispatch defects` is non-empty, render only options (a) and (b); option (c) is suppressed (the boundary state is undeterminable). The populated `## Dispatch defects` section halts phase advancement unconditionally regardless of mode.
-
-**Autopilot mode** evaluates branches in strict precedence order (first match wins; no default-proceed fallback):
-
-1. **OBC report absent/unreadable after OBC invocation completed (regardless of exit code) — evaluate first.** Halt unconditionally as a dispatch-defect condition (write `HALT-orchestration-boundary-undeterminable.md`). An atomic-rename failure or any crash leaving "OBC exit 0, no report" must not be silently reinterpreted as clean.
-2. **Dispatch defects (`## Dispatch defects` non-empty).** Halt unconditionally (same halt file). No auto-revert, no operator override, no skip-and-continue.
-3. **Non-subagent commits in the phase range.** Auto-escalate: dispatch a fix-task subagent with mode `revert-orchestration-drift`; cap 1 attempt per phase; on recurrence, halt with `HALT-orchestration-boundary-recurring.md`.
-4. **Uncommitted workspace changes.** Halt with `HALT-orchestration-boundary.md` listing dirty paths — auto-reverting uncommitted state would destroy in-flight work.
-
-A clean OBC report proceeds to the next phase without a menu item. Interactive mode is unaffected by autopilot branching; the (a)/(b)/(c) menu applies with option (c) suppressed when `## Dispatch defects` is non-empty.
-
-Read `references/batch-gate-autopilot.md` when presenting the batch gate (interactive menu rendering or autopilot branch evaluation) — full menu rendering, batch summary, advance menus, and gate-level reviewer dispatch detail.
-
-### Batch Gate Red Flags — STOP
-
-- Presenting "Fix remaining issues" when all tasks passed clean. Presenting the batch gate before every task is in (a), (b), or (c). Advancing to the next route step from inside the batch gate logic without explicit user "continue".
+Read `references/batch-end.md` per § Once-Per-Implement-Entry Reference Files trigger — covers full OBC script invocation, the `reviews/implement/orchestration-boundary.md` section schema (`## Boundary violations` vs `## Dispatch defects`), fail-soft vs fail-loud semantics, and the autopilot precedence ladder for batch-gate branch evaluation.
 
 ## Worked Examples
 
 Read `skills/implement/references/worked-examples.md` when a human reader needs to see wave-execution or quick-fix walkthroughs concretely — illustrative only, not load-bearing; the orchestrator does not need to read this to run the loop.
-
-## Terminal State, Model Selection, Task Tracking, Red Flags
-
-# Closing: Terminal state, model selection, task tracking, red flags
 
 ## Terminal State
 

@@ -25,6 +25,19 @@ Read `skills/using-qrspi/references/route-templates.md` when Goals is seeding `c
 
 Read `skills/using-qrspi/references/artifact-directory.md` when creating the artifact directory for a new run, or when resolving the slug for an existing run — full per-run on-disk tree (`docs/qrspi/YYYY-MM-DD-{slug}/...`) and slug-generation rule.
 
+## Topology Contract (Plugin Root vs Artifact Root)
+
+QRSPI dispatch scripts operate under a **two-root topology contract**: plugin assets and user artifacts live in different trees and must be configurable independently.
+
+- **`PLUGIN_ROOT`** — immutable plugin assets (`skills/`, `agents/`, `scripts/`, `scripts/lib/`). Derived from the dispatch wrapper's own location (`scripts/..`). Override via `QRSPI_REPO_ROOT` for tests. `REPO_ROOT` is a back-compat alias.
+- **`ARTIFACT_ROOT`** — the user repo where artifacts live and `git diff` runs. Resolved by precedence (same 4-step ladder on both `dispatch-agent.sh` and `dispatch-companion.sh launch`): (1) `QRSPI_ARTIFACT_ROOT` env var, (2) `--artifact-repo-root <path>` flag, (3) `git rev-parse --show-toplevel` discovered from `--output-dir` (or `--round-dir` on companion launch), (4) fall back to `PLUGIN_ROOT`. `dispatch-companion.sh await` does NOT parse `--artifact-repo-root` and derives its **trust anchor** for the round directory from `$PWD/..` (the `await-round.sh` cwd contract) rather than from the job record; `$QRSPI_ARTIFACT_ROOT` env still applies to ARTIFACT_ROOT resolution in await as in launch.
+
+The two roots may **coincide** (vendored-submodule install, where the artifact directory lives inside the QRSPI repo itself) or **diverge** (Copilot CLI plugin install, where `~/.copilot/installed-plugins/qrspi-plus/` carries the assets and the user repo carries the artifacts). Skills and scripts MUST NOT assume a single shared root.
+
+Path-guard wiring inside dispatch scripts:
+- **Plugin-asset paths** (`--agent-file`, `--skill[*]`, `--companion` for plugin assets) use `assert_path_under_plugin_root` (or the legacy `assert_path_under_repo_root` alias).
+- **Artifact-class paths** (`--artifact`, `--diff-file`, `--task-def`, `--subject-code`, `--artifact-body`, `--output-dir`, companion-launch `--round-dir` / `--prompt-file`) use `assert_path_under_artifact_root`.
+
 ## Approval Markers
 
 Read `skills/using-qrspi/references/approval-markers.md` when transitioning a step to `status: approved` (or `replan-draft`), or before the post-approval git commit — semantics and commit rule.
@@ -74,7 +87,7 @@ Every artifact-producing step runs the Standard Review Loop. Read `skills/_share
 
 ## Apply-Fix Protocol
 
-After each review round, the orchestrator invokes `scripts/review-prep.sh` (per-round diff emission with anchor-SHA narrow-ref, atomic temp+rename) then `scripts/verifier-fan-in.sh` (SSoT for verifier dispatch, change_type-keyed score filters, `round-NN-verified.md` assembly). Read `skills/using-qrspi/references/apply-fix-protocol.md` after `verifier-fan-in.sh` emits `round-NN-verified.md`, when applying fixes for the round — the full post-fan-in procedure (partition by change_type, scope-tagger dispatch, dispositions.md, per-round commit, convergence rule, backward-loop reset, reviewer-model audit-field, verifier-round failure menu). Read `skills/using-qrspi/references/fix-altitude-rule.md` when a finding contains the phrase "X is under-specified" — the F-5 altitude rule.
+After each review round, the orchestrator invokes `scripts/review-prep.sh` (per-round diff emission with anchor-SHA narrow-ref, atomic temp+rename) then `scripts/verifier-fan-in.sh` (SSoT for verifier dispatch, change_type-keyed score filters, `round-NN-verified.md` assembly). Read `skills/using-qrspi/references/apply-fix-protocol.md` after `verifier-fan-in.sh` emits `round-NN-verified.md`, when applying fixes for the round — the full post-fan-in procedure (partition by change_type, scope-tagger dispatch, dispositions.md, per-round commit, convergence rule, backward-loop reset, reviewer-model audit-field, verifier-round failure menu). Read `skills/using-qrspi/references/fix-altitude-rule.md` when a finding contains the phrase "X is under-specified" — the F-5 altitude rule. <!-- id-hygiene-exempt -->
 
 
 ## Review-Loop Pause Gate
@@ -120,15 +133,3 @@ These thoughts mean the pipeline is being bypassed. Stop and follow the process:
 3. **Backward loops cascade forward — never patch one artifact in isolation.** New learnings at step N require updating the earliest affected artifact, re-reviewing it, and re-approving every step from there to N. Drift between artifacts breaks every downstream contract.
 
 4. **The `Implement → Integrate` segment is per-phase, not per-task.** Implement runs once per phase; main chat itself is the per-task orchestrator, firing implementer + reviewer subagents per task in the wave (flat dispatch — no per-task orchestrator subagent). Integrate runs once per phase. "One task done" does NOT mean "advance to integrate" — verify against `parallelization.md` (every task in the phase) before routing forward. See `implement/SKILL.md` → "Implement Is the Per-Phase Orchestration Loop" for the canonical contract.
-
-## Conversation Rules
-
-1. **Recommend a review after any significant change to an artifact** (from feedback, a fix round, or a re-run). Reviews catch regressions that are invisible during forward-only execution.
-
-2. **Never suggest skipping steps for speed.** Every step exists for a reason. Do not offer shortcuts, suggest merging steps, or imply steps can be skipped to save time.
-
-3. **Resist time-pressure shortcuts.** LLMs execute orders of magnitude faster than humans — reviews, synthesis passes, and validation rounds cost seconds. Reassure the user that thoroughness is free. If the user signals urgency ("just move on," "skip the review this time"), acknowledge the constraint and offer the fastest compliant path. Do not use urgency as justification to skip required steps.
-
-4. **Use jargon-free language with the user.** In user-facing text (questions, status updates, design proposals, summaries), do not use issue numbers, ticket IDs, goal IDs (G1/G2/…), agent file names, skill names, `change_type` values (the per-finding routing categories: style/clarity/correctness/scope/intent), file paths, or other internal terminology without grounding them in plain English on first reference per response. Subagent dispatch prompts and structured artifacts may use full vocabulary — those are read by agents that already have the context loaded; the rule applies only to text the user reads directly.
-
-   Example: instead of "the qrspi-finding-verifier from #109 was added with verifier_enabled: true default," write "the verifier — a small fast model that scores each finding 0–100 — was turned on by default in a recent change." Orchestrators tend to lean on jargon under context pressure, exactly when this guidance matters most.
