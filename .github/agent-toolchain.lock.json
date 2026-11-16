@@ -1,5 +1,12 @@
 {
   "schema_version": 1,
+  "acpx": {
+    "version": "0.22.0",
+    "integrity": "sha512-dD+xgRwLFOfwL7/VEdn3zrVNFleFoIA0EUETK35w/e+MeYB5FN5+vKERoV60d4SUirTqX610yb/wN+2OFcjpMQ==",
+    "node_minimum": "22.13.0",
+    "backend": "opencode",
+    "backend_arguments": ["acp", "--pure"]
+  },
   "hermes": {
     "version": "0.21.5",
     "repository": "NousResearch/hermes-agent",

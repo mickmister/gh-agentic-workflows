@@ -26,3 +26,17 @@ the relevant upstream and ACP integration checks. Do not overwrite local
 adaptations with an unreviewed directory copy. Nested `.github/workflows/` files
 are upstream reference material; GitHub does not discover them as this
 repository's workflows.
+
+## Downstream adaptation status
+
+The pristine import remains `b12c501`. Baseline follow-up `630af02` repairs the
+config-contract test target and no-gh fixture, and regenerates upstream's stale
+install tree. This is not a new upstream release.
+
+The ACP transport foundation consumes prompt files from the existing dispatch
+seam and supports explicitly fresh or continued role sessions with replay and
+uncertain-outcome guards. See
+[`../.github/qrspi-runtime/README.md`](../.github/qrspi-runtime/README.md) for the
+pinned package installation, request contract, real-client tests and integration
+limits. Runner/round wiring, durable S3 admission and the hosted response bridge
+are still required for the approved artifact loop.
