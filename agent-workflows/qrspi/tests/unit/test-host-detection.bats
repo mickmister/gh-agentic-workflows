@@ -745,13 +745,15 @@ teardown() {
   # `command -v gh` before emitting 'copilot-cli'; if gh is absent it falls
   # back to 'claude-code', making the marker harder to forge.
   #
-  # RED state: the current code ignores binary reachability and emits
-  # 'copilot-cli' whenever COPILOT_CLI=1, regardless of PATH.
-  # The assertion `[ "$output" = "claude-code" ]` therefore FAILS. ✓
+  # Isolate PATH rather than assuming gh is absent from /usr/bin or /bin.
+  # Sourcing the wrapper still needs dirname, but must not find gh.
+  local no_gh_bin="$BATS_TEST_TMPDIR/no-gh-bin"
+  mkdir -p "$no_gh_bin"
+  ln -s "$(command -v dirname)" "$no_gh_bin/dirname"
   run bash -c "
     export QRSPI_SOURCE_ONLY=1
     export COPILOT_CLI=1
-    export PATH=/usr/bin:/bin
+    export PATH=\"$no_gh_bin\"
     . \"$WRAPPER\"
     detect_host
   "

@@ -6,7 +6,7 @@ After each review round, the orchestrator runs two scripts:
 
 - **`scripts/review-prep.sh --step <step> --round <NN> --artifact-dir <abs> [--base-ref <ref>]`** — owns per-round diff emission. Validates each `<artifact_path>` is tracked in git, computes the narrow-ref SHA from `reviews/<step>/round-(NN-1)-commit.txt` on rounds ≥2 (halts with `anchor-file-missing:` / `sha-format-invalid:` on failure — never falls back to `HEAD~1`), atomic temp+rename, silent-on-no-input. Also writes the absorption-map for design/plan. See `scripts/review-prep.sh` header for full I/O contract.
 
-- **`scripts/verifier-fan-in.sh`** — single source of truth for verifier dispatch, sidecar handling, the `change_type`-keyed score-filter rule, the `kept-findings.txt` survivor list, and `round-NN-verified.md` assembly. Threshold floors (style/clarity ≥ 80; correctness ≥ 70; `scope`/`intent` carry no floor — always kept) are script-owned constants per CD-4; the orchestrator does NOT re-score or re-threshold. Honors `config.md.verifier_enabled` (with the runtime-backfill contract from § Config Validation Procedure). When the field is `false`, dispatch is skipped and all findings flow via the "no sidecar → keep" branch.
+- **`scripts/verifier-fan-in.sh`** — single source of truth for verifier dispatch, sidecar handling, the `change_type`-keyed score-filter rule, the `kept-findings.txt` survivor list, and `round-NN-verified.md` assembly. Threshold floors (style/clarity ≥ 80; correctness ≥ 70; `scope`/`intent` carry no floor — always kept) are script-owned constants; the orchestrator does NOT re-score or re-threshold. Honors `config.md.verifier_enabled` (with the runtime-backfill contract from § Config Validation Procedure). When the field is `false`, dispatch is skipped and all findings flow via the "no sidecar → keep" branch.
 
 After fan-in writes `kept-findings.txt` + `round-NN-verified.md`, the orchestrator:
 
@@ -16,7 +16,7 @@ After fan-in writes `kept-findings.txt` + `round-NN-verified.md`, the orchestrat
 
 3. **Writes `round-NN-dispositions.md`** (main-chat-authored, ≤30 lines) listing what changed and why.
 
-   **Important sub-threshold findings: surface, don't silently override.** The orchestrator MUST NOT re-introduce dropped findings into `kept-findings.txt` or apply edits for them silently — that breaks the CD-4 SSoT contract and the resume-across-`/compact` determinism. **But** when the orchestrator's round-level context indicates a dropped finding is materially important (rubric mis-calibration, cross-finding pattern, scope-set drift), surface it at the **Review-Loop Pause Gate** with a one-line rationale:
+   **Important sub-threshold findings: surface, don't silently override.** The orchestrator MUST NOT re-introduce dropped findings into `kept-findings.txt` or apply edits for them silently — that breaks the single-source-of-truth contract and the resume-across-`/compact` determinism. **But** when the orchestrator's round-level context indicates a dropped finding is materially important (rubric mis-calibration, cross-finding pattern, scope-set drift), surface it at the **Review-Loop Pause Gate** with a one-line rationale:
 
    ```
    Sub-threshold rescue requested: <reviewer_tag>.F<NN> (score=<N>, change_type=<ct>) — <reason>
@@ -70,7 +70,7 @@ QRSPI verifier round failure
 {one-line diagnostic summary, e.g.:
   - "Verifier returned VERIFY_FAILED for 2 findings"
   - "Reviewer quality-secondary produced no output (await exit 12)"
-  - "Sidecar missing for finding quality-primary.R3-F02"
+  - "Sidecar missing for finding quality-primary.R3-F02" <!-- id-hygiene-exempt -->
   - "Scope-tagger emitted malformed scope-set for round NN: <reason>"}
 
 What would you like to do?

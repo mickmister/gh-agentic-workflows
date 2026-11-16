@@ -6,9 +6,11 @@ This file is the orchestrator-runtime contract for `config.md`: dispatch routing
 
 ### Dispatch routing blocks
 
-Four `config.md` blocks drive dispatch: `providers:`, `model_routing:`, `trusted_path:`, `validators:`. Implementation lives in `scripts/_resolve-lib.sh` (tier resolution) and `scripts/dispatch-agent.sh` (request transport, trusted_path short-circuit, validators). `model_routing:` is required; the other three are optional. Validation rules and fail-loud diagnostics live in `skills/_shared/config-validation-procedure.md` — `!cat`-included by every skill that reads routing config.
+Four `config.md` blocks drive dispatch: `providers:`, `model_routing:`, `trusted_path:`, `validators:`. Implementation lives in `scripts/_resolve-lib.sh` (tier resolution) and `scripts/dispatch-agent.sh` (request transport, trusted_path short-circuit, validators). `model_routing:` is required; its absence is a loud validation failure. The other three are optional. Validation rules and fail-loud diagnostics live in `skills/_shared/config-validation-procedure.md` — `!cat`-included by every skill that reads routing config.
 
-**`providers:` block** — map of named provider entries. Each entry: `base_url` (HTTP(S) endpoint root), `api_key_env` (name of the env var holding the API key — never the key itself), `transport_type` (exactly `openai-chat-completions` or `codex-broker`), optional `default_headers` (string map merged into every request).
+#### `providers:` block
+
+Map of named provider entries. Each entry: `base_url` (HTTP(S) endpoint root), `api_key_env` (name of the env var holding the API key — never the key itself), `transport_type` (exactly `openai-chat-completions` or `codex-broker`), optional `default_headers` (string map merged into every request).
 
 ```yaml
 providers:
@@ -18,7 +20,9 @@ providers:
     transport_type: openai-chat-completions
 ```
 
-**`model_routing:` block (required)** — maps five vendor-neutral routing tiers to concrete `(vendor, model)` pairs. `default_tier:` supplies the tier for agents missing a `tier:` field during migration.
+#### `model_routing:` block
+
+Required block mapping five vendor-neutral routing tiers to concrete `(vendor, model)` pairs. `default_tier:` supplies the tier for agents missing a `tier:` field during migration.
 
 ```yaml
 model_routing:
@@ -32,7 +36,11 @@ default_tier: medium
 
 Exactly five tier rows. `extra-low` defaults to `none` (operator opt-in). `extra-high` is the high-ceiling escalation tier; operator MAY set to `none` to opt out. Missing block is a hard validation failure — no silent fallback to agent-bundled defaults (G7b/#204 silent-fallback class).
 
-**`trusted_path:` block** — flat list of agent file paths or role names that bypass the tier chain and route to the agent-bundled default.
+Dispatch halts loudly when a resolved tier is `none` or unconfigured; it does not select a neighboring tier. See **Fields that affect pipeline behavior (must be validated)** for the validation table.
+
+#### `trusted_path:` block
+
+Flat list of agent-file paths or role names that short-circuit the tier chain and route to the agent-bundled default.
 
 ```yaml
 trusted_path:
@@ -40,7 +48,9 @@ trusted_path:
   - reviewer
 ```
 
-**`validators:` block** — post-dispatch output gates.
+#### `validators:` block
+
+Post-dispatch output gates.
 
 ```yaml
 validators:
@@ -49,9 +59,24 @@ validators:
 
 `citation_density_floor` triggers a trusted-model re-run when output falls below the floor; the re-run output replaces the original and is logged as a one-line note.
 
-**Precedence chain** (implemented by `scripts/_resolve-lib.sh resolve_tier`): `--tier-override` > agent `tier:` frontmatter > `default_tier:` > hardcoded `medium` with a loud warning. The resolved tier is then looked up in `model_routing:`. `trusted_path:` is a short-circuit ahead of this chain — matching agents/roles bypass tier resolution entirely. Every fallback layer halts loudly on unresolved routing targets — never silently falls back through to the host CLI.
+#### Precedence chain
 
-**Per-host second-reviewer dispatch transport.** Host detection and per-host dispatch transport (Copilot CLI task-tool vs Claude Code shell-pipeline via `scripts/dispatch-agent.sh`) are owned by `scripts/_host-detect.sh` and `scripts/detect-interaction-mode.sh`. The dispatch surface emits a single-line stderr diagnostic on host/config mismatch and continues with the configured policy.
+Implemented by `scripts/_resolve-lib.sh resolve_tier`, in order:
+
+1. Per-dispatch `--tier-override`.
+2. Agent `tier:` frontmatter.
+3. Config `default_tier:`.
+4. Hardcoded `medium` with a loud warning.
+
+The resolved tier is then looked up in `model_routing:`. `trusted_path:` is a short-circuit ahead of this chain — matching agents/roles bypass tier resolution entirely. Every fallback layer halts loudly on unresolved routing targets — never silently falls back through to the host CLI.
+
+#### Missing `model_routing:` block in `config.md`
+
+Validation fails loudly before dispatch. Repair `config.md` using the five-tier schema in **`model_routing:` block**, or Abort. See **Fields that affect pipeline behavior (must be validated)** for the validation table.
+
+#### Per-host second-reviewer dispatch transport
+
+Host detection and per-host dispatch transport (Copilot CLI task-tool vs Claude Code shell-pipeline via `scripts/dispatch-agent.sh`) are owned by `scripts/_host-detect.sh` and `scripts/detect-interaction-mode.sh`. The dispatch surface emits a single-line stderr diagnostic on host/config mismatch and continues with the configured policy.
 
 ### Config Validation Procedure
 
@@ -83,7 +108,7 @@ Do NOT silently fall back to the in-memory default after a failed write: a misma
 | Field | Skills that validate it | Valid values |
 |-------|------------------------|--------------|
 | `route` | Goals, Plan, Parallelize, Implement, Integrate, using-qrspi | ordered list of skill names (see Route Templates) |
-| `model_routing:` | using-qrspi, Goals, Plan, Parallelize, Implement, Integrate | required top-level block; see schema above |
+| `model_routing:` | using-qrspi, Goals, Plan, Parallelize, Implement, Integrate | required five-tier vendor-neutral map; see **`model_routing:` block** and **Missing `model_routing:` block in `config.md`** |
 | `pipeline` | Goals, Plan, Parallelize | `full` or `quick` |
 | `second_reviewer` | Goals, Plan, Design, Phasing, Structure, Replan, Implement, Integrate, Test | `true` or `false` |
 | `review_depth` | Implement | `quick` or `deep` — set by Implement at phase start |

@@ -2,8 +2,6 @@
 
 Any artifact in the QRSPI run directory governed by `status: draft → approved` frontmatter promotion (goals, design, structure, phasing, plan, parallelization, roadmap, future-goals, and any future artifact adopting this lifecycle) describes the **current state** of decisions. The reader is a downstream agent or future maintainer.
 
-*(Excludes by design: `SKILL.md` files — skills carry rule rationale legitimately; `feedback/*.md` — the designated home for dialogue exhaust; `reviews/**/*.md` — finding rationale; `config.md` — non-narrative.)*
-
 **Litmus test (apply to every paragraph before write).** Two filters, in order:
 
 1. Is the subject the **decision** (the thing being designed / planned / scoped)? → keep.

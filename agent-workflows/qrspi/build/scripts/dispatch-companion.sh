@@ -59,14 +59,68 @@ _SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 #
 # REPO_ROOT defaults to this script's parent directory (one level above
 # scripts/), with a `QRSPI_REPO_ROOT` env override for tests.
+# Two-root topology — see scripts/dispatch-agent.sh and
+# skills/using-qrspi/SKILL.md § Topology Contract. PLUGIN_ROOT carries
+# script-asset paths; ARTIFACT_ROOT carries user-supplied paths
+# (round-dir, prompt-file). Both default to the same place for vendored-
+# submodule installs; they diverge under plugin-install topology.
 REPO_ROOT="${QRSPI_REPO_ROOT:-$(cd "$_SCRIPT_DIR/.." && pwd -P)}"
-export REPO_ROOT
+PLUGIN_ROOT="$REPO_ROOT"
+export REPO_ROOT PLUGIN_ROOT
 # shellcheck source=scripts/lib/path-guard.sh
 . "$_SCRIPT_DIR/lib/path-guard.sh"
 command -v assert_path_under_repo_root >/dev/null 2>&1 \
   || { echo "error: assert_path_under_repo_root not defined after sourcing path-guard.sh; aborting (fail-closed)" >&2; exit 1; }
 command -v assert_ancestor_under_repo_root >/dev/null 2>&1 \
   || { echo "error: assert_ancestor_under_repo_root not defined after sourcing path-guard.sh; aborting (fail-closed)" >&2; exit 1; }
+command -v assert_path_under_artifact_root >/dev/null 2>&1 \
+  || { echo "error: assert_path_under_artifact_root not defined after sourcing path-guard.sh; aborting (fail-closed)" >&2; exit 1; }
+command -v assert_ancestor_under_artifact_root >/dev/null 2>&1 \
+  || { echo "error: assert_ancestor_under_artifact_root not defined after sourcing path-guard.sh; aborting (fail-closed)" >&2; exit 1; }
+
+# Derive ARTIFACT_ROOT lazily inside the launch/await subcommands once the
+# user-supplied path (round-dir, prompt-file) is known. Precedence mirrors
+# dispatch-agent.sh's 4-step ladder:
+#   1. $QRSPI_ARTIFACT_ROOT env override
+#   2. --artifact-repo-root <path> flag (2nd arg, optional)
+#   3. git toplevel from the supplied probe_dir
+#   4. fall back to $PLUGIN_ROOT (preserves vendored-submodule behavior)
+_derive_artifact_root_companion() {
+  local probe_dir="$1"
+  local flag_value="${2:-}"
+  if [[ -n "${QRSPI_ARTIFACT_ROOT:-}" ]]; then
+    printf '%s\n' "$QRSPI_ARTIFACT_ROOT"
+    return
+  fi
+  if [[ -n "$flag_value" ]]; then
+    printf '%s\n' "$flag_value"
+    return
+  fi
+  if [[ -n "$probe_dir" && "$probe_dir" == /* ]]; then
+    # See _derive_artifact_root in dispatch-agent.sh for rationale: only
+    # absolute probe_dir gets git-toplevel discovery; relative paths fall
+    # straight through to $PLUGIN_ROOT to avoid returning $PWD's git
+    # toplevel as the artifact root.
+    local probe="$probe_dir"
+    while [[ ! -e "$probe" ]]; do
+      local _parent
+      _parent="$(dirname "$probe")"
+      if [[ "$_parent" == "$probe" || "$_parent" == "/" || "$_parent" == "." ]]; then
+        probe=""; break
+      fi
+      probe="$_parent"
+    done
+    if [[ -n "$probe" ]]; then
+      local toplevel
+      toplevel="$(git -C "$probe" rev-parse --show-toplevel 2>/dev/null || true)"
+      if [[ -n "$toplevel" ]]; then
+        printf '%s\n' "$toplevel"
+        return
+      fi
+    fi
+  fi
+  printf '%s\n' "$PLUGIN_ROOT"
+}
 
 # ---------------------------------------------------------------------------
 # die <message>  — write message to stderr and exit 1
@@ -555,12 +609,39 @@ if [ "$#" -gt 0 ] && [ "$1" = "await" ]; then
       printf 'dispatch-companion: await: invalid tag in job record %s\n' "$_await_job" >&2
       exit 1 ;;
   esac
-  # Re-validate round_dir from job record: a crafted job record with
-  # round_dir=/tmp/... or any out-of-repo path would write raw LLM output
-  # outside the repo tree. Reject before constructing _raw_dir.
-  assert_path_under_repo_root "await:round_dir" "$_job_round_dir"
+  # Re-validate round_dir from job record. A crafted record with
+  # round_dir=/tmp/... (or a path inside any other git worktree) would
+  # otherwise both (a) divert _raw_dir outside the artifact tree and
+  # (b) seed ARTIFACT_ROOT from the same crafted value — making the
+  # boundary check self-referential (issue #340 dual-review P1).
+  #
+  # The trust anchor at await time is NOT the record. It is this process's
+  # cwd: await-round.sh runs us with cwd=<round-dir>/.dispatch/ (see the
+  # comment block above at the _job_record lookup). Derive the trusted
+  # round dir from $PWD/.. and require the record value to canonically
+  # equal it; then derive ARTIFACT_ROOT from the trusted value and use
+  # the trusted value (NOT the record value) for _raw_dir.
+  case "${PWD##*/}" in
+    .dispatch) : ;;
+    *)
+      printf 'dispatch-companion: await: cwd basename must be .dispatch (got: %s); reject (await-round.sh cwd contract violation)\n' \
+        "${PWD##*/}" >&2
+      exit 13 ;;
+  esac
+  _trusted_round_dir="$(_qrspi_canonicalize "$PWD/..")" \
+    || { printf 'dispatch-companion: await: cannot canonicalize cwd parent as trusted round dir\n' >&2; exit 13; }
+  _canon_job_round_dir="$(_qrspi_canonicalize "$_job_round_dir")" \
+    || { printf 'dispatch-companion: await: cannot canonicalize round_dir from job record: %s\n' "$_job_round_dir" >&2; exit 13; }
+  if [ "$_canon_job_round_dir" != "$_trusted_round_dir" ]; then
+    printf 'dispatch-companion: await: job-record round_dir (%s) does not match cwd parent (%s); reject (job-record tampering or moved round dir)\n' \
+      "$_canon_job_round_dir" "$_trusted_round_dir" >&2
+    exit 13
+  fi
+  ARTIFACT_ROOT="$(_derive_artifact_root_companion "$_trusted_round_dir")"
+  export ARTIFACT_ROOT
+  assert_path_under_artifact_root "await:round_dir" "$_trusted_round_dir"
 
-  _raw_dir="$_job_round_dir/.dispatch"
+  _raw_dir="$_trusted_round_dir/.dispatch"
   mkdir -p "$_raw_dir" || {
     printf 'dispatch-companion: await: cannot create raw-capture dir: %s\n' "$_raw_dir" >&2
     exit 13
@@ -609,6 +690,7 @@ if [ "$_has_vendor_flag" = "true" ]; then
   L_PROMPT_FILE=""
   L_ROUND_DIR=""
   L_TAG=""
+  L_ARTIFACT_REPO_ROOT=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --vendor)      [ "$#" -ge 2 ] || die "launch: missing value for --vendor";      L_VENDOR="$2"; shift 2 ;;
@@ -616,6 +698,9 @@ if [ "$_has_vendor_flag" = "true" ]; then
       --prompt-file) [ "$#" -ge 2 ] || die "launch: missing value for --prompt-file"; L_PROMPT_FILE="$2"; shift 2 ;;
       --round-dir)   [ "$#" -ge 2 ] || die "launch: missing value for --round-dir";   L_ROUND_DIR="$2"; shift 2 ;;
       --tag)         [ "$#" -ge 2 ] || die "launch: missing value for --tag";         L_TAG="$2"; shift 2 ;;
+      --artifact-repo-root)
+                     [ "$#" -ge 2 ] || die "launch: missing value for --artifact-repo-root"
+                     L_ARTIFACT_REPO_ROOT="$2"; shift 2 ;;
       *) die "launch: unrecognised flag: $1" ;;
     esac
   done
@@ -643,29 +728,35 @@ if [ "$_has_vendor_flag" = "true" ]; then
     die "launch: --tag must match [a-z][a-z0-9_-]* (got: $L_TAG)"
   fi
   [ -f "$L_PROMPT_FILE" ] || die "launch: --prompt-file not found: $L_PROMPT_FILE"
+  # Derive ARTIFACT_ROOT from --round-dir for the launch-mode boundary
+  # checks below. 4-step precedence: $QRSPI_ARTIFACT_ROOT >
+  # --artifact-repo-root > git toplevel from --round-dir > $PLUGIN_ROOT
+  # (vendored-submodule back-compat).
+  ARTIFACT_ROOT="$(_derive_artifact_root_companion "$L_ROUND_DIR" "$L_ARTIFACT_REPO_ROOT")"
+  export ARTIFACT_ROOT
   # Boundary guard: the prompt-file path is a raw user-supplied file
   # surface that is later piped to the upstream transport. Reject any path
-  # whose canonical target falls outside $REPO_ROOT/.
-  assert_path_under_repo_root "launch:--prompt-file" "$L_PROMPT_FILE"
+  # whose canonical target falls outside the artifact tree.
+  assert_path_under_artifact_root "launch:--prompt-file" "$L_PROMPT_FILE"
   # Boundary guard for --round-dir, in two stages to avoid creating
   # filesystem state outside the repo on rejected inputs:
   #   (1) Pre-mkdir: walk --round-dir upward to its deepest existing
-  #       ancestor and assert that ancestor is under $REPO_ROOT. This
-  #       prevents `mkdir -p` from materializing directories outside the
-  #       repo when the leaf path would later be rejected.
+  #       ancestor and assert that ancestor is under the artifact tree.
+  #       This prevents `mkdir -p` from materializing directories outside
+  #       the repo when the leaf path would later be rejected.
   #   (2) Post-mkdir: run the full canonical (realpath-resolved) boundary
   #       check on the now-existing leaf to catch symlink-resolution
   #       attacks where a freshly created path's canonical target points
   #       outside the repo.
-  assert_ancestor_under_repo_root "launch:--round-dir" "$L_ROUND_DIR"
+  assert_ancestor_under_artifact_root "launch:--round-dir" "$L_ROUND_DIR"
   _jobs_dir="$L_ROUND_DIR/.dispatch/.jobs"
   mkdir -p "$_jobs_dir" || die "launch: cannot create jobs dir: $_jobs_dir"
-  assert_path_under_repo_root "launch:--round-dir" "$L_ROUND_DIR"
+  assert_path_under_artifact_root "launch:--round-dir" "$L_ROUND_DIR"
   # Canonicalize once after the boundary check so the stored round_dir value
   # is always an absolute path regardless of how the caller supplied
   # --round-dir. Using the same _qrspi_canonicalize helper that
-  # assert_path_under_repo_root uses internally ensures the stored form
-  # matches what await re-validates even when the cwd differs at await time.
+  # the boundary check uses internally ensures the stored form matches
+  # what await re-validates even when the cwd differs at await time.
   _canon_round_dir="$(_qrspi_canonicalize "$L_ROUND_DIR")" \
     || die "launch: cannot canonicalize --round-dir after boundary check: $L_ROUND_DIR"
   # The newline/CR check above validated the raw --round-dir arg, but the
