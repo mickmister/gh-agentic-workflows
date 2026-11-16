@@ -23,6 +23,10 @@ Gitea → runner control container → VM Docker socket → isolated job contain
 
 ## First boot on your VM
 
+For a prebuilt Proxmox disk and CI that boots/tests the VM on demand, see
+[the VM build and import guide](vm/README.md). The VM/Compose integration
+workflow is manually dispatched; it does not run on every commit.
+
 Prerequisites: Docker Engine + Compose, Python 3, Linux amd64, sufficient SSD
 space for tool images/MinIO, and a reachable OpenAI-compatible inference endpoint.
 Use an always-on VM for quick follow-ups. No GPU/model server is bundled.
