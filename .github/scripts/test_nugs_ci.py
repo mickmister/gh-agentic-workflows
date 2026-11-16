@@ -5,10 +5,12 @@ import importlib.util
 import io
 import json
 import os
+import queue
 import subprocess
 from pathlib import Path
 import tempfile
 import tarfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -80,6 +82,69 @@ class Boundaries(unittest.TestCase):
             binary.chmod(0o700)
             result = subprocess.run([str(binary), "--version"], check=True, capture_output=True, text=True)
             self.assertEqual(result.stdout.strip(), "nugs " + item["version"])
+            root = Path(temp)
+            remote = root / "store.git"
+            subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+            home, runner = root / "home", root / "runner"
+            home.mkdir()
+            runner.mkdir()
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"))
+
+            def cli(*args, check=True):
+                return subprocess.run([str(binary), *args], cwd=runner, env=env,
+                                      check=check, capture_output=True, text=True, timeout=30)
+
+            cli("config", "workspace-store", "--target", "fixture", "--engagement", "fixture", "--remote", str(remote))
+            self.assertEqual(json.loads(cli("workspace", "discover").stdout)["discovery"]["workspaces"], [])
+            created = json.loads(cli("workspace", "create", "--workspace", "unbound", "--purpose", "Published native discovery proof").stdout)
+            self.assertTrue(created["receipt"]["commit"])
+            self.assertEqual(cli("workspace", "context", check=False).returncode, 2)
+
+            # Real stdio server startup before attachment, with no transport
+            # override or source-built operational CLI.
+            with subprocess.Popen([str(binary), "mcp"], cwd=runner, env=env,
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True) as process:
+                responses = queue.Queue()
+
+                def collect():
+                    for line in process.stdout:
+                        responses.put(json.loads(line))
+                    responses.put(None)
+
+                collector = threading.Thread(target=collect, daemon=True)
+                collector.start()
+
+                def rpc(method, params, identifier):
+                    process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": identifier, "method": method, "params": params}) + "\n")
+                    process.stdin.flush()
+                    while True:
+                        response = responses.get(timeout=30)
+                        self.assertIsNotNone(response, "MCP closed before its response")
+                        if response.get("id") == identifier:
+                            self.assertNotIn("error", response)
+                            return response["result"]
+
+                try:
+                    rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "native-discovery-proof", "version": "1"}}, 1)
+                    process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+                    process.stdin.flush()
+                    tools = rpc("tools/list", {}, 2)
+                    self.assertTrue({"workspaces_discover", "workspace_create", "workspace_select"}.issubset({tool["name"] for tool in tools["tools"]}))
+                    discovered = rpc("tools/call", {"name": "workspaces_discover", "arguments": {}}, 3)
+                    self.assertFalse(discovered.get("isError", False))
+                    rows = discovered["structuredContent"]["discovery"]["workspaces"]
+                    self.assertEqual([row["workspace"] for row in rows], ["unbound"])
+                    self.assertEqual(rows[0]["manifest"]["purpose"], "Published native discovery proof")
+                    selected = rpc("tools/call", {"name": "workspace_select", "arguments": {"workspace": "unbound", "root": str(runner)}}, 4)
+                    self.assertFalse(selected.get("isError", False))
+                    self.assertTrue(selected["structuredContent"]["workspace_ref"].startswith("ws-"))
+                finally:
+                    process.terminate()
+                    process.wait(timeout=10)
+                    collector.join(timeout=10)
+            self.assertEqual(json.loads(cli("workspace", "inspect").stdout)["manifest"]["purpose"], "Published native discovery proof")
 
     def test_missing_storage_credentials_fail_before_any_git_operation(self):
         with patch.dict(os.environ, {"NUGS_STORAGE_URL": "https://github.com/example/storage.git"}, clear=True), \
