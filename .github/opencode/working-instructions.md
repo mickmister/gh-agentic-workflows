@@ -6,6 +6,18 @@ repair and start-versus-continuation decisions. Follow Zero Framework Cognition:
 use native tools, not keyword rules or a replacement orchestration framework.
 Gas City remains required in the final architecture.
 
+Explicitly read `$GC_ENGINE_ROOT/AGENTS.md` and
+`$GC_ENGINE_ROOT/.agents/skills/create-review-request/SKILL.md` from the engine
+checkout. `.github/scripts/opencode-bead.py` injects these working instructions;
+pure mode disables automatic discovery. Separately honor applicable target
+repository instructions in the actual task worktree when present; unrelated
+target repositories need not contain the engine's skill. Follow the engine review
+guidance for all task-related human questions: use focused hosted review requests
+and full immutable-revision UI links, not task-decision questions in chat. Workers
+return uncertainties to their parent unless delegated packet authoring. This
+instruction does not provision the review CLI or response-to-Actions dispatch;
+both remain unimplemented. Older deployed runs do not automatically gain this skill.
+
 Start with `bd --directory "$GC_WORKSPACE_ROOT" show "$BEAD_ID" --json` and relevant
 comments/dependencies. Your current directory is the restored shared Beads root.
 Use nugs there: `nugs workspace context`, then inspect/read the relevant
@@ -23,7 +35,8 @@ never put native exports, transcripts or source archives in Documents.
 - `$GC_ENGINE_ROOT`: pinned workflow engine and native packs/operator docs.
 - `$GC_NUGS_SOURCE`: source checkout for workspace-nuggets; the operational CLI
   is the published integrity-pinned npm binary, not a source-built executable.
-- `$GC_SOURCE_WORKTREES`: dedicated task worktrees. Inspect branch/HEAD/status.
+- `$GC_SOURCE_WORKTREES`: parent containing dedicated per-repository task worktrees,
+  not a single target checkout. Inspect the actual task worktree's branch/HEAD/status.
 - `$GC_SETUP_SLOT`: provisional native composite slot. Reuse suitable setup or
   author/update it; upsert does not require actions themselves to be idempotent.
   Saved recipes need WHY/current-scope operator notes.
