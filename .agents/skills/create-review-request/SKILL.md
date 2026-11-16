@@ -12,6 +12,14 @@ contain progress, answers/explanations and full immutable-revision UI links, but
 no task-decision questions. Group related decisions; do not create a packet per
 tool action. Workers return uncertainties to the parent unless specifically
 delegated packet authoring. The parent orchestrates and manages authority.
+Only trusted parent/runner-designated orchestrators may spawn agents, delegate
+through subagent/task tools, or dispatch workflows. Ordinary implementers,
+reviewers, researchers and packet authors relay such requests to the parent;
+explicit packet-authoring scope does not permit recursive delegation, including
+via shell/CLI. Explicit orchestration scope is required. Ordinary test/build
+subprocesses are not agent spawning. The future host must enforce scoped
+capabilities and role-specific tool surfaces, including disabling worker-native
+delegation tools; this prose neither enforces isolation nor decides QRSPI gates.
 `/compact` is a harness context suggestion, not task approval or another task dialog.
 
 This documents the existing procedure, provisionally pending task-z5a.3 human
@@ -152,7 +160,10 @@ recommendation is TS/Node `acpx/runtime` `createSharedAcpRuntime`, with typed na
 events/result/watch and bounded concurrent turns. Cancellation and settlement
 remain explicit; the SDK neither decides QRSPI/human gates nor implements the
 review protocol. The existing TypeScript review CLI owns form/protocol validation;
-published nugs owns publication/readback. Preserve useful Python operations rather
-than rewriting for language uniformity. This documentation edit performs no
+published nugs owns publication/readback. The user selected TypeScript for all new
+first-party CLI/MCP/Actions orchestration, including bootstrap, authentication,
+storage and wrappers, with no hidden Python dependency or active fallback. Existing
+legacy Python is not yet migrated; preserve its parity evidence and historical
+receipts without making it authority in the new cutover path. This documentation edit performs no
 runtime migration and needs no additional architecture approval question; the
 relevant CLI review already exists.

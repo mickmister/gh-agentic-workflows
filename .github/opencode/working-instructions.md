@@ -18,6 +18,15 @@ return uncertainties to their parent unless delegated packet authoring. This
 instruction does not provision the review CLI or response-to-Actions dispatch;
 both remain unimplemented. Older deployed runs do not automatically gain this skill.
 
+Follow the orchestration role boundary in engine `AGENTS.md`: only trusted
+parent/runner-designated orchestrators may spawn/delegate agents or dispatch
+workflows. Ordinary workers, including packet authors, relay requests to their
+parent, never recursively delegate through tools or shell/CLI without explicit
+orchestration scope. Ordinary test/build subprocesses are unaffected. Future host
+capability/tool enforcement is required; this does not grant QRSPI approval.
+All new first-party orchestration, including bootstrap/auth/storage, is TypeScript
+without hidden Python dependencies; existing Python remains unmigrated legacy.
+
 Start with `bd --directory "$GC_WORKSPACE_ROOT" show "$BEAD_ID" --json` and relevant
 comments/dependencies. Your current directory is the restored shared Beads root.
 Use nugs there: `nugs workspace context`, then inspect/read the relevant
