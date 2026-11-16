@@ -26,6 +26,35 @@ This documents the existing procedure, provisionally pending task-z5a.3 human
 acceptance and installed-extension end-to-end acceptance. It does not establish
 completed QRSPI acceptance or replace existing approval/response protocols.
 
+QRSPI remains workflow authority: derive route and artifact state from its existing
+routes/artifacts. Hosted review and UI code is adapter, transport and evidence
+projection only; do not introduce a new workflow engine, independent state machine,
+or competing gate/approval/transition authority.
+
+## Review committed changes before handoff
+
+After committing task-related source, workflow or guidance changes, create or
+legitimately amend a focused hosted review request referencing the actual committed
+code before handoff. One logical packet may cover related commit sets across
+repositories. For each repository include its identity, full base/head SHAs, one
+immutable GitHub compare permalink, individual full-SHA commit links, reviewed scope
+and actual checks/limitations in authored Markdown or form descriptions. Never use
+a moving-branch compare. Verify full SHAs, ancestry and the intended review range;
+exclude accidental unrelated commits. GitHub three-dot comparisons are merge-base
+based: use a verified ancestor base, or choose a direct two-dot comparison with
+explicit intended semantics. Do not describe every compare URL as an exact tree
+comparison.
+
+Use existing `document`/`form` members only; a document-only packet is sufficient
+when no human decision is outstanding. Do not reopen already chosen policies or
+invent an approval ceremony. Invite comments on whether code matches instructions.
+Preserve answered revisions and use a new linked follow-up when required by the
+history rules below. Clearly separate committed code from proposed uncommitted
+patches; a later commit needs an updated or follow-up review with its actual SHAs.
+Publication does not automatically block every commit or add a human gate beyond
+existing QRSPI authority, and this rule does not authorize self-commits or pushes.
+Link-based packets work now; custom code-review UI remains deferred.
+
 ## Prerequisites and identities
 
 Use the published `@mickmister/nugs` version/integrity pinned in
@@ -60,12 +89,14 @@ Actions artifacts (including trace-context metadata).
    `page.next_token` with `--token` at the same fixed snapshot. Inspect installed
    help for snapshot inputs. The review CLI's `list` currently reads only the
    first page; absence there does not prove a name or response is absent.
-2. Prepare a focused standard form and manifest against the production contracts
-   in the pinned checkout: `src/protocol.ts` and `src/review-protocol.ts`.
+2. Prepare a focused manifest and, when a decision is needed, a standard form
+   against the production contracts in the pinned checkout: `src/protocol.ts` and
+   `src/review-protocol.ts`.
    Form `format: "standard"`, `id` and `task_id` must match member `form_id` and
    `bead_id`; reject invalidated forms. Use `allowCodeFileChanges:false` for
-   discussion-only packets. Validate with production `parseRecord` and
-   `parseReviewRequest`, not a copied schema. A concrete local validation example
+   discussion-only forms. Document-only packets need no form. Validate forms with
+   production `parseRecord` and manifests with `parseReviewRequest`, not a copied
+   schema. A concrete local validation example
    (configured `FORM_FILE` and `REQUEST_FILE` are prepared JSON files):
 
    ```bash
@@ -79,7 +110,8 @@ Actions artifacts (including trace-context metadata).
    parseReviewRequest(readFileSync(process.env.REQUEST_FILE, "utf8"));'
    ```
 
-3. Publish the new form create-only, omitting `--expected`:
+3. Publish each new form/document create-only, omitting `--expected` (skip the form
+   command for document-only packets):
 
    ```bash
    nugs documents upsert --workspace "$REVIEW_WORKSPACE" \

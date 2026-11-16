@@ -7,6 +7,16 @@ needed. Route all such questions through focused hosted review requests and shar
 full immutable-revision UI links in chat. Workers return uncertainties to their
 parent unless explicitly delegated packet authoring; the parent manages authority.
 
+QRSPI remains workflow authority. Derive route and artifact state from QRSPI;
+hosted review/UI work is adapter, transport and evidence projection only, never a
+new workflow engine or an independent source of gates, approvals or transitions.
+
+After committing task-related source, workflow or guidance changes, publish or
+legitimately amend a focused hosted review request referencing the exact committed
+code before handoff; follow the skill's immutable compare and history rules.
+Publication adds no blanket commit gate beyond QRSPI and grants no permission to
+commit or push. Distinguish committed evidence from proposed uncommitted edits.
+
 ## Orchestration role boundary
 
 Only trusted parent/runner-designated orchestrators may spawn agents, delegate via
