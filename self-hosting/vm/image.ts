@@ -113,7 +113,7 @@ async function main() {
   await cmd(['qemu-img', 'resize', disk, '40G']);
   await cmd(['git', 'archive', '--format=tar', '--output=' + resolve(OUT, 'source.tar'), 'HEAD', 'self-hosting',
     '.dockerignore', '.github/agent-toolchain.lock.json', '.github/nugs-toolchain.lock.json']);
-  const services = JSON.parse(await cmd(['docker', 'compose', '--env-file', '.env.example', '-f', 'compose.yml', 'config', '--format', 'json'],
+  const services = JSON.parse(await cmd(['docker', 'compose', '--env-file', '.env.example', '-f', 'compose.yml', '--profile', 'build', 'config', '--format', 'json'],
     { capture: true, cwd: resolve(ROOT, 'self-hosting') })).services;
   const images = [...new Set<string>(['minio', 'gateway', 'worker-image', 'gitea', 'runner', 'caddy'].map(name => services[name].image))];
   await cmd(['docker', 'save', '--output', resolve(OUT, 'containers.tar'), ...images]);
