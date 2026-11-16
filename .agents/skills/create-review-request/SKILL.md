@@ -9,7 +9,10 @@ description: Use when the user asks to create, publish, read or update a review 
 
 All task-related questions go through focused hosted review requests. Chat may
 contain progress, answers/explanations and full immutable-revision UI links, but
-no task-decision questions. Group related decisions; do not create a packet per
+no task-decision questions. Place review-request links at the end of the response,
+after explanations, status and next steps, so they remain prominent at the bottom
+of the chat feed. Group multiple review-request links in a final section; do not
+append commentary after them. Group related decisions; do not create a packet per
 tool action. Workers return uncertainties to the parent unless specifically
 delegated packet authoring. The parent orchestrates and manages authority.
 Only trusted parent/runner-designated orchestrators may spawn agents, delegate
@@ -144,8 +147,10 @@ Actions artifacts (including trace-context metadata).
 6. Read back the exact request receipt snapshot/version and all pinned members;
    compare bytes and identities. Record resource/version/snapshot references in
    the owning Bead and return the CLI-produced full URL, which includes request
-   version and snapshot. Never fabricate a link. Missing tools, publication or
-   binding is a reported capability blocker, not permission for a chat question.
+   version and snapshot, at the end of the response. Put any explanation or status
+   before the final review-request links, with no commentary after them. Never
+   fabricate a link. Missing tools, publication or binding is a reported capability
+   blocker, not permission for a chat question.
 
 ## Read responses and continue
 

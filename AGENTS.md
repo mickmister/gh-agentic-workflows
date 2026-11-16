@@ -4,8 +4,11 @@ Read and follow [create-review-request](.agents/skills/create-review-request/SKI
 when creating, publishing, reading or updating a review request, or whenever a
 task-related human clarification, scope/run/route/setup decision or approval is
 needed. Route all such questions through focused hosted review requests and share
-full immutable-revision UI links in chat. Workers return uncertainties to their
-parent unless explicitly delegated packet authoring; the parent manages authority.
+full immutable-revision UI links at the end of the response, after the explanation
+and status, so they remain prominent at the bottom of the chat feed. When sharing
+multiple review requests, group their links in that final section and put no
+additional commentary after them. Workers return uncertainties to their parent
+unless explicitly delegated packet authoring; the parent manages authority.
 
 QRSPI remains workflow authority. Derive route and artifact state from QRSPI;
 hosted review/UI work is adapter, transport and evidence projection only, never a

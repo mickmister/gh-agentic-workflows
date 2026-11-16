@@ -13,9 +13,12 @@ pure mode disables automatic discovery. Separately honor applicable target
 repository instructions in the actual task worktree when present; unrelated
 target repositories need not contain the engine's skill. Follow the engine review
 guidance for all task-related human questions: use focused hosted review requests
-and full immutable-revision UI links, not task-decision questions in chat. Workers
-return uncertainties to their parent unless delegated packet authoring. This
-instruction does not provision the review CLI or response-to-Actions dispatch;
+and full immutable-revision UI links, not task-decision questions in chat. Place
+review-request links at the end of the response, after explanations and status;
+group multiple links in a final section and put no commentary after them so they
+remain prominent at the bottom of the chat feed. Workers return uncertainties to
+their parent unless delegated packet authoring. This instruction does not provision
+the review CLI or response-to-Actions dispatch;
 both remain unimplemented. Older deployed runs do not automatically gain this skill.
 
 Follow the orchestration role boundary in engine `AGENTS.md`: only trusted
