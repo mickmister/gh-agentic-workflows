@@ -1,0 +1,134 @@
+{
+  "Overview": {
+    "line_start": 12,
+    "line_end": 15
+  },
+  "Recommended Workspace Layout": {
+    "line_start": 16,
+    "line_end": 19
+  },
+  "The Pipeline": {
+    "line_start": 20,
+    "line_end": 23
+  },
+  "Route Templates": {
+    "line_start": 24,
+    "line_end": 27
+  },
+  "When to Trigger": {
+    "line_start": 28,
+    "line_end": 31
+  },
+  "Artifact Directory": {
+    "line_start": 32,
+    "line_end": 35
+  },
+  "Artifact Gating": {
+    "line_start": 36,
+    "line_end": 39
+  },
+  "Artifact Quality": {
+    "line_start": 40,
+    "line_end": 43
+  },
+  "Approval Markers": {
+    "line_start": 44,
+    "line_end": 47
+  },
+  "State and Pipeline Ordering": {
+    "line_start": 48,
+    "line_end": 53
+  },
+  "Rejection Behavior": {
+    "line_start": 54,
+    "line_end": 57
+  },
+  "Backward Loops (New Learnings)": {
+    "line_start": 58,
+    "line_end": 61
+  },
+  "Mid-Pipeline Entry": {
+    "line_start": 62,
+    "line_end": 67
+  },
+  "Pipeline Progress": {
+    "line_start": 68,
+    "line_end": 71
+  },
+  "Artifact Gating Check (Standard Pattern)": {
+    "line_start": 72,
+    "line_end": 75
+  },
+  "Config File (`config.md`)": {
+    "line_start": 76,
+    "line_end": 241
+  },
+  "Dispatch routing blocks": {
+    "line_start": 145,
+    "line_end": 241
+  },
+  "Config Validation Procedure": {
+    "line_start": 242,
+    "line_end": 349
+  },
+  "When config.md is missing entirely": {
+    "line_start": 246,
+    "line_end": 254
+  },
+  "When a required field is missing or has an invalid value": {
+    "line_start": 255,
+    "line_end": 295
+  },
+  "No silent defaults": {
+    "line_start": 296,
+    "line_end": 303
+  },
+  "Exceptions to the no-silent-defaults rule": {
+    "line_start": 304,
+    "line_end": 322
+  },
+  "Fields that affect pipeline behavior (must be validated)": {
+    "line_start": 323,
+    "line_end": 343
+  },
+  "Fields that do NOT require validation (informational only)": {
+    "line_start": 344,
+    "line_end": 349
+  },
+  "Standard Review Loop": {
+    "line_start": 350,
+    "line_end": 386
+  },
+  "Review Output Handling": {
+    "line_start": 387,
+    "line_end": 587
+  },
+  "Review-Loop Pause Gate": {
+    "line_start": 588,
+    "line_end": 593
+  },
+  "Review Time Allocation": {
+    "line_start": 594,
+    "line_end": 597
+  },
+  "Compaction Checkpoints": {
+    "line_start": 598,
+    "line_end": 605
+  },
+  "Feedback File Format": {
+    "line_start": 606,
+    "line_end": 609
+  },
+  "Common Rationalizations — STOP": {
+    "line_start": 610,
+    "line_end": 613
+  },
+  "Skill Invocation": {
+    "line_start": 614,
+    "line_end": 617
+  },
+  "Pipeline Iron Laws — Final Reminder": {
+    "line_start": 618,
+    "line_end": 622
+  }
+}

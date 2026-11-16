@@ -1,0 +1,1023 @@
+#!/usr/bin/env bats
+#
+# #112 PR-2 Mechanism B regression: qrspi-scope-tagger agent file + tagger
+# dispatch wiring + scope-set output schema.
+#
+# Test scope (per PR-2 spec test plan):
+#   1. agents/qrspi-scope-tagger.md exists with the right frontmatter
+#      (Haiku, [Read, Write] tools).
+#   2. The agent body documents the multi-file vs single-file tag derivation
+#      branches, the line-range-missing warning behavior, the deduplication
+#      requirement, and the write-only output discipline.
+#   3. using-qrspi/SKILL.md step 6 is present, dispatches the tagger,
+#      and references the scope-set output file.
+#   4. The scope_tagger_enabled gate + backfill is documented (mirrors
+#      verifier_enabled exactly).
+#   5. Scope-set output schema is specified verbatim in the agent body.
+#
+# Anti-vacuous-pass discipline:
+#   - Each assertion grounds on a load-bearing surface (the literal output
+#     filename, the gate field name, the backfill command line, etc.).
+#   - Every assertion produces a clear diagnostic on failure.
+
+setup() {
+  REPO_ROOT="$BATS_TEST_DIRNAME/../.."
+  export REPO_ROOT
+  export AGENT="$REPO_ROOT/agents/qrspi-scope-tagger.md"
+  export USING_QRSPI="$REPO_ROOT/skills/using-qrspi/SKILL.md"
+}
+
+# -----------------------------------------------------------------------------
+# 1. Agent file exists + frontmatter contract
+# -----------------------------------------------------------------------------
+
+@test "[112-PR2] qrspi-scope-tagger agent file exists" {
+  [ -f "$AGENT" ]
+}
+
+@test "[112-PR2] qrspi-scope-tagger frontmatter does NOT declare a top-level model: key (per T9 hardening, G9)" {
+  awk '/^---$/{n++; next} n==1{print}' "$AGENT" \
+    | grep -qE '^model:' \
+    && { echo "qrspi-scope-tagger frontmatter unexpectedly carries 'model:' key (per T9, agent files must not pin model)"; return 1; } || true
+}
+
+@test "[112-PR2] qrspi-scope-tagger frontmatter declares tools: [Read, Write]" {
+  awk '/^---$/{n++; next} n==1{print}' "$AGENT" \
+    | grep -qE '^tools:\s*\[\s*Read\s*,\s*Write\s*\]' \
+    || { echo "qrspi-scope-tagger frontmatter missing 'tools: [Read, Write]'"; return 1; }
+}
+
+@test "[112-PR2] qrspi-scope-tagger has a description in frontmatter" {
+  awk '/^---$/{n++; next} n==1{print}' "$AGENT" \
+    | grep -qE '^description:\s*' \
+    || { echo "qrspi-scope-tagger frontmatter missing 'description:'"; return 1; }
+}
+
+# -----------------------------------------------------------------------------
+# 2. Body covers both branches + write-only contract
+# -----------------------------------------------------------------------------
+
+@test "[112-PR2] body documents multi-file tag derivation branch (file path from referenced_files)" {
+  local body
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  echo "$body" | grep -qiE 'multi-file' \
+    || { echo "missing multi-file branch documentation"; return 1; }
+  echo "$body" | grep -qE 'referenced_files' \
+    || { echo "missing referenced_files reference"; return 1; }
+}
+
+@test "[112-PR2] body documents single-file tag derivation branch (H2 heading from artifact body)" {
+  local body
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  echo "$body" | grep -qiE 'single-file' \
+    || { echo "missing single-file branch documentation"; return 1; }
+  # Must mention H2 explicitly.
+  echo "$body" | grep -qE 'H2|^## |enclosing.*heading' \
+    || { echo "missing H2 heading derivation"; return 1; }
+}
+
+@test "[112-PR2] body documents whole-file fallback warning when line-range is missing" {
+  local body
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  # Must describe both the warning emission and the <full> tag fallback.
+  echo "$body" | grep -qE '<full>' \
+    || { echo "missing <full> whole-artifact tag"; return 1; }
+  echo "$body" | grep -qiE 'warning.*line.range|line.range.*warning|no line-range' \
+    || { echo "missing line-range-missing warning behavior"; return 1; }
+}
+
+@test "[112-PR2] body documents deduplication (each unique tag emitted once)" {
+  local body
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  echo "$body" | grep -qiE 'dedup|deduplicat|each unique|emit each unique' \
+    || { echo "missing deduplication requirement"; return 1; }
+}
+
+@test "[112-PR2] body documents write-only output discipline (no mutation of finding files)" {
+  local body
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  # Must mention the tagger NEVER mutates findings/sidecars.
+  echo "$body" | grep -qiE 'NEVER mutates|never mutates|write[-]only|no mutation|does NOT mutate' \
+    || { echo "missing write-only discipline"; return 1; }
+}
+
+@test "[112-PR2] body documents the scope-set output schema (round-NN-scope-set.txt)" {
+  local body
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  # Output filename + comment header + tag line shape (## ... or file path).
+  echo "$body" | grep -qF 'round-NN-scope-set.txt' \
+    || { echo "missing round-NN-scope-set.txt filename"; return 1; }
+  # generated_by comment marker + total_findings_kept comment marker.
+  echo "$body" | grep -qE 'generated_by:[[:space:]]*qrspi-scope-tagger' \
+    || { echo "missing generated_by comment"; return 1; }
+  echo "$body" | grep -qE 'total_findings_kept' \
+    || { echo "missing total_findings_kept comment"; return 1; }
+}
+
+# -----------------------------------------------------------------------------
+# 3. using-qrspi step 6 wires the dispatch
+# -----------------------------------------------------------------------------
+
+@test "[112-PR2] using-qrspi/SKILL.md has step 6 (scope-tagger dispatch)" {
+  [ -f "$USING_QRSPI" ]
+  # Must have a numbered step 6 in the Apply-fix protocol body.
+  grep -qE '^6\. \*\*Scope-tagger dispatch' "$USING_QRSPI" \
+    || { echo "missing step 6 (scope-tagger dispatch) in using-qrspi/SKILL.md"; return 1; }
+}
+
+@test "[112-PR2] step 6 dispatches qrspi-scope-tagger as a subagent" {
+  local protocol
+  protocol=$(awk '
+    /\*\*Apply-fix protocol\.\*\*/ { in_block=1 }
+    in_block && /\*\*Verifier-round failure menu/ { exit }
+    in_block { print }
+  ' "$USING_QRSPI")
+  echo "$protocol" | grep -qF 'subagent_type: qrspi-scope-tagger' \
+    || { echo "step 6 does not dispatch qrspi-scope-tagger"; return 1; }
+}
+
+@test "[112-PR2] step 6 documents the kept_findings parameter (post-verifier filter)" {
+  local protocol
+  protocol=$(awk '
+    /\*\*Apply-fix protocol\.\*\*/ { in_block=1 }
+    in_block && /\*\*Verifier-round failure menu/ { exit }
+    in_block { print }
+  ' "$USING_QRSPI")
+  echo "$protocol" | grep -qE 'kept_findings' \
+    || { echo "step 6 missing kept_findings parameter"; return 1; }
+}
+
+@test "[112-PR2] step 6 references the round-NN-scope-set.txt output" {
+  grep -qF 'round-NN-scope-set.txt' "$USING_QRSPI" \
+    || { echo "using-qrspi/SKILL.md missing round-NN-scope-set.txt reference"; return 1; }
+}
+
+# -----------------------------------------------------------------------------
+# 4. scope_tagger_enabled gate + backfill (mirrors verifier_enabled)
+# -----------------------------------------------------------------------------
+
+@test "[112-PR2] scope_tagger_enabled is documented under 'Fields that affect pipeline behavior'" {
+  awk '
+    /^### Fields that affect pipeline behavior/ { in_section=1; next }
+    /^### / { in_section=0 }
+    in_section { print }
+  ' "$USING_QRSPI" \
+    | grep -qE '^\s*-\s+\*\*`scope_tagger_enabled`\*\*' \
+    || { echo "scope_tagger_enabled not documented under Fields that affect pipeline behavior"; return 1; }
+}
+
+@test "[112-PR2] scope_tagger_enabled default is true" {
+  # Either inline 'default `true`' near the field, or 'scope_tagger_enabled: true'
+  # in the run-init template fence.
+  awk '/scope_tagger_enabled/{print; getline; print; getline; print}' "$USING_QRSPI" \
+    | grep -qE 'default\s*`true`|scope_tagger_enabled:\s*true' \
+    || { echo "scope_tagger_enabled default true not documented"; return 1; }
+}
+
+@test "[112-PR2] runtime-backfill carve-out for scope_tagger_enabled is in ### Exceptions section" {
+  awk '
+    /^### Exceptions/ { in_section=1; next }
+    /^### / && in_section { in_section=0 }
+    in_section { print }
+  ' "$USING_QRSPI" \
+    | grep -qE 'scope_tagger_enabled.*runtime backfill|runtime backfill.*scope_tagger_enabled' \
+    || { echo "scope_tagger_enabled runtime-backfill carve-out not in ### Exceptions section"; return 1; }
+}
+
+@test "[112-PR2] step 6 reads scope_tagger_enabled and applies the verifier-style backfill" {
+  local protocol
+  protocol=$(awk '
+    /\*\*Apply-fix protocol\.\*\*/ { in_block=1 }
+    in_block && /\*\*Verifier-round failure menu/ { exit }
+    in_block { print }
+  ' "$USING_QRSPI")
+  echo "$protocol" | grep -qF 'scope_tagger_enabled' \
+    || { echo "step 6 does not read scope_tagger_enabled"; return 1; }
+  echo "$protocol" | grep -qE 'scope_tagger_enabled missing from config\.md|backfilling default' \
+    || { echo "step 6 missing backfill diagnostic"; return 1; }
+}
+
+@test "[112-PR2] fresh-run config init includes scope_tagger_enabled: true alongside verifier_enabled and route" {
+  # The run-init template fence must contain all three: route, verifier_enabled,
+  # AND scope_tagger_enabled. Same shape-test as test-config-verifier-enabled-field.bats
+  # uses for verifier_enabled.
+  awk '
+    /^```/ { in_fence = !in_fence; if (!in_fence) {
+      if (has_route && has_ve && has_st) { print "TEMPLATE_FENCE_OK"; exit };
+      has_route=0; has_ve=0; has_st=0
+    } }
+    in_fence && /^[[:space:]]*route:/ { has_route=1 }
+    in_fence && /^[[:space:]]*verifier_enabled:[[:space:]]*true/ { has_ve=1 }
+    in_fence && /^[[:space:]]*scope_tagger_enabled:[[:space:]]*true/ { has_st=1 }
+  ' "$USING_QRSPI" | grep -q '^TEMPLATE_FENCE_OK$' \
+    || { echo "no fenced code block has 'route:' + 'verifier_enabled: true' + 'scope_tagger_enabled: true' together (run-init template fence missing)"; return 1; }
+}
+
+@test "[112-PR2] disabled-mode fall-through is documented (skip step 6, no narrowing)" {
+  # When scope_tagger_enabled=false: step 6 skipped, step 12 no-op,
+  # reviewers fall through to PR-1's full-base-diff behavior.
+  grep -qE 'skipped.*tagger|step 6 is skipped|tagger dispatch is skipped' "$USING_QRSPI" \
+    || { echo "disabled-mode fall-through not documented"; return 1; }
+}
+
+# -----------------------------------------------------------------------------
+# 5. Per-printf and per-bullet scope_hint rigor (B9)
+# -----------------------------------------------------------------------------
+#
+# Mirrors test-diff-file-emission.bats's per-step sweeps for diff_file_path
+# (PR-1 invariant). Each sweep covers a different surface to bind the wiring
+# to the code, not just to prose.
+
+# The in-scope skill list (excludes test/SKILL.md per spec §2.6 opt-out and
+# excludes implementer-protocol/reviewer-protocol/using-qrspi which do not
+# emit reviewer dispatches).
+SCOPED_SKILLS_LIST=(goals questions research design phasing structure parallelize plan replan integrate implement)
+
+@test "[112-PR2] dispatch-agent.sh wires --scope-hint into the assembled reviewer prompt" {
+  # CD-1 (Task 20): per-skill Codex `--scope-hint` wiring collapsed into the
+  # universal dispatcher. dispatch-agent.sh accepts `--scope-hint` and emits a
+  # `scope_hint:` line into each first-party reviewer prompt; per-skill prose no
+  # longer carries the flag.
+  local s="$REPO_ROOT/scripts/dispatch-agent.sh"
+  [ -f "$s" ]
+  grep -qE '[-][-]scope-hint\)' "$s"
+  grep -qE 'scope_hint:' "$s"
+}
+@test "[112-PR2] scope_hint values are wrapped in untrusted-data markers (B2)" {
+  # CD-1 (Task 20): the B2 untrusted-data wrapping for scope_hint now lives in
+  # the universal dispatcher (dispatch-agent.sh wraps the value between the
+  # UNTRUSTED-SCOPE-HINT markers when assembling the reviewer prompt), not in
+  # per-skill prose.
+  local s="$REPO_ROOT/scripts/dispatch-agent.sh"
+  [ -f "$s" ]
+  grep -qF 'UNTRUSTED-SCOPE-HINT-START id=scope_hint' "$s" \
+    || { echo "dispatch-agent.sh missing UNTRUSTED-SCOPE-HINT-START marker"; return 1; }
+  grep -qF 'UNTRUSTED-SCOPE-HINT-END id=scope_hint' "$s" \
+    || { echo "dispatch-agent.sh missing UNTRUSTED-SCOPE-HINT-END marker"; return 1; }
+}
+
+@test "[112-PR2] every in-scope reviewer agent has a ## Scope Hint section (B9)" {
+  # Every in-scope reviewer agent MUST have a ## Scope Hint section
+  # documenting the absence + empty-value-equivalence semantics.
+  agents=(
+    qrspi-goals-reviewer qrspi-goals-scope-reviewer
+    qrspi-questions-reviewer
+    qrspi-research-reviewer
+    qrspi-design-reviewer qrspi-design-scope-reviewer
+    qrspi-phasing-reviewer qrspi-phasing-scope-reviewer
+    qrspi-structure-reviewer qrspi-structure-scope-reviewer
+    qrspi-parallelize-reviewer qrspi-parallelize-scope-reviewer
+    qrspi-replan-reviewer qrspi-replan-scope-reviewer
+    qrspi-plan-reviewer qrspi-plan-scope-reviewer qrspi-plan-spec-reviewer
+    qrspi-plan-security-reviewer qrspi-plan-silent-failure-hunter
+    qrspi-plan-goal-traceability-reviewer qrspi-plan-test-coverage-reviewer
+    qrspi-implement-gate-reviewer
+    qrspi-integration-reviewer qrspi-security-integration-reviewer
+    qrspi-spec-reviewer qrspi-code-quality-reviewer qrspi-silent-failure-hunter
+    qrspi-security-reviewer qrspi-goal-traceability-reviewer
+    qrspi-type-design-analyzer qrspi-code-simplifier
+  )
+  for agent in "${agents[@]}"; do
+    agent_path="$REPO_ROOT/agents/$agent.md"
+    [ -f "$agent_path" ] || { echo "missing $agent_path"; return 1; }
+    grep -qE '^## Scope Hint' "$agent_path" \
+      || { echo "agent $agent: missing ## Scope Hint section"; return 1; }
+  done
+}
+
+@test "[112-PR2] every in-scope reviewer agent documents empty-value equivalence (B7)" {
+  agents=(
+    qrspi-goals-reviewer qrspi-goals-scope-reviewer
+    qrspi-questions-reviewer
+    qrspi-research-reviewer
+    qrspi-design-reviewer qrspi-design-scope-reviewer
+    qrspi-phasing-reviewer qrspi-phasing-scope-reviewer
+    qrspi-structure-reviewer qrspi-structure-scope-reviewer
+    qrspi-parallelize-reviewer qrspi-parallelize-scope-reviewer
+    qrspi-replan-reviewer qrspi-replan-scope-reviewer
+    qrspi-plan-reviewer qrspi-plan-scope-reviewer qrspi-plan-spec-reviewer
+    qrspi-plan-security-reviewer qrspi-plan-silent-failure-hunter
+    qrspi-plan-goal-traceability-reviewer qrspi-plan-test-coverage-reviewer
+    qrspi-implement-gate-reviewer
+    qrspi-integration-reviewer qrspi-security-integration-reviewer
+    qrspi-spec-reviewer qrspi-code-quality-reviewer qrspi-silent-failure-hunter
+    qrspi-security-reviewer qrspi-goal-traceability-reviewer
+    qrspi-type-design-analyzer qrspi-code-simplifier
+  )
+  for agent in "${agents[@]}"; do
+    agent_path="$REPO_ROOT/agents/$agent.md"
+    grep -qiE 'empty value|empty-value|empty.*value|empty.*scope_hint|scope_hint.*empty' "$agent_path" \
+      || { echo "agent $agent: missing empty-value-equivalence prose"; return 1; }
+  done
+}
+
+@test "[112-PR2] test step opts out: skills/test/SKILL.md has no scope_hint printf (B9)" {
+  test_skill="$REPO_ROOT/skills/test/SKILL.md"
+  [ -f "$test_skill" ]
+  grep -qE 'scope_hint: %s' "$test_skill" \
+    && { echo "skills/test/SKILL.md should NOT carry scope_hint printf (test-step opt-out)"; return 1; } \
+    || true
+  grep -qF 'scope_hint: <<<UNTRUSTED-SCOPE-HINT-START id=scope_hint>>>' "$test_skill" \
+    && { echo "skills/test/SKILL.md should NOT carry the wrapped scope_hint printf"; return 1; } \
+    || true
+  return 0
+}
+
+@test "[112-PR2] qrspi-test-coverage-reviewer has NO ## Scope Hint section (test-step opt-out)" {
+  agent_path="$REPO_ROOT/agents/qrspi-test-coverage-reviewer.md"
+  [ -f "$agent_path" ]
+  grep -qE '^## Scope Hint' "$agent_path" \
+    && { echo "qrspi-test-coverage-reviewer should NOT have ## Scope Hint section"; return 1; } \
+    || true
+  return 0
+}
+
+# -----------------------------------------------------------------------------
+# 6. Tagger normalization invariants (I1, I2, I8)
+# -----------------------------------------------------------------------------
+
+@test "[112-PR2] tagger documents trailing-whitespace strip (I2)" {
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  echo "$body" | grep -qiE 'trailing whitespace|strip.*whitespace' \
+    || { echo "tagger missing trailing-whitespace-strip rule"; return 1; }
+}
+
+@test "[112-PR2] tagger forbids comma in H2 heading tags (I1)" {
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  echo "$body" | grep -qiE 'comma|contains comma' \
+    || { echo "tagger missing comma-handling rule for H2 headings"; return 1; }
+  # Must also describe the conservative-broaden fallback.
+  echo "$body" | grep -qiE 'tagged as full-artifact|tag with <full>|<full>' \
+    || { echo "tagger missing comma -> <full> fallback"; return 1; }
+}
+
+@test "[112-PR2] tagger documents <full> as reserved literal token (I8)" {
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  echo "$body" | grep -qiE 'reserved.*token|literal token' \
+    || { echo "tagger missing <full> reserved-literal-token invariant"; return 1; }
+  # Must explain why H2 headings cannot collide.
+  echo "$body" | grep -qiE 'always carry the .## . prefix|H2.*prefix|## .*prefix' \
+    || { echo "tagger missing 'H2 always carries ## prefix -> no collision' rationale"; return 1; }
+}
+
+@test "[112-PR2] tagger documents path-traversal / malformed-citation guard (I9)" {
+  body=$(awk '/^---$/{n++; next} n>=2{print}' "$AGENT")
+  echo "$body" | grep -qiE 'path.traversal|\\.\\.|charset|range form' \
+    || { echo "tagger missing citation-schema guard (path traversal / charset / range form)"; return 1; }
+}
+
+# -----------------------------------------------------------------------------
+# 7. #140 — per-task Implement and Integrate convergence narrowing
+# -----------------------------------------------------------------------------
+#
+# #140 lifts the DEFERRED status from per-task Implement and Integrate, wiring
+# scope-tagger dispatch + convergence narrowing for both surfaces. These
+# assertions ground on the per-flow scope-set output paths, the absence of the
+# DEFERRED token, the per-round commit anchor file paths, and the implement-
+# gate opt-out decision.
+
+@test "[140] skills/implement/SKILL.md per-task review section drops the DEFERRED framing" {
+  # The line-383 paragraph MUST no longer claim the per-task narrowing is
+  # DEFERRED. Scope is the per-task review section only — match against the
+  # phrase "per-task narrowing DEFERRED" (the original DEFERRED label) plus
+  # any "DEFERRED to a follow-up" hedge.
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  [ -f "$impl" ]
+  if grep -qE 'per-task narrowing DEFERRED|narrowing.*DEFERRED|DEFERRED to a follow-up' "$impl"; then
+    echo "implement/SKILL.md still carries DEFERRED framing for per-task narrowing"
+    return 1
+  fi
+}
+
+@test "[140] skills/integrate/SKILL.md drops the DEFERRED framing" {
+  local intg="$REPO_ROOT/skills/integrate/SKILL.md"
+  [ -f "$intg" ]
+  if grep -qE 'Integrate-side narrowing DEFERRED|narrowing.*DEFERRED|DEFERRED to a follow-up' "$intg"; then
+    echo "integrate/SKILL.md still carries DEFERRED framing for Integrate narrowing"
+    return 1
+  fi
+}
+
+@test "[140] per-task Implement scope-set emission path is reviews/tasks/task-NN/round-NN-scope-set.txt" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  grep -qF 'reviews/tasks/task-NN/round-NN-scope-set.txt' "$impl" \
+    || { echo "implement/SKILL.md missing per-task scope-set emission path"; return 1; }
+}
+
+@test "[140] per-task Implement dispatches qrspi-scope-tagger" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  # Either an explicit qrspi-scope-tagger reference in the per-task convergence
+  # subsection, OR a reference to using-qrspi step 6 (which does the dispatch).
+  grep -qE 'qrspi-scope-tagger' "$impl" \
+    || { echo "implement/SKILL.md missing qrspi-scope-tagger reference"; return 1; }
+  # Must also reference using-qrspi step 6 (scope-tagger dispatch) as the canonical contract.
+  grep -qE 'using-qrspi step 6 \(scope-tagger dispatch\)' "$impl" \
+    || { echo "implement/SKILL.md does not reference using-qrspi step 6 (scope-tagger dispatch)"; return 1; }
+}
+
+@test "[140] per-task Implement carries kept_findings parameter for tagger dispatch" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  grep -qE 'kept_findings' "$impl" \
+    || { echo "implement/SKILL.md missing kept_findings parameter"; return 1; }
+}
+
+@test "[140] per-task Implement carries multi-file tagger branch (artifact_path: null)" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  # Per-task is multi-file by construction — both artifact_path and artifact_body
+  # pass the literal `null` so the tagger fires its multi-file branch. Pin to
+  # the canonical phrase to avoid spurious matches on prose that happens to
+  # contain both tokens.
+  grep -qF 'artifact_path` / `artifact_body`: both literal `null`' "$impl" \
+    || { echo "implement/SKILL.md missing per-task artifact_path: null tagger branch"; return 1; }
+}
+
+@test "[140] Integrate scope-set emission path is reviews/integration/round-NN-scope-set.txt" {
+  local intg="$REPO_ROOT/skills/integrate/SKILL.md"
+  grep -qF 'reviews/integration/round-NN-scope-set.txt' "$intg" \
+    || { echo "integrate/SKILL.md missing scope-set emission path"; return 1; }
+}
+
+@test "[140] Integrate dispatches qrspi-scope-tagger" {
+  local intg="$REPO_ROOT/skills/integrate/SKILL.md"
+  grep -qE 'qrspi-scope-tagger' "$intg" \
+    || { echo "integrate/SKILL.md missing qrspi-scope-tagger reference"; return 1; }
+  # Must also reference using-qrspi step 6 (scope-tagger dispatch) as the canonical contract.
+  grep -qE 'using-qrspi step 6 \(scope-tagger dispatch\)' "$intg" \
+    || { echo "integrate/SKILL.md does not reference using-qrspi step 6 (scope-tagger dispatch)"; return 1; }
+}
+
+@test "[140] Integrate tagger dispatch is multi-file (artifact_path: null)" {
+  local intg="$REPO_ROOT/skills/integrate/SKILL.md"
+  grep -qF 'artifact_path` / `artifact_body`: both literal `null`' "$intg" \
+    || { echo "integrate/SKILL.md missing artifact_path: null tagger branch"; return 1; }
+}
+
+@test "[140] implement-gate reviewer is documented as opt-out (single-shot, no narrowing)" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  # The opt-out must mention either implement-gate-reviewer with opt-out semantics,
+  # OR implement-gate-scope-set explicitly absent. The current decision is opt-out.
+  grep -qiE 'implement.gate.*opt.out|implement.gate.*single.shot|single.shot.*implement.gate|implement-gate.*not.*multi.round' "$impl" \
+    || { echo "implement/SKILL.md missing implement-gate opt-out documentation"; return 1; }
+  # Negative regression: there should be NO scope-set emission path under
+  # reviews/integration/round-NN-implement-gate-scope-set.txt
+  if grep -qF 'round-NN-implement-gate-scope-set.txt' "$impl"; then
+    echo "implement/SKILL.md should NOT emit a scope-set for implement-gate (opt-out)"
+    return 1
+  fi
+}
+
+@test "[140] per-task Implement structural-validation guard is referenced (B4)" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  # B4 fail-loud guard: malformed scope-set routes through verifier-round failure menu.
+  grep -qiE 'structural validation|structurally valid|malformed scope-set|fail.loud' "$impl" \
+    || { echo "implement/SKILL.md missing per-task B4 structural-validation reference"; return 1; }
+}
+
+@test "[140] Integrate structural-validation guard is referenced (B4)" {
+  local intg="$REPO_ROOT/skills/integrate/SKILL.md"
+  grep -qiE 'structural validation|structurally valid|malformed scope-set|fail.loud' "$intg" \
+    || { echo "integrate/SKILL.md missing B4 structural-validation reference"; return 1; }
+}
+
+@test "[140] per-task Implement full-artifact-fallback diagnostic is referenced (B8)" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  grep -qiE 'full-artifact|<full>.*fall.*back|fell back to <full>|full-artifact-fallback' "$impl" \
+    || { echo "implement/SKILL.md missing per-task B8 full-artifact-fallback diagnostic"; return 1; }
+}
+
+@test "[140] Integrate full-artifact-fallback diagnostic is referenced (B8)" {
+  local intg="$REPO_ROOT/skills/integrate/SKILL.md"
+  grep -qiE 'full-artifact|<full>.*fall.*back|fell back to <full>|full-artifact-fallback' "$intg" \
+    || { echo "integrate/SKILL.md missing B8 full-artifact-fallback diagnostic"; return 1; }
+}
+
+# -----------------------------------------------------------------------------
+# 6. T13 / G9 — Per-task between-round checklist + round-prepare.sh artifact
+#    coverage + script-side architectural-boundary guard.
+#
+# T13 layers the G9 between-round checklist into the per-task reviewer fan-out
+# section of skills/implement/SKILL.md, removes the v0.7.1 main-chat-side
+# `rev-parse HEAD` comparison prose (now owned by `round-prepare.sh` exit
+# codes 10/11/12), and pins the inherited round-NN.diff + round-NN-commit.txt
+# artifact emission. The script-side guard is a regression test against any
+# accidental migration of first-party Task-tool dispatch into bash.
+# -----------------------------------------------------------------------------
+
+@test "implement/SKILL.md per-task fan-out has 'Between rounds — required sequence' checklist" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  grep -qF 'Between rounds — required sequence' "$impl" \
+    || { echo "implement/SKILL.md missing 'Between rounds — required sequence' checklist heading"; return 1; }
+}
+
+@test "checklist references qrspi-scope-tagger Task subagent dispatch" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  # Must appear inside the between-rounds checklist block (after the heading,
+  # before the next ### heading).
+  awk '/Between rounds — required sequence/{flag=1; print; next} flag && /^### /{exit} flag{print}' "$impl" \
+    | grep -qE 'qrspi-scope-tagger.*Task subagent|Dispatch .*qrspi-scope-tagger' \
+    || { echo "checklist missing qrspi-scope-tagger Task subagent dispatch step"; return 1; }
+}
+
+@test "checklist references implementer commit_sha extraction from Task return" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  awk '/Between rounds — required sequence/{flag=1; print; next} flag && /^### /{exit} flag{print}' "$impl" \
+    | grep -qE 'commit_sha.*Task tool return|read.*commit_sha:' \
+    || { echo "checklist missing 'read commit_sha: from Task tool return' step"; return 1; }
+}
+
+@test "checklist references dispatch-agent.sh --implementer-commit invocation" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  awk '/Between rounds — required sequence/{flag=1; print; next} flag && /^### /{exit} flag{print}' "$impl" \
+    | grep -qF 'dispatch-agent.sh --implementer-commit' \
+    || { echo "checklist missing 'dispatch-agent.sh --implementer-commit' invocation step"; return 1; }
+}
+
+@test "checklist enumerates exit-code branches 0/10/11/12" {
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  local block
+  block="$(awk '/Between rounds — required sequence/{flag=1; print; next} flag && /^### /{exit} flag{print}' "$impl")"
+  echo "$block" | grep -qE '\b0 →|exit.*\b0\b' \
+    || { echo "checklist missing exit-code 0 branch"; return 1; }
+  echo "$block" | grep -qE '\b10 →|exit.*\b10\b' \
+    || { echo "checklist missing exit-code 10 branch (orchestrator bug)"; return 1; }
+  echo "$block" | grep -qE '\b11 →|exit.*\b11\b' \
+    || { echo "checklist missing exit-code 11 branch (worktree integrity break)"; return 1; }
+  echo "$block" | grep -qE '\b12 →|exit.*\b12\b' \
+    || { echo "checklist missing exit-code 12 branch (re-dispatch implementer)"; return 1; }
+}
+
+@test "per-task review section contains zero 'rev-parse HEAD' main-chat instructions" {
+  # Per design.md §G9 companion lint: the per-task review section (Per-Task
+  # Convergence Narrowing — line range from "### Per-Task Convergence Narrowing"
+  # to the next "### " heading) MUST have zero `rev-parse HEAD` matches. Those
+  # checks are now owned by round-prepare.sh exit codes 10/11/12.
+  local impl="$REPO_ROOT/skills/implement/SKILL.md"
+  local section
+  section="$(awk '/^### Per-Task Convergence Narrowing$/{flag=1;next} flag && /^### /{exit} flag' "$impl")"
+  if echo "$section" | grep -q 'rev-parse HEAD'; then
+    echo "Per-Task Convergence Narrowing section still contains main-chat 'rev-parse HEAD' prose:"
+    echo "$section" | grep -n 'rev-parse HEAD'
+    return 1
+  fi
+}
+
+@test "round-prepare.sh task-branch mode writes round-NN-commit.txt with passed SHA + newline" {
+  # End-to-end: stage a tiny git repo, invoke round-prepare.sh in per-task
+  # happy-path mode (round 1, base ref pinned), and assert the commit-anchor
+  # file contains exactly the passed SHA + LF.
+  local repo="$REPO_ROOT"
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm impl
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-01
+  run "$repo/scripts/round-prepare.sh" 1 task/round-01 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  [ "$status" -eq 0 ] || { echo "expected exit 0, got $status; output: $output"; rm -rf "$tmp"; return 1; }
+  [ -f task/round-01-commit.txt ] || { echo "missing round-01-commit.txt"; rm -rf "$tmp"; return 1; }
+  local got; got="$(cat task/round-01-commit.txt)"
+  [ "$got" = "$head_sha" ] || { echo "anchor SHA mismatch: got '$got' want '$head_sha'"; rm -rf "$tmp"; return 1; }
+  # Must end with exactly one LF (POSIX `wc -l` counts newlines; 1 means file
+  # ends with one newline).
+  local nl; nl="$(wc -l < task/round-01-commit.txt | tr -d ' ')"
+  [ "$nl" = "1" ] || { echo "anchor file must end with single trailing LF; got newline-count=$nl"; rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
+@test "round-prepare.sh task-branch mode emits round-NN.diff (G4 inheritance preserved)" {
+  local repo="$REPO_ROOT"
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  echo hi > a.txt
+  git add a.txt
+  git -c user.email=t@t -c user.name=t commit -qm change
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-01
+  run "$repo/scripts/round-prepare.sh" 1 task/round-01 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  [ "$status" -eq 0 ] || { echo "expected exit 0, got $status; output: $output"; rm -rf "$tmp"; return 1; }
+  [ -f task/round-01/round-01.diff ] || { echo "missing round-01.diff"; rm -rf "$tmp"; return 1; }
+  grep -q 'a.txt' task/round-01/round-01.diff \
+    || { echo "round-01.diff missing expected file change"; rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
+@test "round-prepare.sh exits 10 when --task-branch set without --implementer-commit (orchestrator bug)" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  mkdir -p task/round-01
+  run "$REPO_ROOT/scripts/round-prepare.sh" 1 task/round-01 --task-branch main --worktree .
+  rm -rf "$tmp"
+  [ "$status" -eq 10 ] || { echo "expected exit 10, got $status; stderr/stdout: $output"; return 1; }
+  echo "$output" | grep -qiE 'orchestrator bug|implementer-commit' \
+    || { echo "missing recovery diagnostic: $output"; return 1; }
+}
+
+@test "round-prepare.sh exits 11 when implementer-commit != worktree HEAD (integrity break)" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm impl
+  mkdir -p task/round-01
+  run "$REPO_ROOT/scripts/round-prepare.sh" 1 task/round-01 \
+    --task-branch main \
+    --implementer-commit 0000000000000000000000000000000000000000 \
+    --worktree . \
+    --base-ref "$base_sha"
+  rm -rf "$tmp"
+  [ "$status" -eq 11 ] || { echo "expected exit 11, got $status; output: $output"; return 1; }
+  echo "$output" | grep -qiE 'HEAD mismatch|worktree integrity|HALT' \
+    || { echo "missing integrity-break diagnostic: $output"; return 1; }
+}
+
+@test "round-prepare.sh exits 12 round-1 with task-base diagnostic (not 'prior round anchor')" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-01
+  run "$REPO_ROOT/scripts/round-prepare.sh" 1 task/round-01 \
+    --task-branch main \
+    --implementer-commit "$base_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  rm -rf "$tmp"
+  [ "$status" -eq 12 ] || { echo "expected exit 12, got $status; output: $output"; return 1; }
+  echo "$output" | grep -q 'task base commit' \
+    || { echo "round-1 diagnostic must name 'task base commit'; got: $output"; return 1; }
+  if echo "$output" | grep -q 'prior round anchor'; then
+    echo "round-1 diagnostic must NOT reference 'prior round anchor': $output"; return 1
+  fi
+}
+
+@test "round-prepare.sh exits 12 later-round when SHA equals prior-round anchor (re-dispatch implementer)" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-02
+  printf '%s\n' "$r1_sha" > task/round-01-commit.txt
+  run "$REPO_ROOT/scripts/round-prepare.sh" 2 task/round-02 \
+    --task-branch main \
+    --implementer-commit "$r1_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  rm -rf "$tmp"
+  [ "$status" -eq 12 ] || { echo "expected exit 12, got $status; output: $output"; return 1; }
+  echo "$output" | grep -qE 'prior round anchor|did not advance' \
+    || { echo "later-round diagnostic missing prior-round-anchor language: $output"; return 1; }
+}
+
+@test "round-prepare.sh fails loudly when prior-round commit anchor is missing" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-02
+  # Deliberately omit task/round-01-commit.txt.
+  run "$REPO_ROOT/scripts/round-prepare.sh" 2 task/round-02 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  rm -rf "$tmp"
+  [ "$status" -eq 1 ] || { echo "expected exit 1 for missing prior anchor, got $status; output: $output"; return 1; }
+  echo "$output" | grep -q 'round-01-commit.txt' \
+    || { echo "diagnostic must name the missing prior-round commit anchor: $output"; return 1; }
+}
+
+@test "round-prepare.sh fails loudly when prior-round commit anchor is malformed" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-02
+  # Write a malformed prior-round anchor (not ^[0-9a-f]{40}\n$).
+  printf 'not-a-sha\n' > task/round-01-commit.txt
+  run "$REPO_ROOT/scripts/round-prepare.sh" 2 task/round-02 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  # Finding 3: fail-closed — no stray current-round anchor on this Step-10 exit-1 path.
+  local stray_exists=0
+  if [ -e "task/round-02-commit.txt" ]; then stray_exists=1; fi
+  rm -rf "$tmp"
+  [ "$status" -eq 1 ] || { echo "expected exit 1 for malformed prior anchor, got $status; output: $output"; return 1; }
+  echo "$output" | grep -q 'malformed' \
+    || { echo "diagnostic must use the word 'malformed' for a malformed prior-round commit anchor: $output"; return 1; }
+  echo "$output" | grep -q 'round-01-commit.txt' \
+    || { echo "diagnostic must name the malformed prior-round commit anchor: $output"; return 1; }
+  [ "$stray_exists" -eq 0 ] \
+    || { echo "stray current-round anchor task/round-02-commit.txt was written despite malformed-anchor exit $status (anchor write must be deferred until AFTER Step 10 assertions)"; return 1; }
+}
+
+@test "round-prepare.sh leaves NO stray current-round anchor when prior-round anchor missing (fail-closed)" {
+  # Pins the §G9 invariant: a round NN>=2 invocation that exits non-zero due
+  # to a MISSING prior-round anchor MUST NOT have already written round-NN-commit.txt
+  # to disk. Before Fix A, the anchor was written in Step 1 (HEAD checks) BEFORE
+  # the Step 10 prior-artifact presence assertions, so a missing prior-anchor exit-1
+  # left a stray current-round anchor — silently advancing a later round into
+  # treating round NN as completed though no reviewers ran.
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-02
+  # Deliberately omit task/round-01-commit.txt — must trigger Step 10 exit 1.
+  run "$REPO_ROOT/scripts/round-prepare.sh" 2 task/round-02 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  local stray_exists=0
+  if [ -e "task/round-02-commit.txt" ]; then stray_exists=1; fi
+  rm -rf "$tmp"
+  [ "$status" -ne 0 ] || { echo "expected non-zero exit for missing prior anchor, got 0; output: $output"; return 1; }
+  [ "$stray_exists" -eq 0 ] \
+    || { echo "stray current-round anchor task/round-02-commit.txt was written despite exit $status (Fix A regression — anchor write must be deferred until AFTER Step 10 prior-artifact presence assertions)"; return 1; }
+}
+
+@test "round-prepare.sh fails loudly on missing scope-set when narrowing-eligible + tagger enabled" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local r2_sha; r2_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r3
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-03
+  printf '%s\n' "$r1_sha" > task/round-01-commit.txt
+  printf '%s\n' "$r2_sha" > task/round-02-commit.txt
+  # Deliberately omit round-02-scope-set.txt — narrowing-eligible (NN>=3)
+  # AND scope tagger enabled MUST fail loudly.
+  QRSPI_SCOPE_TAGGER_ENABLED=true run "$REPO_ROOT/scripts/round-prepare.sh" 3 task/round-03 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  # Finding 3: fail-closed — no stray current-round anchor on this Step-10 exit-1 path.
+  local stray_exists=0
+  if [ -e "task/round-03-commit.txt" ]; then stray_exists=1; fi
+  rm -rf "$tmp"
+  [ "$status" -eq 1 ] || { echo "expected exit 1 for missing scope-set, got $status; output: $output"; return 1; }
+  echo "$output" | grep -q 'round-02-scope-set.txt' \
+    || { echo "diagnostic must name the missing prior-round scope-set: $output"; return 1; }
+  [ "$stray_exists" -eq 0 ] \
+    || { echo "stray current-round anchor task/round-03-commit.txt was written despite missing-scope-set exit $status (anchor write must be deferred until AFTER Step 10 assertions)"; return 1; }
+}
+
+@test "round-prepare.sh fails loudly on empty scope-set when narrowing-eligible + tagger enabled" {
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local r2_sha; r2_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r3
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-03
+  printf '%s\n' "$r1_sha" > task/round-01-commit.txt
+  printf '%s\n' "$r2_sha" > task/round-02-commit.txt
+  # Create an empty prior-round scope-set — narrowing-eligible (NN>=3)
+  # AND scope tagger enabled MUST fail loudly on empty (zero tags).
+  : > task/round-02-scope-set.txt
+  QRSPI_SCOPE_TAGGER_ENABLED=true run "$REPO_ROOT/scripts/round-prepare.sh" 3 task/round-03 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  # Finding 3: fail-closed — no stray current-round anchor on this Step-10 exit-1 path.
+  local stray_exists=0
+  if [ -e "task/round-03-commit.txt" ]; then stray_exists=1; fi
+  rm -rf "$tmp"
+  [ "$status" -eq 1 ] || { echo "expected exit 1 for empty scope-set, got $status; output: $output"; return 1; }
+  echo "$output" | grep -q 'empty' \
+    || { echo "diagnostic must use the word 'empty' for an empty prior-round scope-set: $output"; return 1; }
+  echo "$output" | grep -q 'round-02-scope-set.txt' \
+    || { echo "diagnostic must name the empty prior-round scope-set: $output"; return 1; }
+  [ "$stray_exists" -eq 0 ] \
+    || { echo "stray current-round anchor task/round-03-commit.txt was written despite empty-scope-set exit $status (anchor write must be deferred until AFTER Step 10 assertions)"; return 1; }
+}
+
+@test "scripts/ contain NO first-party Task-tool subagent dispatch or Task-tool return capture" {
+  # Architectural boundary (design.md §G9 acceptance criterion):
+  # bash scripts dispatch third-party CLIs only; first-party Task-tool
+  # subagents are dispatched from main chat. This guard catches any
+  # accidental migration.
+  #
+  # Carve-outs (per CD-1, universal dispatch architecture):
+  #   - scripts/dispatch-agent.sh is the universal entry point that EMITS
+  #     Task-spec lines (containing the literal `subagent_type:` JSON field)
+  #     for main chat to consume; emitting a spec is not dispatching.
+  #   - prose mentioning "Task tool" inside a recovery diagnostic is not a
+  #     Task-tool invocation either; only callable patterns like Task( or
+  #     Agent( are forbidden.
+  local hits grep_status=0
+  hits="$(grep -rnE 'subagent_type|Task\(|Agent\(' "$REPO_ROOT/scripts/" \
+            --exclude=dispatch-agent.sh 2>/dev/null \
+          | grep -vE 'a fresh Task tool invocation' || true)"
+  if [ -n "$hits" ]; then
+    echo "scripts/ must not contain Task-tool dispatch or return-capture patterns; found:"
+    echo "$hits"
+    return 1
+  fi
+}
+
+@test "round-prepare.sh later-round (round 2) happy path writes round-NN-commit.txt and exits 0 (Finding 1)" {
+  # End-to-end happy path for a round NN>=2 invocation: a valid prior-round
+  # anchor exists, HEAD advanced past it, Step 10 passes, and the deferred
+  # anchor write for the CURRENT round succeeds. Round 1 trivially skips Step
+  # 10, so this is the first test that exercises Step-10-pass -> anchor-write
+  # end to end on a clean later round.
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local r2_sha; r2_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-02
+  # Valid prior anchor: 40-hex SHA + single LF. HEAD has advanced to r2.
+  printf '%s\n' "$r1_sha" > task/round-01-commit.txt
+  run "$REPO_ROOT/scripts/round-prepare.sh" 2 task/round-02 \
+    --task-branch main \
+    --implementer-commit "$r2_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  local got nl
+  [ "$status" -eq 0 ] || { echo "expected exit 0 for clean later round, got $status; output: $output"; rm -rf "$tmp"; return 1; }
+  [ -f task/round-02-commit.txt ] || { echo "missing round-02-commit.txt after successful later round"; rm -rf "$tmp"; return 1; }
+  got="$(cat task/round-02-commit.txt)"
+  [ "$got" = "$r2_sha" ] || { echo "anchor SHA mismatch: got '$got' want '$r2_sha'"; rm -rf "$tmp"; return 1; }
+  # Confirm the recorded SHA is the literal current HEAD.
+  [ "$r2_sha" = "$(git rev-parse HEAD)" ] || { echo "r2_sha does not equal current HEAD"; rm -rf "$tmp"; return 1; }
+  # Must end with exactly one trailing LF.
+  nl="$(wc -l < task/round-02-commit.txt | tr -d ' ')"
+  [ "$nl" = "1" ] || { echo "round-02 anchor must end with single trailing LF; got newline-count=$nl"; rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
+@test "round-prepare.sh scope-set gate OFF (round 3, tagger disabled) does NOT fire on missing scope-set (Finding 2a)" {
+  # Gate predicate is (NN>=3 AND tagger enabled). With the tagger disabled the
+  # missing scope-set must NOT cause an exit 1 — the run should reach exit 0.
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local r2_sha; r2_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r3
+  local r3_sha; r3_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-03
+  printf '%s\n' "$r1_sha" > task/round-01-commit.txt
+  printf '%s\n' "$r2_sha" > task/round-02-commit.txt
+  # No round-02-scope-set.txt. Tagger explicitly disabled.
+  QRSPI_SCOPE_TAGGER_ENABLED=false run "$REPO_ROOT/scripts/round-prepare.sh" 3 task/round-03 \
+    --task-branch main \
+    --implementer-commit "$r3_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  rm -rf "$tmp"
+  [ "$status" -eq 0 ] || { echo "gate-off run must reach exit 0 (scope-set gate must not fire when tagger disabled), got $status; output: $output"; return 1; }
+  if echo "$output" | grep -q 'scope-set'; then
+    echo "gate-off run must not emit a scope-set diagnostic: $output"; return 1
+  fi
+}
+
+@test "round-prepare.sh scope-set gate (round 2 boundary, tagger enabled) does NOT fire below NN>=3 floor (Finding 2b)" {
+  # The scope-set gate floor is NN>=3. On round 2 with the tagger enabled and a
+  # missing scope-set, the gate must NOT fire — the run should reach exit 0.
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local r2_sha; r2_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-02
+  printf '%s\n' "$r1_sha" > task/round-01-commit.txt
+  # No round-01-scope-set.txt. Tagger enabled, but round 2 is below the floor.
+  QRSPI_SCOPE_TAGGER_ENABLED=true run "$REPO_ROOT/scripts/round-prepare.sh" 2 task/round-02 \
+    --task-branch main \
+    --implementer-commit "$r2_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  rm -rf "$tmp"
+  [ "$status" -eq 0 ] || { echo "round-2 run must reach exit 0 (scope-set gate floor is NN>=3), got $status; output: $output"; return 1; }
+  if echo "$output" | grep -q 'scope-set'; then
+    echo "round-2 run must not emit a scope-set diagnostic: $output"; return 1
+  fi
+}
+
+@test "round-prepare.sh scope-set gate PASS (round 3, enabled, present non-empty scope-set) exits 0 (Finding 2c)" {
+  # The should-fire corner is already covered (missing/empty). This is the
+  # gate-pass side: a present non-empty prior scope-set passes the gate and the
+  # run reaches exit 0.
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local r2_sha; r2_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r3
+  local r3_sha; r3_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-03
+  printf '%s\n' "$r1_sha" > task/round-01-commit.txt
+  printf '%s\n' "$r2_sha" > task/round-02-commit.txt
+  # Present, non-empty prior scope-set — gate passes.
+  printf 'scripts/round-prepare.sh\n' > task/round-02-scope-set.txt
+  QRSPI_SCOPE_TAGGER_ENABLED=true run "$REPO_ROOT/scripts/round-prepare.sh" 3 task/round-03 \
+    --task-branch main \
+    --implementer-commit "$r3_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  local got
+  [ "$status" -eq 0 ] || { echo "gate-pass run must reach exit 0, got $status; output: $output"; rm -rf "$tmp"; return 1; }
+  [ -f task/round-03-commit.txt ] || { echo "missing round-03-commit.txt after successful gate-pass round"; rm -rf "$tmp"; return 1; }
+  got="$(cat task/round-03-commit.txt)"
+  [ "$got" = "$r3_sha" ] || { echo "anchor SHA mismatch: got '$got' want '$r3_sha'"; rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
+@test "round-prepare.sh treats a valid 40-hex SHA WITHOUT trailing newline as malformed (Finding 4)" {
+  # The existing malformed fixture ('not-a-sha\n') fails charset AND length, so
+  # a regression loosening only the trailing-\n requirement would still be
+  # caught by neither. This fixture is a genuine 40-char lowercase-hex SHA with
+  # NO trailing newline, pinning the ^...\n$ trailing-newline branch alone.
+  local tmp; tmp="$(mktemp -d)"
+  cd "$tmp"
+  git init -q
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm base
+  local base_sha; base_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r1
+  local r1_sha; r1_sha="$(git rev-parse HEAD)"
+  git -c user.email=t@t -c user.name=t commit --allow-empty -qm r2
+  local head_sha; head_sha="$(git rev-parse HEAD)"
+  mkdir -p task/round-02
+  # Valid 40-hex SHA but NO trailing newline — must be rejected as malformed.
+  printf '%s' "$r1_sha" > task/round-01-commit.txt
+  run "$REPO_ROOT/scripts/round-prepare.sh" 2 task/round-02 \
+    --task-branch main \
+    --implementer-commit "$head_sha" \
+    --worktree . \
+    --base-ref "$base_sha"
+  # Fail-closed: no stray current-round anchor on this exit-1 path either.
+  local stray_exists=0
+  if [ -e "task/round-02-commit.txt" ]; then stray_exists=1; fi
+  rm -rf "$tmp"
+  [ "$status" -eq 1 ] || { echo "expected exit 1 for newline-less 40-hex anchor, got $status; output: $output"; return 1; }
+  echo "$output" | grep -q 'malformed' \
+    || { echo "diagnostic must use the word 'malformed' for a newline-less prior-round commit anchor: $output"; return 1; }
+  [ "$stray_exists" -eq 0 ] \
+    || { echo "stray current-round anchor task/round-02-commit.txt written despite newline-less malformed exit $status"; return 1; }
+}

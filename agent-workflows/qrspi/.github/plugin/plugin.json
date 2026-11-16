@@ -1,0 +1,42 @@
+{
+  "name": "qrspi",
+  "description": "QRSPI workflow plugin for agentic software development — Goals, Questions, Research, Design, Phasing, Structure, Plan, Parallelize, Implement, Integrate, Test, Replan",
+  "version": "0.7.5",
+  "author": {
+    "name": "Daniel Frysinger"
+  },
+  "homepage": "https://github.com/dfrysinger/qrspi-plus",
+  "repository": "https://github.com/dfrysinger/qrspi-plus",
+  "license": "MIT",
+  "keywords": [
+    "qrspi",
+    "workflow",
+    "agentic",
+    "tdd",
+    "research",
+    "design",
+    "planning",
+    "implementation"
+  ],
+  "agents": [
+    "./agents"
+  ],
+  "skills": [
+    "./skills/design",
+    "./skills/goals",
+    "./skills/implement",
+    "./skills/implementer-protocol",
+    "./skills/integrate",
+    "./skills/parallelize",
+    "./skills/phasing",
+    "./skills/plan",
+    "./skills/questions",
+    "./skills/replan",
+    "./skills/research",
+    "./skills/research-isolation",
+    "./skills/reviewer-protocol",
+    "./skills/structure",
+    "./skills/test",
+    "./skills/using-qrspi"
+  ]
+}

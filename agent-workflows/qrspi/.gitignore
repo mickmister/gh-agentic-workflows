@@ -1,0 +1,11 @@
+.worktrees/
+
+# QRSPI implementer scratch file
+.qrspi-commit-msg.txt
+
+# Editor / IDE
+.vscode/
+
+# macOS metadata files
+.DS_Store
+**/.DS_Store
