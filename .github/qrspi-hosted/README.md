@@ -191,20 +191,26 @@ target-attempt `1` to inspect the first hosted failure. This is a diagnostic
 invocation, **not** process admission, replay, or a human response. It uses only
 the trusted repository `NUGS_WORKSPACE_SEED`; there is no handoff override.
 
-The diagnostic step prints a compact sanitized summary of the start admission,
-checkpoint awaited pin refs, and target open/work error descriptions. Descriptions
-retain only the first line after complete-message redaction, except execFile-shaped
-`Command failed: …` messages also retain the first nonempty stderr line (up to 400
-characters, with the headline capped at 500). Remaining transcript lines are
-omitted and Actions commands remain inert. Descriptions are limited to 1000
-characters; messages over 64 KB are omitted, and total output is capped at 6000
-characters. Runtime payloads stay
-in private S3. `absent` means GET returned 404; other read failures report unknown
-existence and safe categories. A fetched but invalid/unparseable object remains
+The diagnostic step prints a compact summary of the start admission,
+checkpoint awaited pin refs, and whether target open/work error objects exist.
+Private error messages, including legacy native output, are never rendered.
+Total output is capped at 6000 characters. Runtime payloads stay in private S3.
+`absent` requires GET 404 with allowlisted `NoSuchKey` or `NotFound`;
+`NoSuchBucket`, bare 404, access denial and other failures remain unknown.
+GET failures expose only allowlisted error codes and numeric HTTP status, never
+arbitrary exception names, messages or provider text. A fetched but invalid/unparseable object remains
 present with an unreadable classification. No outcome, including absence or
 `admitted-uncertain`, authorizes retry. The admission/checkpoint are current shared
 objects, not historical snapshots of the target run; only the error object names
 are run/attempt-specific. Binding mismatches suppress outcome/pin interpretation.
+
+Main failures first attempt private archival, then print an ephemeral static
+stage, allowlisted original/archival classifications and `privateEvidenceStored`.
+The latter is true only after successful write/readback; false does not prove the
+write never landed. These labels are diagnostics, not process/scheduler authority.
+The first failure's root cause remains unproven; prior absence reports without an
+actual GET error name are not proof of missing keys. No compatibility/auth/checksum
+change or process replay follows from these diagnostics alone.
 
 Only four derived keys are fetched, with SDK retries disabled. No App credentials,
 model, native CLI, setup, Documents publication, S3 mutation, or Actions artifacts

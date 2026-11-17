@@ -15,7 +15,7 @@ function storage() {
     const input = command.input;
     const row = rows.get(input.Key);
     if (command instanceof GetObjectCommand) {
-      if (!row) throw { $metadata: { httpStatusCode: 404 } };
+      if (!row) throw { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } };
       return {
         ETag: row.etag,
         Body: (async function* () { yield Buffer.from(row.body); })(),

@@ -2,6 +2,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { pathToFileURL } from "node:url";
 import { admissionIdentity, assert, slug, validateSeed, type Binding } from "./core.ts";
 import { digest } from "./storage.ts";
+import { classify, missingObject } from "./diagnostics.ts";
 
 export const OUTPUT_LIMIT = 6000;
 export const DESCRIPTION_LIMIT = 1000;
@@ -70,7 +71,7 @@ export function target(env: NodeJS.ProcessEnv) {
 
 function classification(error: unknown) {
   const status = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
-  if (status === 404) return "absent";
+  if (missingObject(error)) return "absent";
   if (status === 401 || status === 403) return "access-denied";
   if (status === 429) return "throttled";
   if (status && status >= 500) return "service-failure";
@@ -125,11 +126,12 @@ export async function inspect(env: NodeJS.ProcessEnv, send?: (command: GetObject
             results[kind] = { existence: "present", binding: "matched", pins: Object.fromEntries(["request", "config", "artifact", "form"].map((name) => [name, pin(value.awaiting?.[name])])) };
           }
         } else {
-          results[kind] = { existence: "present", description: typeof value?.message === "string" ? sanitize(value.message, env).slice(0, DESCRIPTION_LIMIT) : "No string diagnostic message" };
+          // Legacy private messages may contain arbitrary native output. Never render them.
+          results[kind] = { existence: "present", description: "Private diagnostic retained; raw payload omitted" };
         }
       } catch (error) {
         const status = classification(error);
-        results[kind] = { existence: present ? "present" : status === "absent" ? "absent" : "unknown", read: status };
+        results[kind] = { existence: present ? "present" : status === "absent" ? "absent" : "unknown", read: status, failure: classify(error) };
       }
     }
   } finally { client?.destroy(); }

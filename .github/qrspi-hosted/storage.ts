@@ -5,6 +5,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { createHash } from "node:crypto";
 import { assert } from "./core.ts";
+import { missingObject } from "./diagnostics.ts";
 export const digest = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export class PrivateStore {
@@ -50,7 +51,7 @@ export class PrivateStore {
         etag: r.ETag!,
       };
     } catch (e: any) {
-      if (e.$metadata?.httpStatusCode === 404) return undefined;
+      if (missingObject(e)) return undefined;
       throw e;
     }
   }

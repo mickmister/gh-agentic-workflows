@@ -45,11 +45,11 @@ test("only four GETs, even with absent, uncertain or unreadable admission; no re
       assert(command instanceof GetObjectCommand);
       commands.push(command);
       if (commands.length === 1) {
-        if (admission === undefined) throw { $metadata: { httpStatusCode: 404 } };
+        if (admission === undefined) throw { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } };
         if (admission === "failure") throw new Error("RAW-SECRET https://user:password@private.invalid");
         return response({ binding: target(env).binding, outcome: admission });
       }
-      throw { $metadata: { httpStatusCode: 404 } };
+      throw { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } };
     });
     assert.equal(commands.length, 4);
     assert.deepEqual(commands.map((c) => c.input), Object.values(target(env).keys).map((key) => ({ Bucket: env.S3_CACHE_BUCKET, Key: `evidence/qrspi-hosted/${key}` })));
@@ -92,18 +92,18 @@ test("configured values, URL forms, headers, tokens and JWTs are scrubbed BEFORE
   assert.equal(sanitize("x".repeat(64_001), env), "Oversized diagnostic description omitted");
   assert(!sanitize("Command failed\nRAW-NATIVE-TRANSCRIPT", env).includes("RAW-NATIVE"));
 });
-test("execFile failure retains only a sanitized headline and bounded first nonempty stderr summary", async () => {
+test("private execFile error payload is omitted entirely", async () => {
   const diagnosticEnv = { ...env, CF_ACCESS_CLIENT_SECRET: "multiline-secret\nsecret-continuation" };
   const message = `Command failed: nugs open --remote ${env.NUGS_STORAGE_URL}\r\n\r\nStorage refused connection ::error::oops ${env.S3_CACHE_SECRET_ACCESS_KEY} https://user:pass@elsewhere.example/path multiline-secret\nsecret-continuation\nAuthorization: hidden-credential\nRAW-NATIVE-TRANSCRIPT\n::warning::TRANSCRIPT-COMMAND`;
   const output = await inspect(diagnosticEnv, async () => response({ message }));
   assert(output.length <= OUTPUT_LIMIT);
   for (const kind of ["open", "work"]) {
     const description = JSON.parse(output).results[kind].description;
-    assert.match(description, /^Command failed: nugs open --remote \[redacted\] \[stderr\] Storage refused connection/);
+    assert.equal(description, "Private diagnostic retained; raw payload omitted");
     assert(description.length <= DESCRIPTION_LIMIT);
     assert(!/[\r\n]/.test(description));
   }
-  assert(!/configured-secret|user:pass|elsewhere|multiline-secret|secret-continuation|hidden-credential|RAW-NATIVE|TRANSCRIPT-COMMAND|::/.test(output));
+  assert(!/Command failed|Storage refused|configured-secret|user:pass|elsewhere|multiline-secret|secret-continuation|hidden-credential|RAW-NATIVE|TRANSCRIPT-COMMAND|::/.test(output));
   const bounded = sanitize(`Command failed: nugs ${"x".repeat(2000)}\nFailure reason ${"y".repeat(2000)}\nOMIT-ME`, env);
   assert.match(bounded, /\[stderr\] Failure reason/);
   assert(bounded.length <= DESCRIPTION_LIMIT);
