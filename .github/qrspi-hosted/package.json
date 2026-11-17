@@ -1,0 +1,27 @@
+{
+  "name": "qrspi-hosted",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.19.0" },
+  "scripts": {
+    "test": "tsx --test *.test.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.922.0",
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@mickmister/nugs": "0.1.5",
+    "acpx": "0.22.0",
+    "pi-acp": "0.0.33",
+    "pnpm": "12.18.0",
+    "yaml": "2.8.1"
+  },
+  "overrides": {
+    "fast-xml-parser": "5.12.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.30",
+    "tsx": "4.20.3",
+    "typescript": "5.8.3"
+  }
+}
