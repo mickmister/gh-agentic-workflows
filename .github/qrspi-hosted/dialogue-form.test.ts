@@ -14,6 +14,10 @@ test('intake requires a direct answer and never treats a generic discuss click a
   assert.deepEqual(p.validateAnswers(rich,{problem:{lost_context:true}}),[]);
   assert.ok(p.validateAnswers(rich,{}).length);
   assert.equal(rich.questions[0].choices[0].prosAndCons.pros[0],'Preserves the reviewer’s intent');
+  const optional=p.parseRecord(JSON.stringify({...form,questions:dialogueQuestions('Report any mismatch',[{id:'mismatch',type:'textarea',title:'What, if anything, is inaccurate?',description:'Leave blank if none.',required:false}])}));
+  assert.equal(optional.questions[0].required,false);
+  assert.deepEqual(p.validateAnswers(optional,{}),[]);
+  assert.deepEqual(p.validateAnswers(optional,{mismatch:''}),[]);
   assert.throws(()=>dialogueQuestions('Question',[{id:'decision',type:'choices'}]),/reserved/);
   assert.throws(()=>dialogueQuestions('Question',[]),/one to six/);
 });

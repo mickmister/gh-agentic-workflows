@@ -7,8 +7,10 @@ installs the lockfile's published nugs **0.1.5**, acpx **0.22.0**, pi-acp
 
 ## Checkpoints and PR notifications
 
-Intake discussion forms collect a required direct answer to the actual question,
-instead of offering only generic Revise/Continue discussion gate controls. They
+Discussion forms collect substantive answers rather than only generic
+Revise/Continue discussion gate controls. The agent's explicit `required:false`
+is preserved for optional feedback; omitted first-question requiredness and the
+fallback direct-answer question default to required. They
 remain discussion-only with no phase/code approval. The orchestrator receives
 the complete answer and carries forward settled context. Existing immutable
 responses and forms are not rewritten.
