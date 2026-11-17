@@ -34,3 +34,21 @@ including disabling worker delegation tools; prose alone is not enforcement.
 All new first-party CLI/MCP/Actions orchestration, including bootstrap, auth and
 storage, must be TypeScript with no hidden Python dependency or fallback. Existing
 legacy Python is not yet migrated; native published tools retain their ownership.
+
+## Evidence-based workflow assessment
+
+When analyzing a workflow run's success, download and inspect available native
+orchestrator/worker transcripts, session records, performance/usage counters and
+OTel payloads. A green Actions result or settled ACP turn alone is insufficient.
+Report missing/inaccessible evidence explicitly, including absent parent/child
+links or instrumentation; do not invent sessions, spans, costs or clean reviews.
+Use read-only inspection for existing runs rather than replaying model work.
+Raw transcripts and telemetry stay private; publish compact findings and exact
+references, never payloads or credentials in Documents or Actions artifacts.
+
+Prefer Zero Framework Cognition for discussion: let the designated agent choose
+useful document names, document/form structure, questions and next conversational
+work within QRSPI's authority. Keep the host focused on mechanical I/O, immutable
+pins, authentication, capabilities and execution bounds. Preserve QRSPI's own
+canonical artifact/route contracts rather than replacing them with host-invented
+conversation templates or another workflow engine.

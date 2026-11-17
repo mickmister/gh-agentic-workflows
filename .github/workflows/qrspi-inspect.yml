@@ -23,6 +23,10 @@ on:
         description: Existing process run attempt
         type: string
         default: "1"
+      native-evidence:
+        description: Also download and inspect bounded native role/session/performance records (no model work)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -42,7 +46,7 @@ jobs:
         working-directory: .github/qrspi-hosted
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: GET bound private evidence only (not an admitted process invocation)
-        env:
+        env: &inspection-env
           NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
           REVIEW_WORKSPACE: ${{ inputs.workspace }}
           QRSPI_PROCESS: ${{ inputs.process }}
@@ -64,3 +68,7 @@ jobs:
           S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
           S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
         run: node --experimental-strip-types .github/qrspi-hosted/inspect.ts
+      - name: Download and inspect existing native session evidence
+        if: inputs.native-evidence
+        env: *inspection-env
+        run: node --experimental-strip-types .github/qrspi-hosted/analyze-native.ts

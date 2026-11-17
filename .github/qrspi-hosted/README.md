@@ -261,8 +261,19 @@ The first failure's root cause remains unproven; prior absence reports without a
 actual GET error name are not proof of missing keys. No compatibility/auth/checksum
 change or process replay follows from these diagnostics alone.
 
-Only four derived keys are fetched, with SDK retries disabled. No App credentials,
+By default, only four derived keys are fetched, with SDK retries disabled. No App credentials,
 model, native CLI, setup, Documents publication, S3 mutation, or Actions artifacts
 are involved. Existing storage/inference/access secret values are supplied only to
 this step for SDK access and redaction. Pin paths may themselves be redacted if
 they resemble sensitive material. Read failures are not raw exception dumps.
+
+Set `native-evidence:true` to additionally LIST the exact bound process/run/attempt
+prefix and GET its existing native role archives. This read-only analysis downloads
+the actual event/native/output/result bundle, hashes it, checks native session and
+assistant-stop records, and derives reported usage and observed native duration.
+Only aggregate counters and hashed session/question identities are printed;
+prompts, model text, arbitrary attributes and tool bodies remain private. Limits
+are32 objects,32MB each and128MB total. A missing archive or missing usage is not
+proof of success or zero cost. Parent/child links are not currently recorded, and
+the pilot has no native OTel exporter; these gaps remain explicit. This optional
+mode never replays process work, runs setup, writes S3, or uploads Actions artifacts.
