@@ -33,6 +33,7 @@ import { authenticateReceipt } from "./identity.ts";
 import { boundedText, validateReport, validateArtifacts, approvalConsistent, questionsFeedback } from "./bounds.ts";
 import { reviewerContext } from "./reviewer-context.ts";
 import { reportFailure, type Stage } from "./diagnostics.ts";
+import { dialogueQuestions } from "./dialogue-form.ts";
 const env = process.env;
 let stage: Stage = "initialization";
 let archiveStore: PrivateStore | undefined;
@@ -381,6 +382,7 @@ async function work() {
       boundary +
         methodology() +
         phaseContext +
+        "\nCarry forward explicit answers and settled requirements from the current artifacts and complete response. Do not repeat a question that was already substantively answered, or require confirmation of a recommendation when existing requirements suffice to draft Goals. Legacy generic Continue discussion clicks are navigation intent, not an answer. For an intake pause, return questions: one to six standard-form question objects with stable substantive ids (never decision), type text/textarea/choices, title, description and required. Prefer one focused Goals question at a time. Choices must have concrete contextual ids/labels and may include descriptions, is_recommended_reason and prosAndCons; explain alternatives where useful. Never replace the real question with generic Approve/Revise/Continue discussion options. These answers continue dialogue only. Production form validation applies; the host alone supplies actual phase-approval controls.\n" +
         `\nSource readiness:\n${sourceContext()}\nQRSPI canonical artifact root: ${prefix}\nCurrent artifacts:\n${JSON.stringify(artifacts)}\nStart intent: ${env.QRSPI_GOAL ?? ""}\nApproval consistency assessment: ${JSON.stringify(state.approvalAssessment ?? null)}\nExact submitted response (all choices/notes): ${JSON.stringify(state.feedback ?? null)}\nSetup outcome: ${env.SETUP_OUTCOME}; ${JSON.stringify(state.setup)}\nExecute one bounded QRSPI conversation turn. Determine next valid work from route and actual frontmatter; do not skip unfinished predecessor gates. If needed references or worker capabilities are unavailable, ask, never claim completion. Return {artifacts:{relativeMarkdownName:completeBytes},reviewArtifact:string,title:string,question:string,approvalOffered:boolean}. Ask a single grounded Goals question when intent is incomplete; then approvalOffered=false. If no complete locked goal exists yet, do NOT fabricate partial goals.md: author intake.md containing the actual start intent, source-backed observations and open question, and use reviewArtifact=intake.md. Intake is discussion-only, never phase approval. Offer approval only at the actual phase human gate. Ordinary approval never waives unresolved findings. Unverified review limitations require a separate informed decision; do not invent clean/verifier evidence. Preserve current config. Do not emit approval markers. Do not continue beyond the next human pause.`,
     ),
   );
@@ -493,15 +495,15 @@ async function work() {
   validateArtifacts(artifacts);
   // Validate production publication before the first new authored write.
   const requestId = `${binding.process}-${randomUUID()}`;
-  const formId = "phase-decision";
+  const formId = target === "intake.md" ? "intake-answer" : "phase-decision";
   const form = {
     format: "standard",
     id: formId,
     task_id: binding.bead,
     title: output.title,
-    description: `Exact artifact: ${prefix + target}. Content approval only; no code authorization. ${reviewStatus}`,
+    description: `Exact artifact: ${prefix + target}. ${target === "intake.md" ? "Answer the question directly to continue Goals discussion; no phase approval." : "Content approval only; no code authorization."} ${reviewStatus}`,
     allowCodeFileChanges: false,
-    questions: [
+    questions: target === "intake.md" ? dialogueQuestions(output.question, output.questions) : [
       {
         id: "decision",
         type: "choices",
@@ -638,6 +640,8 @@ async function work() {
     env.GITHUB_STEP_SUMMARY!,
     `Bounded turn settled; not a claim of phase completion. Setup: ${env.SETUP_OUTCOME}.\n\n[Review request](${publication.link})\n`,
   );
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT,
+    `checkpoint_url=${publication.link}\nrequest_version=${publication.pin.version}\nrequest_snapshot=${publication.pin.snapshot}\n`);
   // Deferred interview is evidence-based and proposal-only. Its failure cannot erase a published request.
   try {
     stage = "exit-interview";

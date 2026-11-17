@@ -5,6 +5,41 @@ auth helpers, storage and Pi adapters are TypeScript. `npm ci --ignore-scripts`
 installs the lockfile's published nugs **0.1.5**, acpx **0.22.0**, pi-acp
 **0.0.33** and Pi **1.5.2**; no source-built nugs or Python is invoked.
 
+## Checkpoints and PR notifications
+
+Intake discussion forms collect a required direct answer to the actual question,
+instead of offering only generic Revise/Continue discussion gate controls. They
+remain discussion-only with no phase/code approval. The orchestrator receives
+the complete answer and carries forward settled context. Existing immutable
+responses and forms are not rewritten.
+
+Workflow run names include the exact response blob version so the updated broker
+can correlate read-only Actions evidence to the submitted response, branch and
+actor. This metadata is not phase-completion evidence or transcript publication.
+
+After a successful bounded turn, the host persists the checkpoint, settles the
+admission, saves a compact run reference and adds the exact pinned review URL to
+the Actions summary. The workflow then exits; it does not remain running while
+waiting for a human. An authenticated submitted response starts a new correlated
+run, subject to the normal QRSPI and duplicate-admission checks.
+
+The final notification job posts one comment per immutable checkpoint to the
+single open source PR matching GitHub's run branch and repository. It uses the
+notification job's `GITHUB_TOKEN` with Pull requests write, not storage/model
+credentials. The process/setup job retains its Contents-read default token.
+It checks paginated comments for its bot-authored marker before creating a new
+comment. No matching PR leaves an explicit summary notice; ambiguous PRs/API
+failures fail only notification without retracting the published review. GitHub's
+failed-jobs retry can rerun this job without rerunning a successful process job.
+Do not rerun
+model work to repair a notification. The manual `qrspi-notify.yml` workflow posts
+only the existing pinned checkpoint, without installing tools, running setup,
+admitting a prompt or modifying process state. Select the original source branch
+and copy the workspace/process and exact URL/version/snapshot from the published
+checkpoint. Its run link identifies the notification repair invocation.
+PR comments link to the hosted form; they
+are not submitted review responses or phase/code approvals.
+
 ## Before the first hosted run (parent-owned)
 
 1. The production review CLI is pinned to reviewed/pushed integrated GUI commit

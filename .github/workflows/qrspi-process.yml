@@ -1,5 +1,5 @@
 name: QRSPI hosted process
-run-name: QRSPI ${{ inputs.process }} · ${{ github.run_id }}
+run-name: QRSPI ${{ inputs.process }} · ${{ inputs.response && fromJSON(inputs.response).version || 'start' }} · ${{ github.run_id }}
 on:
   workflow_dispatch:
     inputs:
@@ -66,6 +66,10 @@ permissions:
 jobs:
   process:
     runs-on: ubuntu-24.04
+    outputs:
+      checkpoint_url: ${{ steps.work.outputs.checkpoint_url }}
+      request_version: ${{ steps.work.outputs.request_version }}
+      request_snapshot: ${{ steps.work.outputs.request_snapshot }}
     timeout-minutes: 55
     concurrency:
       group: qrspi-${{ inputs.workspace }}-${{ inputs.process }}
@@ -156,6 +160,32 @@ jobs:
         # No host secrets or App tokens in this step's environment.
         uses: ./.agentic/active-setup
       - name: Bounded QRSPI work, pinned review publication, deferred exit interview
+        id: work
         if: ${{ !cancelled() && steps.open.outputs.admitted == 'true' }}
         env: *host-env
         run: SETUP_OUTCOME='${{ steps.setup.outcome }}' node --experimental-strip-types .github/qrspi-hosted/main.ts work
+  notify:
+    needs: process
+    if: ${{ !cancelled() && needs.process.outputs.checkpoint_url != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Publish checkpoint on the source pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_WORKSPACE: ${{ inputs.workspace }}
+          QRSPI_PROCESS: ${{ inputs.process }}
+          REVIEW_APP_URL: ${{ vars.QRSPI_REVIEW_APP_URL }}
+          CHECKPOINT_URL: ${{ needs.process.outputs.checkpoint_url }}
+          CHECKPOINT_VERSION: ${{ needs.process.outputs.request_version }}
+          CHECKPOINT_SNAPSHOT: ${{ needs.process.outputs.request_snapshot }}
+        run: node --experimental-strip-types .github/qrspi-hosted/checkpoint-comment.ts

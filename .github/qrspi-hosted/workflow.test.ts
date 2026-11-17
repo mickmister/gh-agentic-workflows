@@ -23,7 +23,7 @@ test("workflow matches the shared input contract and runs selected setup in the 
     names,
   );
   assert.deepEqual(Object.keys(workflow.on.workflow_call.inputs).sort(), names);
-  assert.equal(Object.keys(workflow.jobs).length, 1);
+  assert.equal(Object.keys(workflow.jobs).length, 2);
   const job = workflow.jobs.process;
   const nodeVersion = job.steps.find((step: any) => step.uses?.startsWith("actions/setup-node@")).with["node-version"];
   const [major, minor] = nodeVersion.split(".").map(Number);
@@ -43,12 +43,26 @@ test("workflow matches the shared input contract and runs selected setup in the 
   assert.equal(setup.env, undefined);
   const open = job.steps.find((s: any) => s.id === "open");
   assert.equal(open.env.QRSPI_REVIEWERS, "${{ vars.QRSPI_REVIEWERS }}");
+  assert.equal(job.permissions?.['pull-requests'], undefined);
+  assert.equal(workflow.jobs.notify.permissions['pull-requests'], 'write');
+  assert.equal(workflow.jobs.notify.needs, 'process');
+  const notification = workflow.jobs.notify.steps.find((s: any) => s.run?.includes('checkpoint-comment.ts'));
+  assert.equal(notification.env.GH_TOKEN, '${{ github.token }}');
+  assert.equal(notification.env.INFERENCE_API_KEY, undefined);
   assert.doesNotMatch(text, /upload-artifact|\bpython[23]?\b/);
   assert.ok(
     job.steps.some((s: any) =>
       s.uses?.startsWith("actions/create-github-app-token@"),
     ),
   );
+});
+test('notification repair cannot admit or replay process work', () => {
+  const text = readFileSync('../workflows/qrspi-notify.yml', 'utf8');
+  const workflow = parse(text);
+  assert.equal(Object.keys(workflow.jobs).length, 1);
+  assert.equal(workflow.jobs.notify.steps.filter((s:any) => s.run).length, 1);
+  assert.match(workflow.jobs.notify.steps.find((s:any) => s.run).run, /checkpoint-comment\.ts/);
+  assert.doesNotMatch(text, /main\.ts|npm ci|INFERENCE|S3_CACHE|AGENT_APP|upload-artifact/);
 });
 test("published package pins and nugs registry integrity match the existing source lock", () => {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
