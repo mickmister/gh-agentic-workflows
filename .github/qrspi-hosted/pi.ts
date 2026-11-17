@@ -1,10 +1,11 @@
-import { createSharedAcpRuntime, createAgentRegistry } from "acpx/runtime";
+import { createSharedAcpRuntime, createAgentRegistry, type AcpRuntimeHandle } from "acpx/runtime";
 import { mkdir, writeFile, chmod, readdir, stat, copyFile, open } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { assert, settled } from "./core.ts";
 import { limits, boundedText } from "./bounds.ts";
+import { nativeSessionIds, type SessionIdentity, type SessionRecord } from "./session.ts";
 export async function configurePi(home: string) {
   for (const name of ["INFERENCE_BASE_URL", "INFERENCE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "QRSPI_MODEL"])
     assert(process.env[name], `Missing ${name}`);
@@ -56,25 +57,34 @@ async function deadline<T>(task: Promise<T>, ms: number, label: string) {
   try { return await Promise.race([task, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(label)), ms); })]); }
   finally { clearTimeout(timer!); }
 }
-export async function piTurn(cwd: string, role: string, prompt: string, save: (value: unknown) => Promise<unknown>) {
+export async function piTurn(cwd: string, role: string, prompt: string, save: (value: unknown) => Promise<unknown>, options: {
+  tools?: { socket: string; token: string }; session?: SessionIdentity; record?: (value: SessionRecord) => Promise<unknown>;
+} = {}) {
   boundedText(prompt, limits.prompt, "Pi prompt");
+  assert(!options.tools || role === "orchestrator", "Only designated orchestrator may receive tools");
   // Native evidence is isolated per turn: never read prior sessions or shared acpx logs.
   const base = process.env.PI_CODING_AGENT_DIR!;
   const turnDir = join(base, `turn-${randomUUID()}`);
   await mkdir(turnDir, { mode: 0o700 });
   await copyFile(join(base, "models.json"), join(turnDir, "models.json"));
   process.env.PI_CODING_AGENT_DIR = turnDir;
+  const priorSocket = process.env.QRSPI_TOOL_SOCKET, priorToken = process.env.QRSPI_TOOL_TOKEN;
+  if (options.tools) { process.env.QRSPI_TOOL_SOCKET = options.tools.socket; process.env.QRSPI_TOOL_TOKEN = options.tools.token; }
+  else { delete process.env.QRSPI_TOOL_SOCKET; delete process.env.QRSPI_TOOL_TOKEN; }
+  const timeoutMs = options.tools ? 480000 : 180000;
+  const session = options.session;
   const sessionDir = join(turnDir, "sessions");
-  const runtime = createSharedAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs: 180000, ttlMs: 1000,
+  const runtime = createSharedAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs, ttlMs: 1000,
     agentRegistry: createAgentRegistry({ overrides: { pi: [process.execPath, fileURLToPath(new URL("node_modules/pi-acp/dist/index.js", import.meta.url))] } }),
   });
   const events: unknown[] = [];
-  let result: unknown, failure: string | undefined, handle;
+  let result: unknown, failure: string | undefined, handle: AcpRuntimeHandle | undefined;
   let text = "", native: string[] = [], eventBytes = 0;
   try {
+    if (session) await options.record?.({ ...session, status: "allocated" });
     await deadline((async () => {
       handle = await runtime.ensureSession({ sessionKey: `qrspi-${role}-${randomUUID()}`, agent: "pi", mode: "persistent", cwd });
-      const turn = runtime.startTurn({ handle, text: prompt, mode: "prompt", requestId: randomUUID(), timeoutMs: 180000 });
+      const turn = runtime.startTurn({ handle, text: prompt, mode: "prompt", requestId: randomUUID(), timeoutMs });
       const completion = turn.result;
       void completion.catch(() => {});
       for await (const event of turn.events) {
@@ -88,9 +98,17 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
         }
       }
       result = await completion;
-    })(), 185000, "Hard Pi turn deadline exceeded");
+    })(), timeoutMs + 5000, "Hard Pi turn deadline exceeded");
     native = Object.values(await nativeFiles(sessionDir)).flatMap(bytes => bytes.split("\n").filter(Boolean));
     verifyNative(native);
+    if (options.tools) {
+      // Tool-using turns can include assistant progress prose before tool calls.
+      // The final structured result is the last native assistant message, not
+      // concatenated prose from every assistant message in the event stream.
+      const final = native.map(line => JSON.parse(line)).filter(row => row.type === "message" && row.message?.role === "assistant").at(-1).message;
+      text = final.content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("");
+      boundedText(text, limits.text, "final Pi output");
+    }
     return settled(result, text);
   } catch (error) {
     failure = error instanceof Error ? error.message.slice(0, 2000) : "Pi turn failed";
@@ -101,9 +119,14 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
         try { native = Object.values(await nativeFiles(sessionDir)).flatMap(bytes => bytes.split("\n").filter(Boolean)); }
         catch { native = ["Native evidence bound exceeded; full files intentionally not ingested"]; }
       }
-      await deadline(save({ role, events, result, text, native, failure, settlementOnly: true, bounded: true }), 15000, "Evidence persistence deadline exceeded");
+      const final = session ? { ...session, status: failure ? "failed" as const : "completed" as const,
+        nativeSessionIds: nativeSessionIds(native), acpxRecordId: (handle as AcpRuntimeHandle | undefined)?.acpxRecordId } : undefined;
+      await deadline(save({ role, session: final, prompt, events, result, text, native, failure, settlementOnly: true, bounded: true }), 15000, "Evidence persistence deadline exceeded");
+      if (final) await options.record?.(final);
     } finally {
       process.env.PI_CODING_AGENT_DIR = base;
+      if (priorSocket === undefined) delete process.env.QRSPI_TOOL_SOCKET; else process.env.QRSPI_TOOL_SOCKET = priorSocket;
+      if (priorToken === undefined) delete process.env.QRSPI_TOOL_TOKEN; else process.env.QRSPI_TOOL_TOKEN = priorToken;
       await deadline((async () => {
         if (handle) await runtime.close({ handle, reason: "bounded turn settled" });
         await runtime.shutdown();

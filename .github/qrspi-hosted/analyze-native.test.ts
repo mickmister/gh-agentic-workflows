@@ -21,6 +21,13 @@ test('inspection lists only bound run-prefix and GETs native evidence, never wri
  assert.deepEqual(calls,['ListObjectsV2Command','GetObjectCommand']);assert.equal(result.downloadedObjects,1);
  assert.doesNotMatch(JSON.stringify(result),/private-key|private-secret|PRIVATE-BODY/);
 });
+test('recorded tool-dispatched child links correlate with parent without leaking raw identities',()=>{
+ const result=nativeSummary({...archive,role:'worker-reviewer',session:{id:'private-child',parentId:'private-parent',executionId:'123-1',toolCallId:'private-call',status:'completed',nativeSessionIds:['private-native']}});
+ assert.equal(result.parentChildSessionLinksRecorded,true);
+ assert.equal(result.session?.origin,'orchestrator-tool');
+ assert.ok(result.session?.parentId);
+ assert.doesNotMatch(JSON.stringify(result),/private-child|private-parent|private-call|private-native/);
+});
 test('invalid targets and out-of-prefix listings cannot read arbitrary objects; absent evidence remains absent',async()=>{
  let calls=0;
  await assert.rejects(analyzeNative({...env,TARGET_RUN_ID:'../other'},async()=>{calls++;return{};}));assert.equal(calls,0);

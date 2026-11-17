@@ -30,6 +30,7 @@ test(
     let seq = 0;
     let stage = 0;
     let prompts = 0;
+    let lastErrors = "";
     const draft = (title: string) =>
       `---\nstatus: draft\n---\n# ${title}\n\n## Purpose\nOperators need durable review continuation.\n\n## G1\n\ntype: known-fix\n\n### Problem\nReviews lose execution binding.\n\n### Why we care\nHuman feedback should remain attached.\n\n### What we know so far\n${title}.\n`;
     const server = createServer(async (req, res) => {
@@ -219,12 +220,13 @@ test(
           c.on("error", reject);
           c.on("exit", (code) => {
             clearTimeout(timer);
+            lastErrors = errors;
             if (code && !["open"].includes(op)) console.error(errors);
             resolveCode(code ?? 1);
           });
         });
       const invocation = async () => {
-        assert.equal(await command("open"), 0);
+        assert.equal(await command("open"), 0, lastErrors);
         assert.ok(
           readFileSync(
             join(host, ".agentic/active-setup/action.yml"),

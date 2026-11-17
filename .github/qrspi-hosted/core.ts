@@ -295,6 +295,11 @@ export function validateReviewTarget(
     );
     return;
   }
+  if (!Object.values(outputs).includes(target)) {
+    validName(target);
+    assert(!approvalOffered && artifacts[target], "Discussion documents cannot offer phase approval");
+    return;
+  }
   const index = route.findIndex((step: string) => outputs[step] === target);
   assert(
     index >= 0,

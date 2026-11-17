@@ -16,6 +16,8 @@ export function nativeSummary(value:any) {
   const eventTypes=new Set(['text_delta','thought_delta','tool_call','tool_result','session_started','turn_started','turn_completed','status','error']);
   for(const event of value.events){const type=eventTypes.has(event?.type)?event.type:'other';events[type]=(events[type]??0)+1;}
   const sessions=new Set<string>(), times:number[]=[];
+  const toolCallsByName:Record<string,number>={}, dispatchCallIds:string[]=[];
+  let toolResultFailures=0,toolResults=0;
   let assistantMessages=0,toolCalls=0,inputTokens=0,outputTokens=0,cacheReadTokens=0,cacheWriteTokens=0,cost=0,invalidLines=0,usageRecords=0,costReported=false;
   for(const line of value.native){
     let row:any;try{row=JSON.parse(line);}catch{invalidLines++;continue;}
@@ -24,23 +26,36 @@ export function nativeSummary(value:any) {
     const timestamp=typeof row.timestamp==='number'?row.timestamp:Date.parse(row.timestamp);
     if(Number.isFinite(timestamp))times.push(timestamp);
     const message=row.message;
+    if(row.type==='message'&&message?.role==='toolResult') { toolResults++; if(message.isError)toolResultFailures++; }
     if(row.type!=='message'||message?.role!=='assistant')continue;
     assistantMessages++;
     const stop=['stop','error','aborted','length','toolUse'].includes(message.stopReason)?message.stopReason:'unknown';
     stops[stop]=(stops[stop]??0)+1;
     toolCalls+=Array.isArray(message.content)?message.content.filter((item:any)=>['toolCall','tool_use'].includes(item?.type)).length:0;
+    for(const item of Array.isArray(message.content)?message.content:[])if(['toolCall','tool_use'].includes(item?.type)){
+      const name=['qrspi_context','qrspi_document','qrspi_dispatch'].includes(item.name)?item.name:'other';
+      toolCallsByName[name]=(toolCallsByName[name]??0)+1;
+      if(name==='qrspi_dispatch'&&typeof item.id==='string')dispatchCallIds.push(sha(item.id).slice(0,16));
+    }
     if(message.usage&&typeof message.usage==='object')usageRecords++;
     inputTokens+=count(message.usage?.input);outputTokens+=count(message.usage?.output);
     cacheReadTokens+=count(message.usage?.cacheRead);cacheWriteTokens+=count(message.usage?.cacheWrite);cost+=count(message.usage?.cost?.total);costReported ||= typeof message.usage?.cost?.total==='number';
   }
   let authoredDocuments=0,questionHash:string|undefined;
   try{const output=JSON.parse(value.text);authoredDocuments=output?.artifacts&&typeof output.artifacts==='object'?Object.keys(output.artifacts).length:0;if(typeof output?.question==='string')questionHash=sha(output.question);}catch{/* Not every role returns structured authored output. */}
-  return {role:['preparation','setup-planner','orchestrator','approval-consistency','questions-author','review-quality','review-scope','exit-interview'].includes(value.role)?value.role:'other',
+  const session = value.session;
+  const linked = session && typeof session.id === 'string' && typeof session.executionId === 'string' &&
+    (session.parentId === null || typeof session.parentId === 'string');
+  return {role:['preparation','setup-planner','orchestrator','worker-researcher','worker-reviewer','approval-consistency','questions-author','review-quality','review-scope','exit-interview'].includes(value.role)?value.role:'other',
     resultStatus:['completed','failed','cancelled','timed_out'].includes(value.result?.status)?value.result.status:'unknown',failurePresent:Boolean(value.failure),
-    events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,toolCalls,nativeStopReasons:stops,
+    events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,toolCalls,toolCallsByName,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
     observedNativeDurationMs:times.length>1?times.reduce((a,b)=>Math.max(a,b))-times.reduce((a,b)=>Math.min(a,b)):null,
     usage:{records:usageRecords,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,reportedCost:costReported?cost:null},authoredDocuments,questionHash,
-    parentChildSessionLinksRecorded:false,phaseCompletionClaimed:false};
+    ...(linked ? {session:{id:sha(session.id).slice(0,16),parentId:session.parentId===null?null:sha(session.parentId).slice(0,16),
+      executionId:sha(session.executionId).slice(0,16),nativeSessions: Array.isArray(session.nativeSessionIds)?session.nativeSessionIds.map((id:string)=>sha(id).slice(0,16)):[],
+      ...(typeof session.toolCallId==='string'?{toolCallId:sha(session.toolCallId).slice(0,16)}:{}),
+      origin:typeof session.toolCallId==='string'?'orchestrator-tool':'host',status:['allocated','completed','failed'].includes(session.status)?session.status:'unknown'}} : {}),
+    parentChildSessionLinksRecorded:Boolean(linked && session.parentId),phaseCompletionClaimed:false};
 }
 
 /** LIST/GET only, restricted to an exact bound process and target Actions attempt. */
@@ -73,7 +88,7 @@ export async function analyzeNative(env:NodeJS.ProcessEnv,send?:(command:ReadCom
       assert(typeof list.NextContinuationToken==='string'&&page<4,'Native evidence listing truncated');token=list.NextContinuationToken;
     }
     return {diagnosticOnly:true,run:env.TARGET_RUN_ID,attempt:env.TARGET_RUN_ATTEMPT??'1',downloadedObjects:records.length,downloadedBytes:bytes,records,
-      nativeEvidenceAvailable:records.length>0,otelDecoded:false,notice:records.length?'Native evidence was downloaded and inspected. These are host-scheduled role sessions, not proof of orchestrator-created child sessions or completed QRSPI phases. No process work was admitted.':'No native archives found for this target. This is not evidence of success, zero usage, or permission to replay process work.'};
+      nativeEvidenceAvailable:records.length>0,otelDecoded:false,notice:records.length?'Native evidence was downloaded and inspected. Session origin/parent links are reported only when recorded; settlement is not proof of completed QRSPI phases. No process work was admitted.':'No native archives found for this target. This is not evidence of success, zero usage, or permission to replay process work.'};
   }finally{client?.destroy();}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){

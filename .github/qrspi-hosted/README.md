@@ -110,9 +110,12 @@ work for the parent; local synthetic tests are not human approval evidence.
   without asking for another preparation turn. Noop is valid; failed required
   setup blocks work. Setup is trusted caller-opted-in project code, not a general
   shell sandbox; it receives no host secrets/App tokens in its step environment.
-- The host explicitly supplies QRSPI skills/references. Pi has **no tools**, no
-  shell/delegation, no ambient extensions/skills/context, and no MCP. The adapter's
-  unsupported `mcpServers` forwarding is not used. Models JSON uses native Pi
+- The designated orchestrator loads one explicit first-party extension, with only
+  `qrspi_context`, `qrspi_document` and `qrspi_dispatch`. Built-in tools, ambient
+  extensions/skills/context and MCP remain disabled. A private Unix socket and
+  per-turn capability connect these tools to the host. Context reads use an explicit
+  methodology/tracked-source/current-artifact catalog, realpath containment, hashes
+  and bounded line windows, rather than eager reference injection. Models JSON uses native Pi
   `${...}` secret-env interpolation for the API key and both CF headers.
 - The QRSPI orchestrator proposes bounded authored work and the next human
   question. It cannot write an approval marker or mutate approved bytes.
@@ -120,6 +123,28 @@ work for the parent; local synthetic tests are not human approval evidence.
   persisted phase scheduler exists. Questions generation uses a **separate clean
   Pi session**, not the Goals dialogue. Review roles have the same empty tool
   allowlist and cannot dispatch further agents.
+- Orchestrator-selected researchers/reviewers use the existing repository
+  `dispatch-acp.mjs` CLI and published acpx 0.22.0, fresh sessions, explicit deny-all
+  permissions, and a tool-free Pi launcher. Only selected context and the authored
+  task reach workers; no parent dialogue or socket capability is inherited. Native
+  Pi outcomes are additionally checked before accepting a wrapper result. There
+  are at most two sequential workers and 40 parent tool calls per turn. Repeated
+  dispatch IDs return the same observed result; changed/uncertain identities and
+  any failed dispatch forbid another launch in that turn. This does not add code
+  execution or canonical reviewer/verifier rounds.
+- Agents choose safe discussion document names, questions and up to 12 packet
+  documents. `qrspi_document` stages bytes; production validation and immutable
+  publication happen after the final output. Config, approved artifacts and
+  host-owned review/feedback evidence remain protected. Noncanonical discussion
+  documents cannot offer phase approval. Existing immutable intake history remains
+  readable, but `intake.md` is no longer required for new discussion.
+- Session allocation and final records are read back in private S3 under
+  `processes/<binding-digest>/sessions/<run>-<attempt>/<session-id>.json`.
+  Native archives carry the same logical session ID, parent ID, tool call ID,
+  execution/source identity, native session IDs and available acpx record ID.
+  Allocation without a final record is uncertain, not authorization to retry.
+  The read-only native analyzer projects hashed links and usage without raw bodies.
+  This is session correlation, not a native GenAI OTel exporter or transcript UI.
 - Review observations are explicitly distinguished from a complete
   verifier-affirmed QRSPI review round. Actual reviewer protocol, phase rules,
   scope OWNS/DEFERS and emission references are inlined for no-tools sessions;

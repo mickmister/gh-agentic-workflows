@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --experimental-strip-types
-// pi-acp invokes this executable instead of an ambient `pi`. No shell, filesystem,
-// delegation, credential, extension or implicit MCP tools reach the model.
+// pi-acp invokes this executable instead of ambient `pi`. Only an explicit
+// orchestrator capability can load our tool bridge; workers have no tools.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const env: NodeJS.ProcessEnv = {};
@@ -12,6 +12,8 @@ for (const key of [
   "INFERENCE_API_KEY",
   "CF_ACCESS_CLIENT_ID",
   "CF_ACCESS_CLIENT_SECRET",
+  "QRSPI_TOOL_SOCKET",
+  "QRSPI_TOOL_TOKEN",
 ])
   if (process.env[key]) env[key] = process.env[key];
 const child = spawn(
@@ -24,7 +26,9 @@ const child = spawn(
       ),
     ),
     ...process.argv.slice(2),
-    "--no-tools",
+    ...(env.QRSPI_TOOL_SOCKET && env.QRSPI_TOOL_TOKEN
+      ? ["--no-builtin-tools", "--extension", fileURLToPath(new URL("pi-tools.ts", import.meta.url))]
+      : ["--no-tools"]),
     "--no-mcp",
     "--no-extensions",
     "--no-skills",

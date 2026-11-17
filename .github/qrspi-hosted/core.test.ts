@@ -304,8 +304,11 @@ test("QRSPI artifact predecessor guards refuse phase skipping and invented execu
   validateReviewTarget(artifacts, "questions.md", true);
   assert.throws(
     () => validateReviewTarget(artifacts, "implement.md", true),
-    /supported QRSPI/,
+    /cannot offer phase approval/,
   );
+  artifacts["discussion/tradeoffs.md"] = "# Tradeoffs\nNo phase completion claimed.";
+  validateReviewTarget(artifacts, "discussion/tradeoffs.md", false);
+  assert.throws(() => validateReviewTarget(artifacts, "discussion/tradeoffs.md", true), /cannot offer phase approval/);
 });
 test("alternate snapshots, reviewers and response IDs cannot bypass an uncertain awaited-request admission", () => {
   const { receipt } = fixture();
