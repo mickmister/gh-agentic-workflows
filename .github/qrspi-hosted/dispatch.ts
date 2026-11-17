@@ -29,6 +29,7 @@ export async function dispatchWorker(home: string, workspaceRef: string, threadI
   const env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: dir, QRSPI_ACPX_ROOT: join(here, "node_modules/acpx") };
   delete env.QRSPI_TOOL_SOCKET; delete env.QRSPI_TOOL_TOKEN;
   let receipt: any, text = "", native: string[] = [], failure: string | undefined;
+  let recoveredAssistantErrors = 0;
   await record({ ...session, status: "allocated" });
   try {
     const result = await execute(process.execPath,
@@ -39,9 +40,9 @@ export async function dispatchWorker(home: string, workspaceRef: string, threadI
     text = await readFile(outputFile, "utf8");
     boundedText(text, 24000, "worker result");
     native = Object.values(await nativeFiles(join(dir, "sessions"))).flatMap(value => value.split("\n").filter(Boolean));
-    verifyNative(native);
+    recoveredAssistantErrors = verifyNative(native).recoveredAssistantErrors;
     return { sessionId: session.id, parentSessionId: session.parentId, status: "completed", report: text,
-      nativeVerified: true, toolsEnabled: false, phaseApproval: false };
+      nativeVerified: true, recoveredAssistantErrors, toolsEnabled: false, phaseApproval: false };
   } catch (error) {
     failure = error instanceof Error ? error.message.slice(0, 2000) : "Worker failed";
     throw error;
@@ -57,7 +58,7 @@ export async function dispatchWorker(home: string, workspaceRef: string, threadI
     try { wrapperFiles = await nativeFiles(stateRoot); } catch { /* outcome stays uncertain, never replay */ }
     boundedText(JSON.stringify(wrapperFiles), limits.evidence, "wrapper evidence");
     await save({ role: `worker-${request.role}`, session: final, events: [], native, text, prompt, wrapperFiles,
-      result: { status: failure ? "failed" : "completed" }, failure, bounded: true, settlementOnly: true });
+      result: { status: failure ? "failed" : "completed" }, recoveredAssistantErrors, failure, bounded: true, settlementOnly: true });
     await record(final);
   }
 }

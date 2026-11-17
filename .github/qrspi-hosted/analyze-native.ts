@@ -18,6 +18,7 @@ export function nativeSummary(value:any) {
   const sessions=new Set<string>(), times:number[]=[];
   const toolCallsByName:Record<string,number>={}, dispatchCallIds:string[]=[];
   let toolResultFailures=0,toolResults=0;
+  const assistantOutcomes: {stop:string;errorKind?:string}[]=[];
   let assistantMessages=0,toolCalls=0,inputTokens=0,outputTokens=0,cacheReadTokens=0,cacheWriteTokens=0,cost=0,invalidLines=0,usageRecords=0,costReported=false;
   for(const line of value.native){
     let row:any;try{row=JSON.parse(line);}catch{invalidLines++;continue;}
@@ -30,6 +31,9 @@ export function nativeSummary(value:any) {
     if(row.type!=='message'||message?.role!=='assistant')continue;
     assistantMessages++;
     const stop=['stop','error','aborted','length','toolUse'].includes(message.stopReason)?message.stopReason:'unknown';
+    const error=typeof message.errorMessage==='string'?message.errorMessage:'';
+    const errorKind=/429|rate.?limit|too many requests/i.test(error)?'rate-limit':/50[234]|overload|temporar(?:y|ily)|timeout|timed out/i.test(error)?'transient-provider':/401|403|authenticat|unauthoriz/i.test(error)?'authentication':/context.{0,30}(?:limit|length)|maximum.{0,20}tokens/i.test(error)?'context-limit':/tool|function/i.test(error)?'tool-protocol':'unclassified';
+    assistantOutcomes.push({stop,...(stop==='error'?{errorKind}:{})});
     stops[stop]=(stops[stop]??0)+1;
     toolCalls+=Array.isArray(message.content)?message.content.filter((item:any)=>['toolCall','tool_use'].includes(item?.type)).length:0;
     for(const item of Array.isArray(message.content)?message.content:[])if(['toolCall','tool_use'].includes(item?.type)){
@@ -48,7 +52,7 @@ export function nativeSummary(value:any) {
     (session.parentId === null || typeof session.parentId === 'string');
   return {role:['preparation','setup-planner','orchestrator','worker-researcher','worker-reviewer','approval-consistency','questions-author','review-quality','review-scope','exit-interview'].includes(value.role)?value.role:'other',
     resultStatus:['completed','failed','cancelled','timed_out'].includes(value.result?.status)?value.result.status:'unknown',failurePresent:Boolean(value.failure),
-    events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,toolCalls,toolCallsByName,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
+    events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,assistantOutcomes,toolCalls,toolCallsByName,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
     observedNativeDurationMs:times.length>1?times.reduce((a,b)=>Math.max(a,b))-times.reduce((a,b)=>Math.min(a,b)):null,
     usage:{records:usageRecords,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,reportedCost:costReported?cost:null},authoredDocuments,questionHash,
     ...(linked ? {session:{id:sha(session.id).slice(0,16),parentId:session.parentId===null?null:sha(session.parentId).slice(0,16),

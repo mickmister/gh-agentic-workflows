@@ -145,6 +145,11 @@ work for the parent; local synthetic tests are not human approval evidence.
   Allocation without a final record is uncertain, not authorization to retry.
   The read-only native analyzer projects hashed links and usage without raw bodies.
   This is session correlation, not a native GenAI OTel exporter or transcript UI.
+- Native verification requires a terminal native assistant `stop` and rejects
+  terminal errors, truncation and cancellation independently of ACP completion.
+  Inference errors recovered inside the same native turn are counted in the
+  private archive/diagnostic sequence rather than invalidating a later normal
+  stop. The host does not replay admitted process turns to recover them.
 - Review observations are explicitly distinguished from a complete
   verifier-affirmed QRSPI review round. Actual reviewer protocol, phase rules,
   scope OWNS/DEFERS and emission references are inlined for no-tools sessions;

@@ -26,6 +26,13 @@ test("settled ACP success alone cannot hide a native agent error", () => {
       message: { role: "assistant", stopReason: "stop" },
     }),
   ]);
+  const recovered = [
+    JSON.stringify({ type: "message", message: { role: "assistant", stopReason: "error" } }),
+    JSON.stringify({ type: "message", message: { role: "assistant", stopReason: "stop" } }),
+  ];
+  assert.equal(verifyNative(recovered).recoveredAssistantErrors, 1);
+  assert.throws(() => verifyNative([...recovered].reverse()), /Native Pi/);
+  assert.throws(() => verifyNative([JSON.stringify({ type: "message", message: { role: "assistant", stopReason: "aborted" } }), recovered[1]]), /cancellation/);
 });
 test("real pinned Pi + acpx drains events, awaits result and verifies secret-env inference headers with NO tools", async () => {
   const requests: any[] = [];

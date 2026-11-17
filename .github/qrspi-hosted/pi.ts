@@ -50,7 +50,11 @@ export function verifyNative(lines: string[]) {
   const messages = lines.filter(Boolean).map(line => JSON.parse(line))
     .filter(row => row.type === "message" && row.message?.role === "assistant").map(row => row.message);
   assert(messages.length && messages.at(-1).stopReason === "stop", "Native Pi assistant failed or did not finish normally");
-  assert(!messages.some(m => m.stopReason === "error" || m.stopReason === "aborted"), "Native Pi failure despite ACP settlement");
+  assert(!messages.some(m => m.stopReason === "aborted"), "Native Pi cancellation despite ACP settlement");
+  // Pi can retry inference inside a single turn. A later native assistant stop
+  // proves settlement of that turn; retain prior errors as recovery evidence.
+  // Terminal error/aborted/length and ACP-only completion remain failures.
+  return { recoveredAssistantErrors: messages.filter(m => m.stopReason === "error").length };
 }
 async function deadline<T>(task: Promise<T>, ms: number, label: string) {
   let timer: ReturnType<typeof setTimeout>;
@@ -80,6 +84,7 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
   const events: unknown[] = [];
   let result: unknown, failure: string | undefined, handle: AcpRuntimeHandle | undefined;
   let text = "", native: string[] = [], eventBytes = 0;
+  let recoveredAssistantErrors = 0;
   try {
     if (session) await options.record?.({ ...session, status: "allocated" });
     await deadline((async () => {
@@ -100,7 +105,7 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
       result = await completion;
     })(), timeoutMs + 5000, "Hard Pi turn deadline exceeded");
     native = Object.values(await nativeFiles(sessionDir)).flatMap(bytes => bytes.split("\n").filter(Boolean));
-    verifyNative(native);
+    recoveredAssistantErrors = verifyNative(native).recoveredAssistantErrors;
     if (options.tools) {
       // Tool-using turns can include assistant progress prose before tool calls.
       // The final structured result is the last native assistant message, not
@@ -121,7 +126,7 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
       }
       const final = session ? { ...session, status: failure ? "failed" as const : "completed" as const,
         nativeSessionIds: nativeSessionIds(native), acpxRecordId: (handle as AcpRuntimeHandle | undefined)?.acpxRecordId } : undefined;
-      await deadline(save({ role, session: final, prompt, events, result, text, native, failure, settlementOnly: true, bounded: true }), 15000, "Evidence persistence deadline exceeded");
+      await deadline(save({ role, session: final, prompt, events, result, text, native, recoveredAssistantErrors, failure, settlementOnly: true, bounded: true }), 15000, "Evidence persistence deadline exceeded");
       if (final) await options.record?.(final);
     } finally {
       process.env.PI_CODING_AGENT_DIR = base;
