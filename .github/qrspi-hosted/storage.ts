@@ -28,6 +28,10 @@ export class PrivateStore {
       endpoint: env.S3_CACHE_URL,
       region: env.S3_CACHE_REGION ?? "us-east-1",
       forcePathStyle: env.S3_CACHE_PATH_STYLE === "true",
+      // Match project-cache provider compatibility: omit optional streaming
+      // checksums, without weakening conditional writes or exact readback.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
       credentials: {
         accessKeyId: env.S3_CACHE_ACCESS_KEY_ID,
         secretAccessKey: env.S3_CACHE_SECRET_ACCESS_KEY,

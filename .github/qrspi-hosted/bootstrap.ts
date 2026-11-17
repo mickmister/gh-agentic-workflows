@@ -53,7 +53,9 @@ if (operation === "storage-target") {
   const home = resolve(process.env.RUNNER_TEMP!, "qrspi-host");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const helper = `!${process.execPath} --experimental-strip-types ${fileURLToPath(import.meta.url)} credential`;
-  const gitconfig = join(home, "gitconfig");
+  // Published nugs removes all GIT_* overrides before invoking Git. HOME is
+  // preserved, so credentials must also live at Git's conventional private path.
+  const gitconfig = join(home, ".gitconfig");
   writeFileSync(
     gitconfig,
     `[credential]\n\tuseHttpPath = true\n\thelper = ${helper}\n[user]\n\tname = QRSPI Hosted\n\temail = qrspi@users.noreply.github.com\n`,

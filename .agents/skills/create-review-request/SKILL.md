@@ -152,6 +152,19 @@ Actions artifacts (including trace-context metadata).
    fabricate a link. Missing tools, publication or binding is a reported capability
    blocker, not permission for a chat question.
 
+## Current Pi pilot adapter — task-3vt.50.51
+
+The separate TypeScript pilot in `.github/qrspi-hosted/` and
+`.github/workflows/qrspi-process.yml` now provisions a pinned production review
+CLI and validates authenticated, exact-pinned responses with conditional private
+S3 admission. Its current capability is authored documents/reviews and isolated
+Questions, not generalized source/test execution or complete canonical verifier
+rounds. `.github/workflows/qrspi-inspect.yml` is read-only operator inspection,
+never process admission or replay authority. Consult the package README and the
+owning Bead for observed hosted results; source/tests do not establish genuine
+human-response or installed-extension acceptance. The legacy ingester/OpenCode
+details below do not describe this new pilot's implementation status.
+
 ## Read responses and continue
 
 Persisted drafts are not submissions. Read the immutable submitted response and
@@ -177,13 +190,15 @@ No background automatic orchestrator or authenticated response-to-Actions trigge
 is established by this ingester. New human decisions require a focused amended
 or follow-up hosted request.
 
-Actions currently neither provisions this review CLI nor automatically loads this
+Legacy OpenCode Actions neither provision this review CLI nor automatically load this
 skill under pure mode. `opencode-bead.py` injects working instructions directing
 explicit reads of `$GC_ENGINE_ROOT/AGENTS.md` and this skill in the engine checkout;
 older deployed runs do not automatically gain them. Honor applicable instructions
 in the actual target worktree separately: `$GC_SOURCE_WORKTREES` is its parent,
 and unrelated target repositories need not contain this skill. Tool bootstrap and
-response-to-Actions dispatch remain unimplemented. Existing Gas City direction
+response-to-Actions dispatch remain unimplemented in that legacy path. The
+separate Pi pilot above has its own bounded adapter and acceptance obligations.
+Existing Gas City direction
 needs reconciliation before future operational reuse; this guidance does not
 promise an implemented runtime migration.
 
