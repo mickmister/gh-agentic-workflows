@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PrivateStore } from "./storage.ts";
+import { PrivateStore, PrivateStoreConflict } from "./storage.ts";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 function storage() {
@@ -22,25 +22,22 @@ function storage() {
         Body: (async function* () { yield Buffer.from(row.body); })(),
       };
     }
-    if (
-      (input.IfNoneMatch === "*" && row) ||
-      (input.IfMatch && row?.etag !== input.IfMatch)
-    )
-      throw { $metadata: { httpStatusCode: 412 } };
+    assert.equal(input.IfNoneMatch, undefined);
+    assert.equal(input.IfMatch, undefined);
     const etag = `"${++writes}"`;
     rows.set(input.Key, { body: input.Body, etag });
     return { ETag: etag };
   }) as any;
   return { store, rows };
 }
-test("conditional S3 create/readback admits once; duplicate and uncertain admissions never reissue", async () => {
+test("observed existing settled and uncertain admissions suppress another prompt", async () => {
   const { store } = storage();
   let prompts = 0;
   const submit = async () => {
     if (await store.admit("admit", { outcome: "admitted-uncertain" }))
       prompts++;
   };
-  await Promise.all([submit(), submit()]);
+  await submit();
   assert.equal(prompts, 1);
   await submit();
   assert.equal(prompts, 1);
@@ -48,8 +45,12 @@ test("conditional S3 create/readback admits once; duplicate and uncertain admiss
     (await store.read("admit"))!.value.outcome,
     "admitted-uncertain",
   );
+  await store.put("admit", { outcome: "settled" });
+  await submit();
+  assert.equal(prompts, 1);
+  await assert.rejects(store.put("admit", {}, { create: true }), PrivateStoreConflict);
 });
-test("checkpoint CAS refuses stale approval/application and corrupted readback fails closed", async () => {
+test("checkpoint preflight refuses stale/missing ETags; corrupted readback fails closed", async () => {
   const { store } = storage();
   const first = await store.put(
     "checkpoint",
@@ -63,11 +64,13 @@ test("checkpoint CAS refuses stale approval/application and corrupted readback f
       { artifact: "stale-overwrite" },
       { etag: first.etag },
     ),
+    PrivateStoreConflict,
   );
+  await assert.rejects(store.put("missing", {}, { etag: first.etag }), PrivateStoreConflict);
   assert.equal((await store.read("checkpoint"))!.value.artifact, "approved");
   store.read = async () => ({ value: { corrupted: true }, etag: "bad" });
   await assert.rejects(
-    store.put("corrupt", { ok: true }, { create: true }),
+    store.put("corrupt", { ok: true }),
     /readback/,
   );
 });
@@ -79,7 +82,7 @@ test("private S3 streaming read and publication reject oversized objects", async
   })() })) as any;
   await assert.rejects(store.read("large"), /Bound exceeded/);
 });
-test("S3 wire omits optional checksums while retaining conditional create, readback and CAS", { timeout: 15_000 }, async () => {
+test("S3 wire uses ordinary PUT with preflight conflicts and exact readback; no optional checksums", { timeout: 15_000 }, async () => {
   const rows = new Map<string, { body: string; etag: string }>();
   const requests: { method: string; path: string; headers: IncomingHttpHeaders; body: string }[] = [];
   let version = 0;
@@ -90,8 +93,8 @@ test("S3 wire omits optional checksums while retaining conditional create, readb
     const body = Buffer.concat(chunks).toString("utf8");
     const path = req.url!.split("?")[0];
     requests.push({ method: req.method!, path, headers: req.headers, body });
-    // Model the provider's unsupported optional-feature response, not a CAS fallback.
-    if (Object.keys(req.headers).some((key) => /checksum|trailer/.test(key)) || /aws-chunked/.test(req.headers["content-encoding"] ?? "")) {
+    // This provider rejects conditional writes as well as optional checksums.
+    if (req.headers["if-none-match"] || req.headers["if-match"] || Object.keys(req.headers).some((key) => /checksum|trailer/.test(key)) || /aws-chunked/.test(req.headers["content-encoding"] ?? "")) {
       res.writeHead(501, { "content-type": "application/xml" });
       res.end("<Error><Code>NotImplemented</Code></Error>");
       return;
@@ -108,12 +111,6 @@ test("S3 wire omits optional checksums while retaining conditional create, readb
       return;
     }
     if (req.method !== "PUT") { res.writeHead(405); res.end(); return; }
-    if ((req.headers["if-none-match"] === "*" && row) ||
-        (req.headers["if-match"] && req.headers["if-match"] !== row?.etag)) {
-      res.writeHead(412, { "content-type": "application/xml" });
-      res.end("<Error><Code>PreconditionFailed</Code></Error>");
-      return;
-    }
     const etag = `"wire-${++version}"`;
     rows.set(path, { body, etag });
     res.writeHead(200, { etag });
@@ -136,13 +133,13 @@ test("S3 wire omits optional checksums while retaining conditional create, readb
     assert.equal(await store.admit("admit", { outcome: "admitted-uncertain" }), false);
     const first = await store.put("checkpoint", { state: "draft" }, { create: true });
     await store.put("checkpoint", { state: "approved" }, { etag: first.etag });
-    await assert.rejects(store.put("checkpoint", { state: "stale" }, { etag: first.etag }), (e: any) => e.$metadata.httpStatusCode === 412);
+    await assert.rejects(store.put("checkpoint", { state: "stale" }, { etag: first.etag }), PrivateStoreConflict);
     assert.equal((await store.read("checkpoint"))!.value.state, "approved");
     corruptRead = true;
     await assert.rejects(store.put("corrupt", { exact: true }, { create: true }), /readback/);
     assert.equal(version, 4, "conflicts must not overwrite or retry unconditionally");
     const puts = requests.filter((r) => r.method === "PUT");
-    assert.equal(puts.length, 6);
+    assert.equal(puts.length, 4);
     for (const request of requests) {
       assert.match(request.path, /^\/private\/fixture\/qrspi-hosted\//);
       assert.match(request.headers.authorization!, /Credential=trusted-fixture-key\//);
@@ -150,11 +147,12 @@ test("S3 wire omits optional checksums while retaining conditional create, readb
       assert.ok(!/aws-chunked/.test(request.headers["content-encoding"] ?? ""));
     }
     for (const request of puts) {
-      assert.ok(request.headers["if-none-match"] === "*" || request.headers["if-match"] === first.etag);
+      assert.equal(request.headers["if-none-match"], undefined);
+      assert.equal(request.headers["if-match"], undefined);
       assert.equal(request.headers["content-type"], "application/json");
       assert.doesNotThrow(() => JSON.parse(request.body), "wire body must be plain JSON, not streaming checksum frames");
       const next = requests[requests.indexOf(request) + 1];
-      assert.equal(next.method, "GET", "successful PUTs verify exact readback; duplicate admission verifies evidence");
+      assert.equal(next.method, "GET", "successful PUTs verify exact readback");
       assert.equal(next.path, request.path);
     }
   } finally {
@@ -162,6 +160,74 @@ test("S3 wire omits optional checksums while retaining conditional create, readb
     server.closeAllConnections();
     await new Promise<void>((done) => server.close(() => done()));
   }
+});
+
+test("overlapping absent preflight readers can BOTH admit (accepted non-atomic race)", async () => {
+  const { store } = storage();
+  const read = store.read.bind(store);
+  let arrived = 0;
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => { release = resolve; });
+  store.read = async (key) => {
+    const observed = await read(key);
+    if (!observed) {
+      if (++arrived === 2) release();
+      await barrier; // Both observed absence before either can PUT.
+    }
+    return observed;
+  };
+  let prompts = 0;
+  const submit = async () => {
+    if (await store.admit("overlap", { outcome: "admitted-uncertain" })) prompts++;
+  };
+  await Promise.all([submit(), submit()]);
+  assert.equal(arrived, 2);
+  assert.equal(prompts, 2, "best-effort dedupe is not a single-winner guarantee");
+});
+
+test("preflight, write and readback errors propagate unchanged and never prompt", async () => {
+  for (const stage of ["preflight", "write", "readback", "missing-readback"] as const) {
+    const { store } = storage();
+    const send = store.client.send.bind(store.client) as any;
+    const failure = { name: "TransportFailure", $metadata: { httpStatusCode: 412 } };
+    let gets = 0;
+    let puts = 0;
+    let prompts = 0;
+    store.client.send = (async (command: any) => {
+      if (command instanceof GetObjectCommand) {
+        gets++;
+        if ((stage === "preflight" && gets === 1) || (stage === "readback" && gets === 2)) throw failure;
+        if (stage === "missing-readback" && gets === 2) throw { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } };
+      } else {
+        puts++;
+        if (stage === "write") throw failure;
+      }
+      return send(command);
+    }) as any;
+    await assert.rejects(async () => {
+      if (await store.admit("error", { outcome: "admitted-uncertain" })) prompts++;
+    }, stage === "missing-readback" ? /readback/ : (error: unknown) => error === failure);
+    assert.equal(prompts, 0);
+    assert.equal(puts, stage === "preflight" ? 0 : 1);
+  }
+});
+
+test("ambiguous landed admission write propagates; its existing record prevents replay", async () => {
+  const { store } = storage();
+  const send = store.client.send.bind(store.client) as any;
+  const failure = new Error("response lost after PUT landed");
+  let loseResponse = true;
+  store.client.send = (async (command: any) => {
+    const result = await send(command);
+    if (!(command instanceof GetObjectCommand) && loseResponse) {
+      loseResponse = false;
+      throw failure;
+    }
+    return result;
+  }) as any;
+  await assert.rejects(store.admit("landed", { outcome: "admitted-uncertain" }), (error) => error === failure);
+  assert.equal(await store.admit("landed", { outcome: "retry" }), false);
+  assert.equal((await store.read("landed"))!.value.outcome, "admitted-uncertain");
 });
 
 test("unknown admission transport failure is not converted to retry authority", async () => {

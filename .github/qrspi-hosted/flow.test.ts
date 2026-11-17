@@ -124,12 +124,9 @@ test(
         return;
       }
       if (req.method === "PUT") {
-        if (
-          (req.headers["if-none-match"] === "*" && row) ||
-          (req.headers["if-match"] && row?.etag !== req.headers["if-match"])
-        ) {
-          res.writeHead(412, { "content-type": "application/xml" });
-          res.end("<Error><Code>PreconditionFailed</Code></Error>");
+        if (req.headers["if-none-match"] || req.headers["if-match"]) {
+          res.writeHead(501, { "content-type": "application/xml" });
+          res.end("<Error><Code>NotImplemented</Code></Error>");
           return;
         }
         const etag = `"${++seq}"`;

@@ -8,6 +8,13 @@ import { assert } from "./core.ts";
 import { missingObject } from "./diagnostics.ts";
 export const digest = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
+// A local preflight conflict, not an AWS status or an atomic-write guarantee.
+export class PrivateStoreConflict extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PrivateStoreConflict";
+  }
+}
 export class PrivateStore {
   client: S3Client;
   bucket: string;
@@ -29,7 +36,7 @@ export class PrivateStore {
       region: env.S3_CACHE_REGION ?? "us-east-1",
       forcePathStyle: env.S3_CACHE_PATH_STYLE === "true",
       // Match project-cache provider compatibility: omit optional streaming
-      // checksums, without weakening conditional writes or exact readback.
+      // checksums; exact post-write readback is still required.
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",
       credentials: {
@@ -66,17 +73,23 @@ export class PrivateStore {
   ) {
     const body = JSON.stringify(value);
     assert(Buffer.byteLength(body) <= 32_000_000, "Bound exceeded: private S3 publication");
+    // Best-effort check-before-create/update, NOT atomic CAS. Overlapping
+    // readers can both pass this preflight before either ordinary PUT lands.
+    if (condition) {
+      const current = await this.read(key);
+      const conflict = "create" in condition
+        ? current !== undefined
+        : !current || !current.etag || current.etag !== condition.etag;
+      if (conflict) {
+        throw new PrivateStoreConflict("Private S3 preflight conflict");
+      }
+    }
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: this.prefix + key,
         Body: body,
         ContentType: "application/json",
-        ...(condition && "etag" in condition
-          ? { IfMatch: condition.etag }
-          : condition
-            ? { IfNoneMatch: "*" }
-            : {}),
       }),
     );
     const actual = await this.read(key);
@@ -92,13 +105,7 @@ export class PrivateStore {
       await this.put(key, value, { create: true });
       return true;
     } catch (e: any) {
-      if ([409, 412].includes(e.$metadata?.httpStatusCode)) {
-        assert(
-          await this.read(key),
-          "Admission conflict without durable evidence",
-        );
-        return false;
-      }
+      if (e instanceof PrivateStoreConflict) return false;
       throw e;
     }
   }

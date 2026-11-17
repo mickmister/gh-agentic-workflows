@@ -34,9 +34,9 @@ installs the lockfile's published nugs **0.1.5**, acpx **0.22.0**, pi-acp
    by this workflow. The **broker** separately needs Actions write on the trusted
    engine target (and its chosen App installation must have that grant).
 5. Existing inference, CF Access and S3 secrets named in the brief are used
-   directly. S3 must be private and support conditional `PUT` (`If-None-Match`
-   and `If-Match`) and immediate exact readback. There is no unsafe fallback for
-   gateways that ignore preconditions. No local OAuth is copied into CI.
+   directly. S3 must be private and support ordinary `PUT` and immediate exact
+   readback. PrivateStore uses user-accepted best-effort preflight reads, not
+   conditional headers or atomic CAS. No local OAuth is copied into CI.
 
 **Response authentication:** before credentials/setup, direct response dispatches
 must have GitHub-provided `GITHUB_ACTOR_ID` matching the immutable response's
@@ -113,11 +113,18 @@ work for the parent; local synthetic tests are not human approval evidence.
   Only then does the host durably promote the pinned artifact before continuing.
   Revision/discussion never promotes approval. The next fresh request links to
   the preceding answered request and pins its new artifact/config/form.
-- Admission is conditional/create-only **per awaited request**, not per response
-  envelope: alternate snapshots/reviewers/response IDs cannot bypass an uncertain
-  admission. A duplicate or ambiguous retry fails closed without another prompt.
-  Private checkpoints use CAS. An interrupted admitted turn requires explicit
-  host reconciliation; there is deliberately no lease expiry/replay mechanism.
+- Admission uses best-effort check-before-create **per awaited request**, not
+  per response envelope: alternate snapshots/reviewers/response IDs do not change
+  its key. Any observed existing admission (settled or uncertain) suppresses a
+  new prompt. Private checkpoint updates precheck the observed ETag, rejecting
+  missing/stale versions before ordinary PUT; this is **not atomic CAS**.
+  Overlapping readers can both see absence/the same ETag and both write or admit
+  work. This accepted race window means no overlap dedupe/single-winner guarantee.
+  Actions concurrency remains in place. Read/write/readback failures propagate;
+  acceptance of races never authorizes replay of known or uncertain admissions.
+  An interrupted admitted turn requires explicit host reconciliation; there is
+  deliberately no lease expiry/replay mechanism. Exact digest readback remains
+  mandatory, but cannot close the preflight-to-write race.
 - Hard host bounds: 185-second Pi turn deadline, 10-second cleanup deadline,
   4,000 events / 4 MB event evidence, 256 KB output, 2 MB prompt; current-turn
   native evidence only, at most 48 entries / depth 8 / 2 MB per file / 4 MB total.
@@ -155,8 +162,15 @@ QRSPI_INTEGRATION=1 GITHUB_ULTIMATE_ROOT=/path/to/gui-lane-checkout \
   node --import tsx --test flow.test.ts
 ```
 
-Corrective local results: `npm run check` passed; final standard suite 40 passed / 1
-opt-in skipped; bounded opt-in flow 1 passed in 194.1 seconds. The test now drains
+Best-effort S3 policy checks: `npm run check` passed; focused storage/diagnostics/
+workflow tests 15 passed; standard suite 55 passed / 3 skipped (GUI production
+contracts/documents require the external checkout; full flow is opt-in). Wire
+coverage rejects conditional headers; deterministic overlapping absent reads show
+both callers can admit. No hosted success is inferred from these local checks.
+The long opt-in flow was not rerun for this policy change.
+
+Earlier corrective local results: standard suite 40 passed / 1 opt-in skipped;
+bounded opt-in flow 1 passed in 194.1 seconds. The test now drains
 child stdout and imposes 120-second child deadlines under a 540-second test
 budget. The predecessor combined install/test command hit an outer execution
 budget; no final full-flow result exists for that attempt. Its 420-second test
@@ -166,7 +180,7 @@ this timeout mismatch is corrected, not treated as a prior pass.
 The GUI checkout must have its production dependencies installed and the optional
 process schema. Without that environment variable, production-contract tests are
 explicitly skipped. The opt-in flow test uses **real published Pi/acpx and nugs**,
-a disposable Git storage remote, a conditional local S3 protocol fixture and a
+a disposable Git storage remote, a local S3 protocol fixture and a
 synthetic inference endpoint. It exercises start → revision → exact approval →
 isolated Questions and duplicate rejection. It never contacts GitHub, uses local
 OAuth, submits a human answer, or writes shared-root Beads.

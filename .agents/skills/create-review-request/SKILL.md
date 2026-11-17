@@ -156,9 +156,11 @@ Actions artifacts (including trace-context metadata).
 
 The separate TypeScript pilot in `.github/qrspi-hosted/` and
 `.github/workflows/qrspi-process.yml` now provisions a pinned production review
-CLI and validates authenticated, exact-pinned responses with conditional private
-S3 admission. Its current capability is authored documents/reviews and isolated
-Questions, not generalized source/test execution or complete canonical verifier
+CLI and validates authenticated, exact-pinned responses with best-effort private
+S3 check-before-create admission (not atomic; overlapping absent reads can both
+admit). Observed existing/uncertain admissions suppress work; transport failures
+never authorize replay. Its current capability is authored documents/reviews and
+isolated Questions, not generalized source/test execution or complete canonical verifier
 rounds. `.github/workflows/qrspi-inspect.yml` is read-only operator inspection,
 never process admission or replay authority. Consult the package README and the
 owning Bead for observed hosted results; source/tests do not establish genuine

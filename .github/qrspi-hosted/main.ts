@@ -239,6 +239,8 @@ async function open() {
     );
   }
   stage = "admission-write";
+  // Best-effort preflight only: overlapping absent readers can both admit.
+  // Actions concurrency remains; observed existing/uncertain records forbid work.
   assert(
     await store.admit(admissionKey, {
       binding,
