@@ -181,3 +181,33 @@ Audit note: the fixed pi-acp version currently brings an upstream Zod advisory
 There is no silent major-Zod override of that published adapter. The S3 XML
 parser is explicitly overridden to patched `fast-xml-parser@5.12.1` in the frozen
 lock. Treat the remaining pinned upstream advisories as a hosted review item.
+
+## Read-only failure inspection
+
+After publishing `.github/workflows/qrspi-inspect.yml`, manually dispatch **QRSPI
+private evidence inspection** with workspace `vk-46e5-vd-multi-instanc`, process
+`hosted-loop-pilot-01`, bead `task-3vt.50.51`, target-run `44011559637`, and
+target-attempt `1` to inspect the first hosted failure. This is a diagnostic
+invocation, **not** process admission, replay, or a human response. It uses only
+the trusted repository `NUGS_WORKSPACE_SEED`; there is no handoff override.
+
+The diagnostic step prints a compact sanitized summary of the start admission,
+checkpoint awaited pin refs, and target open/work error descriptions. Descriptions
+retain only the first line after complete-message redaction, except execFile-shaped
+`Command failed: …` messages also retain the first nonempty stderr line (up to 400
+characters, with the headline capped at 500). Remaining transcript lines are
+omitted and Actions commands remain inert. Descriptions are limited to 1000
+characters; messages over 64 KB are omitted, and total output is capped at 6000
+characters. Runtime payloads stay
+in private S3. `absent` means GET returned 404; other read failures report unknown
+existence and safe categories. A fetched but invalid/unparseable object remains
+present with an unreadable classification. No outcome, including absence or
+`admitted-uncertain`, authorizes retry. The admission/checkpoint are current shared
+objects, not historical snapshots of the target run; only the error object names
+are run/attempt-specific. Binding mismatches suppress outcome/pin interpretation.
+
+Only four derived keys are fetched, with SDK retries disabled. No App credentials,
+model, native CLI, setup, Documents publication, S3 mutation, or Actions artifacts
+are involved. Existing storage/inference/access secret values are supplied only to
+this step for SDK access and redaction. Pin paths may themselves be redacted if
+they resemble sensitive material. Read failures are not raw exception dumps.

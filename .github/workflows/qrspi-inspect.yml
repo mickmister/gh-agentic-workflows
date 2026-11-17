@@ -1,0 +1,66 @@
+name: QRSPI private evidence inspection
+run-name: QRSPI diagnostic only · target ${{ inputs.target-run }} attempt ${{ inputs.target-attempt }}
+on:
+  workflow_dispatch:
+    inputs:
+      workspace:
+        description: Exact readable workspace bound to trusted repository seed
+        type: string
+        required: true
+      process:
+        description: Exact bound process slug (not a new process)
+        type: string
+        required: true
+      bead:
+        description: Bound owning Bead
+        type: string
+        default: task-3vt.50.51
+      target-run:
+        description: Existing process Actions run ID to inspect (never rerun)
+        type: string
+        required: true
+      target-attempt:
+        description: Existing process run attempt
+        type: string
+        default: "1"
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # official checkout v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # official setup-node v4
+        with:
+          node-version: "22.23.4"
+      # Exact versions and registry integrities are in the existing committed
+      # package-lock.json. No install scripts, bootstrap or native tools execute.
+      - name: Install frozen dependencies
+        working-directory: .github/qrspi-hosted
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: GET bound private evidence only (not an admitted process invocation)
+        env:
+          NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
+          REVIEW_WORKSPACE: ${{ inputs.workspace }}
+          QRSPI_PROCESS: ${{ inputs.process }}
+          BEAD_ID: ${{ inputs.bead }}
+          TARGET_RUN_ID: ${{ inputs.target-run }}
+          TARGET_RUN_ATTEMPT: ${{ inputs.target-attempt }}
+          # Existing secrets are needed solely for SDK access and value redaction.
+          # No App signing key, App token, model call, setup or publication.
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: node --experimental-strip-types .github/qrspi-hosted/inspect.ts
