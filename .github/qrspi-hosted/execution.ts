@@ -4,7 +4,7 @@ import { assert } from "./core.ts";
 import { classify } from "./diagnostics.ts";
 import type { SessionIdentity } from "./session.ts";
 
-export const operations = ["session", "worker", "qrspi_context", "qrspi_document", "qrspi_dispatch"] as const;
+export const operations = ["session", "worker", "qrspi_context", "qrspi_document", "qrspi_dispatch", "workspace_operation", "workspace_workers"] as const;
 export type Operation = typeof operations[number];
 export const eventKinds = ["stage", "started", "completed", "failed", "heartbeat", "acp", "native"] as const;
 type Kind = typeof eventKinds[number];

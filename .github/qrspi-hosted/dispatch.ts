@@ -27,8 +27,10 @@ export async function dispatchWorker(home: string, workspaceRef: string, threadI
     role: request.role, profile: "hosted-tool-free", mode: "fresh", permissions: "deny-all", timeoutSeconds: 120,
     agentCommand: [process.execPath, join(here, "node_modules/pi-acp/dist/index.js")],
     cwd: dir, promptFile, stateRoot, outputFile }), { mode: 0o600 });
-  const env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: dir, QRSPI_ACPX_ROOT: join(here, "node_modules/acpx") };
-  delete env.QRSPI_TOOL_SOCKET; delete env.QRSPI_TOOL_TOKEN;
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ["PATH", "HOME", "INFERENCE_BASE_URL", "INFERENCE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "QRSPI_MODEL", "PI_ACP_PI_COMMAND"])
+    if (process.env[key]) env[key] = process.env[key];
+  Object.assign(env, { PI_CODING_AGENT_DIR: dir, QRSPI_ACPX_ROOT: join(here, "node_modules/acpx") });
   let receipt: any, text = "", native: string[] = [], failure: string | undefined;
   let recoveredAssistantErrors = 0;
   let originalError: unknown, finish: ((error?: unknown) => Promise<void>) | undefined;

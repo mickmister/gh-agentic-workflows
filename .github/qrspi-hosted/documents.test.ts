@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { Documents, publish, protocol } from "./documents.ts";
 import { config } from "./core.ts";
 test(
-  "published nugs 0.1.5 really pins/restores authored config/artifacts and production CLI publishes immutable review",
+  "published nugs really pins/restores authored config/artifacts and production CLI publishes immutable review",
   { skip: !process.env.GITHUB_ULTIMATE_ROOT },
   async () => {
     const previous = { ...process.env };

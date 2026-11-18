@@ -1,4 +1,62 @@
-# QRSPI hosted document turns
+# QRSPI hosted workspace runtime
+
+## Known-workspace capability path
+
+New processes enter through `entry.ts` and `workspace-main.ts`. Schema-less historical
+checkpoints keep their original document adapter; `legacy-document-pilot` selects
+that compatibility adapter for a new fixture. Existing process identities and
+exact response bindings are retained.
+
+The workspace host restores the published nugs manifest and native collection,
+resolves each declared branch once and records the source vector. Continuation
+restores those exact commits and published task candidates. Per-repository App
+tokens handle members owned by different installations; credentials remain in the
+host. The orchestrator reads methodology and durable documents to decide what to
+do. There is no new phase table, dependency scheduler or automatic repair policy.
+
+Preparation has read-only source capabilities and cannot dispatch phase workers
+or change methodology artifacts. It selects an existing pinned self-contained
+composite, chooses no project setup when appropriate, or dispatches the separate
+`workspace-setup.yml` specialist. The specialist publishes a candidate and executes
+it in its own fresh job. Dispatch records intent before calling GitHub, verifies
+the branch/tag still names the expected engine commit, and returns the same launch
+reference even when acknowledgement is lost. A pending member cannot be dispatched
+again until its result is observed. A settled preparation that is waiting for setup
+can be continued with the identical process, intent and response receipt: it
+restores the recorded vector and consumes the same launch without replaying that
+preparation prompt. Unknown/interrupted model effects remain fenced for explicit
+reconciliation. The selected composite also executes in the actual task job.
+
+The task orchestrator can delegate up to two concurrent scoped workers per group,
+with at most twelve launches per turn. Worker-native tools are disabled; the scoped
+extension exposes assigned source reads and, for explicitly authorized write/test
+workers, bounded file/command operations. Workers cannot call the host's delegation,
+setup, document-publication or Git-publication capabilities. Mutable worktrees do
+not overlap within a group; all child outcomes drain before parent continuation.
+Commands use a sanitized environment and separate HOME. This is a cooperative
+capability boundary, **not an OS sandbox for hostile commands or source code**.
+
+`allow-source-effects` is an explicit capability ceiling; QRSPI artifacts and actual
+human decisions still determine implementation authority. Candidate commits use
+explicit paths, ordinary non-force pushes and remote readback. Integration only
+fast-forwards the configured existing branch to a clean published candidate that
+already includes its exact observed head. If the branch advanced, the orchestrator
+must arrange merge/rebase and verification before publishing/integrating again.
+
+Local evidence includes real Git checkout/restore/publication/integration, scoped
+App authentication, dispatch uncertainty, and real Pi/acpx parent plus overlapping
+tool-equipped children against synthetic inference. The existing document adapter's
+full fresh-process review/approval continuation also passes against the pinned
+production review CLI. These checks do not prove production source delivery,
+canonical QRSPI verifier completion, installed-extension acceptance, shared Beads
+write coordination or autonomous thread discovery. Beads tools are currently
+read-only. The media parent's existing unanswered product form remains authoritative.
+Hosted acceptance and fresh-run continuation of this new path must be assessed from
+actual private native/incremental evidence, not inferred from local tests or CI.
+
+`qrspi-runtime-ci.yml` runs the typecheck and the full synthetic-inference suite,
+including the pinned production protocol and document-continuation fixtures,
+without model/storage credentials or Actions artifact uploads.
 
 ## Incremental private execution evidence
 
@@ -30,7 +88,7 @@ native provider instrumentation is claimed.
 
 `../workflows/qrspi-process.yml` is the entrypoint. All maintained bootstrap,
 auth helpers, storage and Pi adapters are TypeScript. `npm ci --ignore-scripts`
-installs the lockfile's published nugs **0.1.5**, acpx **0.22.0**, pi-acp
+installs the lockfile's published nugs **0.1.6**, acpx **0.22.0**, pi-acp
 **0.0.33** and Pi **1.5.2**; no source-built nugs or Python is invoked.
 
 ## Checkpoints and PR notifications

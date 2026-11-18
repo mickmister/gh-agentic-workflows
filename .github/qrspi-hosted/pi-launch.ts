@@ -14,6 +14,7 @@ for (const key of [
   "CF_ACCESS_CLIENT_SECRET",
   "QRSPI_TOOL_SOCKET",
   "QRSPI_TOOL_TOKEN",
+  "WORKSPACE_AGENT_ROLE",
 ])
   if (process.env[key]) env[key] = process.env[key];
 const child = spawn(
@@ -27,7 +28,7 @@ const child = spawn(
     ),
     ...process.argv.slice(2),
     ...(env.QRSPI_TOOL_SOCKET && env.QRSPI_TOOL_TOKEN
-      ? ["--no-builtin-tools", "--extension", fileURLToPath(new URL("pi-tools.ts", import.meta.url))]
+      ? ["--no-builtin-tools", "--extension", fileURLToPath(new URL(env.WORKSPACE_AGENT_ROLE ? "workspace-extension.ts" : "pi-tools.ts", import.meta.url))]
       : ["--no-tools"]),
     "--no-mcp",
     "--no-extensions",

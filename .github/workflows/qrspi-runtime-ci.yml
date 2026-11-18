@@ -1,0 +1,37 @@
+name: QRSPI runtime checks
+on:
+  pull_request:
+    paths: ['.github/qrspi-hosted/**', '.github/workflows/qrspi-*.yml', '.github/workflows/workspace-setup.yml']
+  push:
+    paths: ['.github/qrspi-hosted/**', '.github/workflows/qrspi-*.yml', '.github/workflows/workspace-setup.yml']
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mickmister/github-ultimate
+          ref: 2680accff9b70dfa425a72921f94e98ed29ac411
+          path: .qrspi-review-cli
+          persist-credentials: false
+      - run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts
+        working-directory: .qrspi-review-cli
+      - run: npm run check
+        working-directory: .github/qrspi-hosted
+      - name: Synthetic inference, real pinned runtimes and production review contracts
+        working-directory: .github/qrspi-hosted
+        env:
+          GITHUB_ULTIMATE_ROOT: ${{ github.workspace }}/.qrspi-review-cli
+          QRSPI_INTEGRATION: '1'
+        run: node --experimental-strip-types --test --test-concurrency=1 *.test.ts
