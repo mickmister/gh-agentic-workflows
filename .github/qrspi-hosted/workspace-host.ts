@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, readFileSync, appendFileSync } from "node:fs"
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { assert } from "./core.ts";
-import { GitHub } from "./github.ts";
+import { GitHub, gitEnvironment } from "./github.ts";
 import { manifestMembers, materialize, type Manifest, type Member } from "./workspace.ts";
 import type { Documents } from "./documents.ts";
 
@@ -15,8 +15,7 @@ export async function checkoutWorkspace(home: string, docs: Documents, github: G
   const members = materialize(root, declared, prior, (directory, args, repository) => {
     const token = tokens.get(repository!); assert(token, "Missing scoped source token");
     return execFileSync("git", ["-C", directory, ...args], { encoding: "utf8", timeout: 180000, maxBuffer: 8_000_000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `http.https://github.com/${repository}.extraheader`,
-        GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}` }, stdio: ["ignore", "pipe", "pipe"] }).trim();
+      env: gitEnvironment(process.env, repository!, token), stdio: ["ignore", "pipe", "pipe"] }).trim();
   });
   return { root, members, manifest: { text: doc.text, version: doc.version, snapshot: "snapshot" in doc ? doc.snapshot : doc.commit } };
 }

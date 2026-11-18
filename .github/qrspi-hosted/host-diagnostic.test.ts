@@ -1,0 +1,12 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { hostDiagnostic } from "./inspect.ts";
+
+test("read-only checkout diagnostics select constants and HTTP status without exposing private text", () => {
+  assert.deepEqual(hostDiagnostic("GitHub API rejected operation (404)"), { reason: "github-api-rejected", httpStatus: 404 });
+  assert.deepEqual(hostDiagnostic("GitHub API rejected GET /repos/private-owner/private-repo/installation (403)"), { reason: "github-api-rejected", httpStatus: 403 });
+  assert.deepEqual(hostDiagnostic("Command failed: git -C /private/source fetch origin secret-ref\nfatal: could not read Username for 'https://private.invalid': terminal prompts disabled\nSECRET"), { reason: "git-command-failed", authenticationRequired: true });
+  assert.equal(hostDiagnostic("arbitrary private prose SECRET"), undefined);
+  assert.equal(hostDiagnostic("GitHub API rejected operation (403)\nSECRET"), undefined);
+  assert.equal(hostDiagnostic({ message: "SECRET" }), undefined);
+});

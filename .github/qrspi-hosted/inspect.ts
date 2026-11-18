@@ -6,6 +6,14 @@ import { classify, missingObject } from "./diagnostics.ts";
 
 export const OUTPUT_LIMIT = 6000;
 export const DESCRIPTION_LIMIT = 1000;
+export function hostDiagnostic(message: unknown) {
+  if (typeof message !== "string" || message.length > 64000) return undefined;
+  const api = /^GitHub API rejected (?:operation|(?:GET|POST) \/repos\/[\w./-]+) \(([1-5][0-9]{2})\)$/.exec(message);
+  if (api) return { reason: "github-api-rejected", httpStatus: Number(api[1]) };
+  if (/^Command failed: git\s/.test(message)) return { reason: "git-command-failed",
+    authenticationRequired: /fatal: could not read Username for [^\r\n]*terminal prompts disabled/.test(message) };
+  return undefined;
+}
 const secretNames = /^(?:S3_CACHE_.*|NUGS_STORAGE_.*|INFERENCE_.*|CF_ACCESS_.*|GITHUB_TOKEN|GH_TOKEN|AWS_.*|.*PRIVATE_KEY)$/;
 
 // Applied to the complete message BEFORE truncation or rendering. Never stringify
@@ -127,7 +135,8 @@ export async function inspect(env: NodeJS.ProcessEnv, send?: (command: GetObject
           }
         } else {
           // Legacy private messages may contain arbitrary native output. Never render them.
-          results[kind] = { existence: "present", description: "Private diagnostic retained; raw payload omitted" };
+          results[kind] = { existence: "present", description: "Private diagnostic retained; raw payload omitted",
+            ...(hostDiagnostic(value?.message) ? { host: hostDiagnostic(value.message) } : {}) };
         }
       } catch (error) {
         const status = classification(error);
