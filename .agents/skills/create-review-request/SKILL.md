@@ -90,19 +90,29 @@ Actions artifacts (including trace-context metadata).
 Use the standard BeadsForm concepts supported by the pinned production schema;
 do not assume the dashboard's newer question/content types are accepted here.
 
-- Make the form self-contained: give it a concise `goal`, explain the concrete
-  decision and relevant settled requirements in question descriptions, and use
-  stable, contextual question/choice IDs. Ask only the next useful unresolved
-  questions; do not reopen answered choices or turn discussion into phase approval.
+- **Make the form a standalone artifact: all knowledge needed for discussion
+  must be in the questions and choices of the form.** The reviewer should not
+  need the chat, another document or a linked resource to understand the decision,
+  compare alternatives or explain a preference. Links may provide supporting
+  evidence, but must not substitute for decision-relevant content in the form.
+- Give the form a concise `goal`. Every question needs a clear title and
+  description explaining the concrete decision, relevant facts, settled
+  requirements and prior reasoning. Put option-specific context in choice
+  descriptions; use stable, contextual question/choice IDs. Ask only the next
+  useful unresolved questions; do not reopen answered choices or turn discussion
+  into phase approval.
 - Describe what each option actually does. Put recommendation rationale in
   `is_recommended_reason`, rather than only adding “recommended” to a label.
   Recommendations and `assumedTrue` are author context, never preselected answers.
-- For meaningful alternatives, supply concrete benefits and costs in
-  `choice.prosAndCons: { pros?: string[]; cons?: string[] }`. Preserve relevant
+- Treat `choice.prosAndCons: { pros?: string[]; cons?: string[] }` as required
+  authoring content for every substantive choice, even though the wire schema
+  permits omission. Supply concrete benefits and costs. Preserve relevant
   reviewer concerns, risks, prior reasoning and tradeoffs instead of compressing
   them away. Descriptions carry context; structured pros/cons carry tradeoffs.
   Omit empty or unhelpful lists, and do not invent a disadvantage just to fill a
-  slot. Preserve useful original wording/attribution where practical.
+  slot. Omit `prosAndCons` only for non-substantive choices such as Other or when
+  no meaningful tradeoff exists. Preserve useful original wording/attribution
+  where practical.
 - All choice questions remain multi-select checkboxes, including ones an author
   calls single-select or groups as `atMostOne`/`exactlyOne`. Those modes express
   suggested grouping, not exclusive-answer enforcement. Never clear peer choices,
@@ -113,7 +123,8 @@ do not assume the dashboard's newer question/content types are accepted here.
   notes. Do not add duplicate questions just to collect choice explanations.
   Preserve every `<question>_<choice>_more_info` field, question
   `<question>_more_info`, `additional_notes` and `next_instruction` on response
-  intake; a note does not itself select or approve an option.
+  intake; a note does not itself select or approve an option. Keep
+  `additional_notes` as the master notes field.
 - Prefer an inspectable JSON file when drafting substantial forms. Refine focused
   questions before publication; use the hosted request's revision/history rules
   below rather than assuming dashboard mutation commands update a published pin.
@@ -134,11 +145,12 @@ For example, a choice can carry its explanation and structured tradeoffs:
 ```
 
 Before publishing, review authoring quality as well as schema validity: could the
-human compare the real alternatives and understand the recommendation without
-rereading the chat? Are important tradeoffs missing or buried in prose? Improve
-the draft where useful. This is an advisory authoring check, not a new approval
-gate or a requirement for filler on every choice. Production validation remains
-the wire-format authority.
+human compare the real alternatives and understand the recommendation using only
+the form's questions and choices, without rereading chat or opening linked
+documents? Does every substantive choice include meaningful `prosAndCons`? Are
+important tradeoffs missing or buried in prose? Fix missing substantive tradeoffs
+before publication without inventing filler. This authoring requirement adds no
+workflow approval gate. Production validation remains the wire-format authority.
 
 ## Prepare, publish, verify
 
