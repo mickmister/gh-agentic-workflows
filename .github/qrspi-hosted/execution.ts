@@ -90,9 +90,11 @@ export class ExecutionEvidence {
         attributes: [attribute("qrspi.duration_ms", durationMs), attribute("qrspi.phase_approval", false),
           ...Object.entries(scope).filter((entry): entry is [string, string] => typeof entry[1] === "string").map(([key, value]) => attribute(`qrspi.${key}`, value))],
         status: { code: error === undefined ? 1 : 2 } };
-      await this.write(`spans/${id}.json`, { resourceSpans: [{ resource: { attributes: [attribute("service.name", "qrspi-hosted"),
-        attribute("qrspi.execution_id", this.executionId), attribute("qrspi.workspace_ref", this.binding.workspace_ref),
-        attribute("qrspi.process", this.binding.process), attribute("qrspi.bead", this.binding.bead)] }, scopeSpans: [{ scope: { name: "qrspi-hosted", version: "1" }, spans: [span] }] }] });
+      try {
+        await this.write(`spans/${id}.json`, { resourceSpans: [{ resource: { attributes: [attribute("service.name", "qrspi-hosted"),
+          attribute("qrspi.execution_id", this.executionId), attribute("qrspi.workspace_ref", this.binding.workspace_ref),
+          attribute("qrspi.process", this.binding.process), attribute("qrspi.bead", this.binding.bead)] }, scopeSpans: [{ scope: { name: "qrspi-hosted", version: "1" }, spans: [span] }] }] });
+      } catch (error) { this.failure ??= error; throw error; }
     };
   }
   scope(session?: SessionIdentity): Scope { return session ? { sessionId: session.id, parentId: session.parentId, role: session.role, sourceSha: session.sourceSha, ...(session.toolCallId ? { toolCallId: session.toolCallId } : {}) } : {}; }
