@@ -54,6 +54,19 @@ read-only. The media parent's existing unanswered product form remains authorita
 Hosted acceptance and fresh-run continuation of this new path must be assessed from
 actual private native/incremental evidence, not inferred from local tests or CI.
 
+`workspace-source-access.yml` reads the bound manifest and probes read-token issuance
+for every declared repository, continuing after an inaccessible installation. It
+reports repository/status only, with no manifest-member checkout, model call, process admission,
+replay or source write. Use it to identify an App-access failure before deciding how
+to reconcile an interrupted process; a successful probe is not permission to retry.
+
+Observed hosted evidence: runtime CI `44400474459` at integrated `a1b022d` passed
+82/82 with no skips. Source-disabled intake `44400888133` stopped during workspace
+checkout. GET-only inspection `44402703052` classified the retained failure as a
+GitHub API 404; five stage objects and no native archives/sessions were observed.
+That admission remains uncertain and has not been replayed. A separately reproduced
+Git auth URL-scope bug is corrected by `4f8b6cd`; it does not explain the API 404.
+
 `qrspi-runtime-ci.yml` runs the typecheck and the full synthetic-inference suite,
 including the pinned production protocol and document-continuation fixtures,
 without model/storage credentials or Actions artifact uploads.
