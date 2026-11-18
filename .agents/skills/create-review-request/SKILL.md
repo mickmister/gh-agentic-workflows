@@ -214,9 +214,15 @@ The separate TypeScript pilot in `.github/qrspi-hosted/` and
 CLI and validates authenticated, exact-pinned responses with best-effort private
 S3 check-before-create admission (not atomic; overlapping absent reads can both
 admit). Observed existing/uncertain admissions suppress work; transport failures
-never authorize replay. Its current capability is authored documents/reviews and
-isolated Questions, not generalized source/test execution or complete canonical verifier
-rounds. `.github/workflows/qrspi-inspect.yml` is read-only operator inspection,
+never authorize replay. Historical checkpoints retain the document/review adapter.
+New processes use the methodology-neutral workspace capability path: manifest/native
+restore, separate setup specialist, scoped concurrent source/test workers and normal
+existing-branch integration. Local synthetic-inference and real-Git tests cover
+these capabilities; they do not establish hosted source delivery, shared Beads write
+coordination or complete canonical verifier rounds. Source effects require explicit
+caller capability and actual methodology authority. See the package README for the
+cooperative command boundary and outstanding acceptance limits.
+`.github/workflows/qrspi-inspect.yml` is read-only operator inspection,
 never process admission or replay authority. Consult the package README and the
 owning Bead for observed hosted results; source/tests do not establish genuine
 human-response or installed-extension acceptance. The legacy ingester/OpenCode

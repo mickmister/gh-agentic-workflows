@@ -32,6 +32,14 @@ on:
         description: Designated orchestrator inspects/reuses/upserts setup before work
         type: boolean
         default: false
+      allow-source-effects:
+        description: Explicit source editing/testing/publication capability ceiling; methodology gates still apply
+        type: boolean
+        default: false
+      legacy-document-pilot:
+        description: Use the historical document-only adapter for a new compatibility fixture
+        type: boolean
+        default: false
       response:
         description: Exact immutable submitted receipt JSON (never a comment or draft)
         type: string
@@ -45,6 +53,8 @@ on:
       route: { type: string, default: full }
       bead: { type: string, default: task-3vt.50.51 }
       prepare-project: { type: boolean, default: false }
+      allow-source-effects: { type: boolean, default: false }
+      legacy-document-pilot: { type: boolean, default: false }
       response: { type: string, default: "" }
     secrets:
       AGENT_APP_ID: { required: true }
@@ -135,6 +145,10 @@ jobs:
           QRSPI_ROUTE: ${{ inputs.route }}
           BEAD_ID: ${{ inputs.bead }}
           PREPARE_PROJECT: ${{ inputs.prepare-project }}
+          ALLOW_SOURCE_EFFECTS: ${{ inputs.allow-source-effects }}
+          LEGACY_DOCUMENT_PILOT: ${{ inputs.legacy-document-pilot }}
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
           REVIEW_RESPONSE: ${{ inputs.response }}
           GITHUB_ULTIMATE_ROOT: ${{ github.workspace }}/.qrspi-review-cli
           REVIEW_REPOSITORY: ${{ vars.QRSPI_REVIEW_REPOSITORY }}
@@ -152,7 +166,7 @@ jobs:
           S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
           S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
           S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
-        run: node --experimental-strip-types .github/qrspi-hosted/main.ts open
+        run: node --experimental-strip-types .github/qrspi-hosted/entry.ts open
       - name: Execute selected project composite in the actual task job
         id: setup
         if: steps.open.outputs.admitted == 'true'
@@ -163,7 +177,7 @@ jobs:
         id: work
         if: ${{ !cancelled() && steps.open.outputs.admitted == 'true' }}
         env: *host-env
-        run: SETUP_OUTCOME='${{ steps.setup.outcome }}' node --experimental-strip-types .github/qrspi-hosted/main.ts work
+        run: SETUP_OUTCOME='${{ steps.setup.outcome }}' node --experimental-strip-types .github/qrspi-hosted/entry.ts work
   notify:
     needs: process
     if: ${{ !cancelled() && needs.process.outputs.checkpoint_url != '' }}

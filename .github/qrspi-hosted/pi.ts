@@ -1,4 +1,4 @@
-import { createSharedAcpRuntime, createAgentRegistry, type AcpRuntimeHandle } from "acpx/runtime";
+import { createSharedAcpRuntime, createAcpRuntime, createFileSessionStore, createAgentRegistry, type AcpRuntimeHandle } from "acpx/runtime";
 import { mkdir, writeFile, chmod, readdir, stat, copyFile, open } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -84,24 +84,44 @@ async function deadline<T>(task: Promise<T>, ms: number, label: string) {
 }
 export async function piTurn(cwd: string, role: string, prompt: string, save: (value: unknown) => Promise<unknown>, options: {
   tools?: { socket: string; token: string }; session?: SessionIdentity; record?: (value: SessionRecord) => Promise<unknown>; evidence?: ExecutionEvidence;
+  toolRole?: "orchestrator" | "worker"; baseDir?: string; mode?: "persistent" | "oneshot"; timeoutMs?: number;
 } = {}) {
   boundedText(prompt, limits.prompt, "Pi prompt");
-  assert(!options.tools || role === "orchestrator", "Only designated orchestrator may receive tools");
+  assert(!options.tools || role === "orchestrator" || options.toolRole === "worker", "Only assigned capability roles may receive tools");
   // Native evidence is isolated per turn: never read prior sessions or shared acpx logs.
-  const base = process.env.PI_CODING_AGENT_DIR!;
+  const base = options.baseDir ?? process.env.PI_CODING_AGENT_DIR!;
   const turnDir = join(base, `turn-${randomUUID()}`);
   await mkdir(turnDir, { mode: 0o700 });
   await copyFile(join(base, "models.json"), join(turnDir, "models.json"));
-  process.env.PI_CODING_AGENT_DIR = turnDir;
-  const priorSocket = process.env.QRSPI_TOOL_SOCKET, priorToken = process.env.QRSPI_TOOL_TOKEN;
-  if (options.tools) { process.env.QRSPI_TOOL_SOCKET = options.tools.socket; process.env.QRSPI_TOOL_TOKEN = options.tools.token; }
-  else { delete process.env.QRSPI_TOOL_SOCKET; delete process.env.QRSPI_TOOL_TOKEN; }
-  const timeoutMs = options.tools ? 480000 : 180000;
+  // Snapshot each launch's child environment. Concurrent roles must never mutate
+  // the parent's globals or inherit another role's socket/capability.
+  const childEnv: Record<string, string> = {};
+  for (const key of ["PATH", "HOME", "INFERENCE_BASE_URL", "INFERENCE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "QRSPI_MODEL", "PI_ACP_PI_COMMAND"])
+    if (process.env[key]) childEnv[key] = process.env[key]!;
+  childEnv.PI_CODING_AGENT_DIR = turnDir;
+  if (options.tools) {
+    childEnv.QRSPI_TOOL_SOCKET = options.tools.socket; childEnv.QRSPI_TOOL_TOKEN = options.tools.token;
+    if (options.toolRole) childEnv.WORKSPACE_AGENT_ROLE = options.toolRole;
+  }
+  const timeoutMs = options.timeoutMs ?? (options.tools ? 480000 : 180000);
+  assert(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 900000, "Invalid session deadline");
   const session = options.session;
   const sessionDir = join(turnDir, "sessions");
-  const runtime = createSharedAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs, ttlMs: 1000,
-    agentRegistry: createAgentRegistry({ overrides: { pi: [process.execPath, fileURLToPath(new URL("node_modules/pi-acp/dist/index.js", import.meta.url))] } }),
-  });
+  const agentRegistry = createAgentRegistry({ overrides: { pi: [process.execPath, fileURLToPath(new URL("node_modules/pi-acp/dist/index.js", import.meta.url))] } });
+  const previous = { dir: process.env.PI_CODING_AGENT_DIR, socket: process.env.QRSPI_TOOL_SOCKET, token: process.env.QRSPI_TOOL_TOKEN };
+  // Shared CLI sessions intentionally do not accept per-child env overlays.
+  // Preserve that historical adapter; new concurrent capability sessions use the
+  // published in-process runtime with independently snapshotted environments.
+  if (!options.toolRole) {
+    process.env.PI_CODING_AGENT_DIR = turnDir;
+    if (options.tools) { process.env.QRSPI_TOOL_SOCKET = options.tools.socket; process.env.QRSPI_TOOL_TOKEN = options.tools.token; }
+    else { delete process.env.QRSPI_TOOL_SOCKET; delete process.env.QRSPI_TOOL_TOKEN; }
+  }
+  const runtime = options.toolRole
+    ? createAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs, agentRegistry,
+      sessionStore: createFileSessionStore({ stateDir: join(turnDir, "acpx-state") }),
+      agentProcessEnvAllow: [], agentProcessEnv: childEnv, fs: false, terminal: false })
+    : createSharedAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs, ttlMs: 1000, agentRegistry });
   const events: unknown[] = [];
   let result: unknown, failure: string | undefined, handle: AcpRuntimeHandle | undefined;
   let text = "", native: string[] = [], eventBytes = 0;
@@ -113,7 +133,7 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
     finish = await options.evidence?.begin("session", options.evidence.scope(session), session ? sessionSpan(session.id) : undefined);
     if (session) await options.record?.({ ...session, status: "allocated" });
     await deadline((async () => {
-      handle = await runtime.ensureSession({ sessionKey: `qrspi-${role}-${randomUUID()}`, agent: "pi", mode: "persistent", cwd });
+      handle = await runtime.ensureSession({ sessionKey: `qrspi-${role}-${randomUUID()}`, agent: "pi", mode: options.mode ?? "persistent", cwd });
       const turn = runtime.startTurn({ handle, text: prompt, mode: "prompt", requestId: randomUUID(), timeoutMs });
       const completion = turn.result;
       void completion.catch(() => {});
@@ -159,13 +179,18 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
       if (final) await options.record?.(final);
       if (incrementalFailure && !originalError) throw incrementalFailure;
     } finally {
-      process.env.PI_CODING_AGENT_DIR = base;
-      if (priorSocket === undefined) delete process.env.QRSPI_TOOL_SOCKET; else process.env.QRSPI_TOOL_SOCKET = priorSocket;
-      if (priorToken === undefined) delete process.env.QRSPI_TOOL_TOKEN; else process.env.QRSPI_TOOL_TOKEN = priorToken;
+      if (!options.toolRole) {
+        for (const [name, value] of [["PI_CODING_AGENT_DIR", previous.dir], ["QRSPI_TOOL_SOCKET", previous.socket], ["QRSPI_TOOL_TOKEN", previous.token]])
+          if (value === undefined) delete process.env[name!]; else process.env[name!] = value;
+      }
       await deadline((async () => {
         if (handle) await runtime.close({ handle, reason: "bounded turn settled" });
         await runtime.shutdown();
-      })(), 10000, "Pi cleanup deadline exceeded");
+      })(), 10000, "Pi cleanup deadline exceeded").catch(error => {
+        // A cleanup timeout must not replace the actual native failure which
+        // was already archived. Successful work still fails on failed cleanup.
+        if (!originalError) throw error;
+      });
     }
   }
 }

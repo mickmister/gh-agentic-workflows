@@ -17,6 +17,8 @@ test("workflow matches the shared input contract and runs selected setup in the 
     "bead",
     "prepare-project",
     "response",
+    "allow-source-effects",
+    "legacy-document-pilot",
   ].sort();
   assert.deepEqual(
     Object.keys(workflow.on.workflow_dispatch.inputs).sort(),
@@ -71,7 +73,7 @@ test("published package pins and nugs registry integrity match the existing sour
     readFileSync("../nugs-toolchain.lock.json", "utf8"),
   );
   for (const [name, version] of Object.entries({
-    "@mickmister/nugs": "0.1.5",
+    "@mickmister/nugs": "0.1.6",
     acpx: "0.22.0",
     "pi-acp": "0.0.33",
     "@earendil-works/pi-coding-agent": "1.5.2",
@@ -83,6 +85,16 @@ test("published package pins and nugs registry integrity match the existing sour
     lock.packages["node_modules/@mickmister/nugs"].integrity,
     native.tools.nugs.integrity,
   );
+});
+test("workspace setup authorship is a separate registered workflow, not parent YAML output", () => {
+  const text = readFileSync("../workflows/workspace-setup.yml", "utf8"), workflow = parse(text);
+  const steps = workflow.jobs.setup.steps;
+  assert.equal(workflow["run-name"], "Workspace setup ${{ inputs.launch-id }}");
+  assert(steps.some((s: any) => s.run?.includes("SETUP_COMMAND=author")));
+  const validation = steps.find((s: any) => s.id === "validate");
+  assert.equal(validation.uses, "./.agentic/active-setup"); assert.equal(validation.env, undefined);
+  assert(steps.some((s: any) => s.run?.includes("SETUP_COMMAND=finish")));
+  assert.doesNotMatch(text, /upload-artifact|\bpython[23]?\b/);
 });
 test("TS Git credential helper gives storage token only to its exact trusted HTTPS host/path", () => {
   const entry = resolve("bootstrap.ts");

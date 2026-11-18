@@ -4,7 +4,7 @@ import { chmod, readFile, realpath, stat } from "node:fs/promises";
 import { relative, isAbsolute } from "node:path";
 import { assert, acceptEdits, validName } from "./core.ts";
 import { boundedText, validateArtifacts } from "./bounds.ts";
-import { type ExecutionEvidence } from "./execution.ts";
+import { type ExecutionEvidence, type Operation } from "./execution.ts";
 import type { SessionIdentity } from "./session.ts";
 import { classify } from "./diagnostics.ts";
 
@@ -110,7 +110,7 @@ export class HostedTools {
 }
 
 /** Private Unix socket and per-turn capability. Only the explicit parent extension gets it. */
-export async function serveTools(socket: string, tools: HostedTools, options: { evidence?: ExecutionEvidence; session?: SessionIdentity } = {}) {
+export async function serveTools(socket: string, tools: { call(call: ToolCall): Promise<unknown> }, options: { evidence?: ExecutionEvidence; session?: SessionIdentity; names?: readonly string[] } = {}) {
   const token = randomBytes(32).toString("hex");
   const server = createServer(async (req, res) => {
     if (req.method !== "POST" || req.url !== "/tool" || req.headers.authorization !== `Bearer ${token}`) {
@@ -125,9 +125,9 @@ export async function serveTools(socket: string, tools: HostedTools, options: { 
         parts.push(Buffer.from(part));
       }
       const call = JSON.parse(Buffer.concat(parts).toString("utf8"));
-      assert(toolNames.includes(call.name), "Tool not permitted");
+      assert((options.names ?? toolNames).includes(call.name), "Tool not permitted");
       assert(typeof call.callId === "string" && call.callId.length <= 200, "Invalid tool call identity");
-      finish = await options.evidence?.begin(call.name, { ...options.evidence.scope(options.session), toolCallId: call.callId });
+      finish = await options.evidence?.begin(call.name as Operation, { ...options.evidence.scope(options.session), toolCallId: call.callId });
       const value = await tools.call(call);
       boundedText(JSON.stringify(value), 256000, "tool result");
       const done = finish; finish = undefined;
