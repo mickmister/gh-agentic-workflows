@@ -9,6 +9,7 @@ import { HostedTools, serveTools, toolNames } from "./tools.ts";
 import { configurePi, piTurn } from "./pi.ts";
 import { dispatchWorker } from "./dispatch.ts";
 import type { SessionIdentity, SessionRecord } from "./session.ts";
+import { ExecutionEvidence } from "./execution.ts";
 
 test("context catalog refuses traversal/symlinks and document tools preserve approval/config/evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "qrspi-tools-"));
@@ -51,6 +52,8 @@ test("real pinned Pi orchestrator calls context/document tools and existing acpx
   const dir = await mkdtemp(join(tmpdir(), "qrspi-tools-native-"));
   const previous = { ...process.env };
   const archives: any[] = [], records: SessionRecord[] = [], payloads: any[] = [];
+  const incremental = new Map<string, any>();
+  const evidence = new ExecutionEvidence({ workspace: "fixture", workspace_ref: "ws-fixture", process: "tools", bead: "task-test" }, "fixture-1", async (key, value) => { incremental.set(key, value); });
   let parentRequests = 0, failWorker = false;
   const server = createServer(async (req, res) => {
     let bytes = ""; for await (const chunk of req) bytes += chunk;
@@ -96,12 +99,12 @@ test("real pinned Pi orchestrator calls context/document tools and existing acpx
     await writeFile(join(dir, "README.md"), "fixture source observation");
     await configurePi(dir);
     const tools = new HostedTools({ "config.md": "config" }, new Map([["source/README.md", { root: dir, path: join(dir, "README.md") }]]),
-      (request, callId) => dispatchWorker(dir, "ws-fixture", "threads/task-test", { ...parent, id: randomUUID(), parentId: parent.id, role: `worker-${request.role}`, toolCallId: callId }, request, save, record));
-    bridge = await serveTools(join(dir, "tools.sock"), tools);
+      (request, callId) => dispatchWorker(dir, "ws-fixture", "threads/task-test", { ...parent, id: randomUUID(), parentId: parent.id, role: `worker-${request.role}`, toolCallId: callId }, request, save, record, evidence));
+    bridge = await serveTools(join(dir, "tools.sock"), tools, { evidence, session: parent });
     // The local capability is authenticated independently of model-supplied JSON.
     const denied = await new Promise<number>(ok => { const req = httpRequest({ socketPath: bridge!.socket, method: "POST", path: "/tool" }, res => { res.resume(); ok(res.statusCode!); }); req.end("{}"); });
     assert.equal(denied, 403);
-    const output = await piTurn(dir, "orchestrator", "Use the available fixture tools.", save, { tools: bridge, session: parent, record });
+    const output = await piTurn(dir, "orchestrator", "Use the available fixture tools.", save, { tools: bridge, session: parent, record, evidence });
     assert.equal(JSON.parse(output).done, true);
     assert.equal(parentRequests, 4);
     assert.equal(payloads.filter(p => !p.tools?.length).length, 1);
@@ -113,12 +116,19 @@ test("real pinned Pi orchestrator calls context/document tools and existing acpx
     assert.ok(Object.keys(child.wrapperFiles).some(path => path.endsWith("receipt.json")));
     assert.equal(archives.find(a => a.role === "orchestrator").session.status, "completed");
     assert.equal(records.filter(r => r.status === "allocated").length, 2);
+    await evidence.flush();
+    const events = [...incremental.values()].flatMap(row => row.events ?? []);
+    assert.ok(events.some(row => row.kind === "native" && row.sessionId === parent.id));
+    assert.ok(events.some(row => row.kind === "native" && row.sessionId === child.session.id));
+    assert.equal(events.filter(row => row.kind === "started" && row.operation === "qrspi_dispatch").length, 1);
+    assert.equal([...incremental.values()].filter(row => row.resourceSpans).length, 5, "parent, child and three observed tools");
     failWorker = true;
     await assert.rejects(dispatchWorker(dir, "ws-fixture", "threads/task-test", { ...parent, id: randomUUID(), parentId: parent.id, role: "worker-reviewer" },
       { role: "reviewer", prompt: "fixture source observation", context: [] }, save, record), /Native Pi|empty assistant result/);
     assert.equal(archives.at(-1).session.status, "failed");
     assert.ok(archives.at(-1).native.some((line: string) => line.includes("synthetic child failure")));
   } finally {
+    await evidence.close();
     if (bridge) await bridge.close();
     server.close();
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];

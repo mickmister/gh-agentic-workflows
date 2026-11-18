@@ -1,5 +1,33 @@
 # QRSPI hosted document turns
 
+## Incremental private execution evidence
+
+Every `open`/`work` attempt appends bounded private chunks under
+`processes/<binding-digest>/executions/<run>-<attempt>/<open|work>/chunks/`.
+Records bind workspace/process/owning Bead, execution, session/parent and tool-call
+identity. Stage changes, session/worker/tool start/end/failure, ten-second active
+operation heartbeats, streamed ACP events and complete native rows are persisted
+incrementally. Native files are sampled every five seconds; the final archive
+remains authoritative for its exact captured bytes. A hard kill can lose the
+unacknowledged tail, not already read-back chunks. Missing completion is unknown,
+never permission to retry an admitted turn.
+
+Operation intent is flushed before execution. Private storage failure is latched
+and prevents later effect boundaries. Original host/tool exception details remain
+private; the tool response contains only a classified reason and retention status.
+Session/worker/tool spans use correlated OTLP JSON under the sibling `spans/`
+prefix, with no prompt/tool payload attributes. These are measured host operation
+intervals (including boundary persistence), not per-provider request spans; nested
+durations overlap and must not be added. Reported native input/cache/output usage
+is separate from unknown billing cost.
+
+`qrspi-inspect.yml` with `native-evidence: true` downloads and inspects both final
+native bundles and incremental events/OTLP. Its aggregate projection reports last
+activity/stage, unmatched starts, hashed session links, tool counts, usage and span
+counts/timing. It cannot write, replay, approve phases or publish raw payloads.
+No Actions artifacts or Documents telemetry are introduced. No new dashboard or
+native provider instrumentation is claimed.
+
 `../workflows/qrspi-process.yml` is the entrypoint. All maintained bootstrap,
 auth helpers, storage and Pi adapters are TypeScript. `npm ci --ignore-scripts`
 installs the lockfile's published nugs **0.1.5**, acpx **0.22.0**, pi-acp

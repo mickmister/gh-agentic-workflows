@@ -4,6 +4,9 @@ import { chmod, readFile, realpath, stat } from "node:fs/promises";
 import { relative, isAbsolute } from "node:path";
 import { assert, acceptEdits, validName } from "./core.ts";
 import { boundedText, validateArtifacts } from "./bounds.ts";
+import { type ExecutionEvidence } from "./execution.ts";
+import type { SessionIdentity } from "./session.ts";
+import { classify } from "./diagnostics.ts";
 
 export type ContextFile = { root: string; path: string };
 export type WorkerRequest = { role: "researcher" | "reviewer"; prompt: string; context: string[] };
@@ -107,12 +110,13 @@ export class HostedTools {
 }
 
 /** Private Unix socket and per-turn capability. Only the explicit parent extension gets it. */
-export async function serveTools(socket: string, tools: HostedTools) {
+export async function serveTools(socket: string, tools: HostedTools, options: { evidence?: ExecutionEvidence; session?: SessionIdentity } = {}) {
   const token = randomBytes(32).toString("hex");
   const server = createServer(async (req, res) => {
     if (req.method !== "POST" || req.url !== "/tool" || req.headers.authorization !== `Bearer ${token}`) {
       res.writeHead(403).end(); return;
     }
+    let finish: ((error?: unknown) => Promise<void>) | undefined;
     try {
       let bytes = 0; const parts: Buffer[] = [];
       for await (const part of req) {
@@ -120,12 +124,33 @@ export async function serveTools(socket: string, tools: HostedTools) {
         assert(bytes <= 160000, "Tool request exceeds bound");
         parts.push(Buffer.from(part));
       }
-      const value = await tools.call(JSON.parse(Buffer.concat(parts).toString("utf8")));
+      const call = JSON.parse(Buffer.concat(parts).toString("utf8"));
+      assert(toolNames.includes(call.name), "Tool not permitted");
+      assert(typeof call.callId === "string" && call.callId.length <= 200, "Invalid tool call identity");
+      finish = await options.evidence?.begin(call.name, { ...options.evidence.scope(options.session), toolCallId: call.callId });
+      const value = await tools.call(call);
       boundedText(JSON.stringify(value), 256000, "tool result");
+      const done = finish; finish = undefined;
+      await done?.();
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ value }));
-    } catch {
-      // Native transcript records failure, without leaking filesystem/provider diagnostics.
-      res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "Tool failed validation or execution; no success may be inferred. Reconcile an uncertain dispatch rather than retrying it." }));
+    } catch (error) {
+      let evidenceRetained = false;
+      try {
+        if (finish) await finish(error);
+        else {
+          options.evidence?.event("failed", options.evidence.scope(options.session), {
+            privateError: error instanceof Error ? { message: error.message.slice(0, 8000), stack: error.stack?.slice(0, 16000) } : "Non-Error tool failure" });
+          await options.evidence?.flush();
+        }
+        evidenceRetained = Boolean(options.evidence);
+      } catch { /* Unavailable evidence never becomes tool success; later boundaries fail closed. */ }
+      // Original exception stays in private evidence, never arbitrary provider prose here.
+      const codes = new Map([["Unknown context entry", "unknown-context"], ["Context escapes catalog root", "context-boundary"],
+        ["Tool call budget exceeded", "call-budget"], ["Tool not permitted", "tool-not-permitted"],
+        ["Worker budget exceeded, uncertain prior outcome or worker already running", "dispatch-unavailable"]]);
+      const reason = error instanceof SyntaxError ? "invalid-json" : error instanceof Error ? codes.get(error.message) ?? "execution-error" : "execution-error";
+      res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "Tool failed validation or execution; no success may be inferred. Reconcile an uncertain dispatch rather than retrying it.",
+        reason, failure: classify(error), evidenceRetained, replayAuthorized: false }));
     }
   });
   server.requestTimeout = 300000;

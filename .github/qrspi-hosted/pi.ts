@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { assert, settled } from "./core.ts";
 import { limits, boundedText } from "./bounds.ts";
 import { nativeSessionIds, type SessionIdentity, type SessionRecord } from "./session.ts";
+import { sessionSpan, type ExecutionEvidence } from "./execution.ts";
 export async function configurePi(home: string) {
   for (const name of ["INFERENCE_BASE_URL", "INFERENCE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "QRSPI_MODEL"])
     assert(process.env[name], `Missing ${name}`);
@@ -21,7 +22,7 @@ export async function configurePi(home: string) {
   await chmod(launcher, 0o700);
   process.env.PI_ACP_PI_COMMAND = launcher;
 }
-export async function nativeFiles(dir: string): Promise<Record<string, string>> {
+export async function nativeFiles(dir: string, snapshotOnly = false): Promise<Record<string, string>> {
   const output: Record<string, string> = {};
   let count = 0, bytes = 0;
   async function visit(dir: string, depth = 0) {
@@ -35,7 +36,7 @@ export async function nativeFiles(dir: string): Promise<Record<string, string>> 
         assert(size <= limits.file && (bytes += size) <= limits.evidence, "Bound exceeded: native evidence");
         const handle = await open(path, "r");
         try {
-          const buffer = Buffer.alloc(size + 1);
+          const buffer = Buffer.alloc(size + (snapshotOnly ? 0 : 1));
           const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
           assert(bytesRead <= size, "Bound exceeded: growing native evidence");
           output[path] = buffer.subarray(0, bytesRead).toString("utf8");
@@ -45,6 +46,26 @@ export async function nativeFiles(dir: string): Promise<Record<string, string>> 
   }
   await visit(dir);
   return output;
+}
+/** Export complete appended native rows while a process is alive, not only on exit. */
+export function observeNative(dir: string, evidence?: ExecutionEvidence, session?: SessionIdentity) {
+  const offsets = new Map<string, number>();
+  let chain = Promise.resolve(), failure: unknown;
+  const collect = async () => {
+    if (!evidence || failure) return;
+    for (const [path, bytes] of Object.entries(await nativeFiles(dir, true))) {
+      if (!/\.(?:jsonl|ndjson)$/.test(path)) continue;
+      const complete = bytes.slice(0, bytes.lastIndexOf("\n") + 1).split("\n").filter(Boolean);
+      const from = offsets.get(path) ?? 0;
+      assert(complete.length >= from, "Native evidence was rewritten");
+      for (const line of complete.slice(from)) evidence.event("native", evidence.scope(session), JSON.parse(line));
+      offsets.set(path, complete.length);
+    }
+    await evidence.flush();
+  };
+  const poll = () => { chain = chain.then(collect).catch(error => { failure ??= error; }); };
+  const timer = setInterval(poll, 5000); timer.unref();
+  return async () => { clearInterval(timer); poll(); await chain; if (failure) throw failure; };
 }
 export function verifyNative(lines: string[]) {
   const messages = lines.filter(Boolean).map(line => JSON.parse(line))
@@ -62,7 +83,7 @@ async function deadline<T>(task: Promise<T>, ms: number, label: string) {
   finally { clearTimeout(timer!); }
 }
 export async function piTurn(cwd: string, role: string, prompt: string, save: (value: unknown) => Promise<unknown>, options: {
-  tools?: { socket: string; token: string }; session?: SessionIdentity; record?: (value: SessionRecord) => Promise<unknown>;
+  tools?: { socket: string; token: string }; session?: SessionIdentity; record?: (value: SessionRecord) => Promise<unknown>; evidence?: ExecutionEvidence;
 } = {}) {
   boundedText(prompt, limits.prompt, "Pi prompt");
   assert(!options.tools || role === "orchestrator", "Only designated orchestrator may receive tools");
@@ -85,7 +106,11 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
   let result: unknown, failure: string | undefined, handle: AcpRuntimeHandle | undefined;
   let text = "", native: string[] = [], eventBytes = 0;
   let recoveredAssistantErrors = 0;
+  const stopNative = observeNative(sessionDir, options.evidence, session);
+  let finish: ((error?: unknown) => Promise<void>) | undefined;
+  let originalError: unknown;
   try {
+    finish = await options.evidence?.begin("session", options.evidence.scope(session), session ? sessionSpan(session.id) : undefined);
     if (session) await options.record?.({ ...session, status: "allocated" });
     await deadline((async () => {
       handle = await runtime.ensureSession({ sessionKey: `qrspi-${role}-${randomUUID()}`, agent: "pi", mode: "persistent", cwd });
@@ -97,6 +122,7 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
         assert(events.length < limits.events && eventBytes + size <= limits.evidence, "Bound exceeded: Pi events");
         eventBytes += size;
         events.push(event);
+        options.evidence?.event("acp", options.evidence.scope(session), event);
         if (event.type === "text_delta" && event.stream !== "thought") {
           boundedText(text + event.text, limits.text, "Pi output");
           text += event.text;
@@ -116,10 +142,13 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
     }
     return settled(result, text);
   } catch (error) {
+    originalError = error;
     failure = error instanceof Error ? error.message.slice(0, 2000) : "Pi turn failed";
     throw error;
   } finally {
     try {
+      let incrementalFailure: unknown;
+      try { await stopNative(); await finish?.(originalError); } catch (error) { incrementalFailure = error; }
       if (!native.length) {
         try { native = Object.values(await nativeFiles(sessionDir)).flatMap(bytes => bytes.split("\n").filter(Boolean)); }
         catch { native = ["Native evidence bound exceeded; full files intentionally not ingested"]; }
@@ -128,6 +157,7 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
         nativeSessionIds: nativeSessionIds(native), acpxRecordId: (handle as AcpRuntimeHandle | undefined)?.acpxRecordId } : undefined;
       await deadline(save({ role, session: final, prompt, events, result, text, native, recoveredAssistantErrors, failure, settlementOnly: true, bounded: true }), 15000, "Evidence persistence deadline exceeded");
       if (final) await options.record?.(final);
+      if (incrementalFailure && !originalError) throw incrementalFailure;
     } finally {
       process.env.PI_CODING_AGENT_DIR = base;
       if (priorSocket === undefined) delete process.env.QRSPI_TOOL_SOCKET; else process.env.QRSPI_TOOL_SOCKET = priorSocket;

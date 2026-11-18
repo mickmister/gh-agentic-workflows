@@ -71,4 +71,6 @@ jobs:
       - name: Download and inspect existing native session evidence
         if: inputs.native-evidence
         env: *inspection-env
-        run: node --experimental-strip-types .github/qrspi-hosted/analyze-native.ts
+        run: |
+          node --experimental-strip-types .github/qrspi-hosted/analyze-native.ts
+          node --experimental-strip-types .github/qrspi-hosted/analyze-execution.ts

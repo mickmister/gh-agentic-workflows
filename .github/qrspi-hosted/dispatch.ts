@@ -5,14 +5,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert } from "./core.ts";
 import { boundedText, limits } from "./bounds.ts";
-import { nativeFiles, verifyNative } from "./pi.ts";
+import { nativeFiles, verifyNative, observeNative } from "./pi.ts";
+import { sessionSpan, type ExecutionEvidence } from "./execution.ts";
 import { nativeSessionIds, type SessionIdentity, type SessionRecord } from "./session.ts";
 import type { WorkerRequest } from "./tools.ts";
 const execute = promisify(execFile);
 
 /** Reuse the repository CLI wrapper, then additionally verify native Pi outcome. */
 export async function dispatchWorker(home: string, workspaceRef: string, threadId: string, session: SessionIdentity,
-  request: WorkerRequest, save: (value: unknown) => Promise<unknown>, record: (value: SessionRecord) => Promise<unknown>) {
+  request: WorkerRequest, save: (value: unknown) => Promise<unknown>, record: (value: SessionRecord) => Promise<unknown>, evidence?: ExecutionEvidence) {
   const dir = join(home, `worker-${session.id}`), stateRoot = join(dir, "dispatch");
   await mkdir(stateRoot, { recursive: true, mode: 0o700 });
   await copyFile(join(home, "pi/models.json"), join(dir, "models.json"));
@@ -30,8 +31,11 @@ export async function dispatchWorker(home: string, workspaceRef: string, threadI
   delete env.QRSPI_TOOL_SOCKET; delete env.QRSPI_TOOL_TOKEN;
   let receipt: any, text = "", native: string[] = [], failure: string | undefined;
   let recoveredAssistantErrors = 0;
-  await record({ ...session, status: "allocated" });
+  let originalError: unknown, finish: ((error?: unknown) => Promise<void>) | undefined;
+  const stopNative = observeNative(join(dir, "sessions"), evidence, session);
   try {
+    await record({ ...session, status: "allocated" });
+    finish = await evidence?.begin("worker", evidence.scope(session), sessionSpan(session.id));
     const result = await execute(process.execPath,
       [fileURLToPath(new URL("../../agent-workflows/qrspi/scripts/dispatch-acp.mjs", import.meta.url)), "--request", requestFile],
       { env, timeout: 150000, maxBuffer: 64000, killSignal: "SIGTERM" });
@@ -44,9 +48,12 @@ export async function dispatchWorker(home: string, workspaceRef: string, threadI
     return { sessionId: session.id, parentSessionId: session.parentId, status: "completed", report: text,
       nativeVerified: true, recoveredAssistantErrors, toolsEnabled: false, phaseApproval: false };
   } catch (error) {
+    originalError = error;
     failure = error instanceof Error ? error.message.slice(0, 2000) : "Worker failed";
     throw error;
   } finally {
+    let incrementalFailure: unknown;
+    try { await stopNative(); await finish?.(originalError); } catch (error) { incrementalFailure = error; }
     if (!native.length) {
       try { native = Object.values(await nativeFiles(join(dir, "sessions"))).flatMap(value => value.split("\n").filter(Boolean)); }
       catch { native = []; }
@@ -60,5 +67,6 @@ export async function dispatchWorker(home: string, workspaceRef: string, threadI
     await save({ role: `worker-${request.role}`, session: final, events: [], native, text, prompt, wrapperFiles,
       result: { status: failure ? "failed" : "completed" }, recoveredAssistantErrors, failure, bounded: true, settlementOnly: true });
     await record(final);
+    if (incrementalFailure && !originalError) throw incrementalFailure;
   }
 }
