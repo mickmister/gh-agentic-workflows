@@ -6,13 +6,13 @@
   "tools": {
     "nugs": {
       "package": "@mickmister/nugs",
-      "version": "0.1.5",
-      "tarball": "https://registry.npmjs.org/@mickmister/nugs/-/nugs-0.1.5.tgz",
-      "integrity": "sha512-IXiV1Fjw3MAwzG0tLiy35BkoBKUispvVqbv0h+AfMPKtR6HA3InpOhazsawD8Q5u3VnDbOanafl0QwspSVyXFQ==",
-      "compressed_bytes": 34697701,
-      "binary_bytes": 14336184,
-      "binary_sha256": "2baf561ba7940496a85ab36bd330f8ecfe97606d469364d902ecf57b105b99cc",
-      "source_commit": "b9e2a0af2d09d87022136f7a75e0df1fa1f27877"
+      "version": "0.1.6",
+      "tarball": "https://registry.npmjs.org/@mickmister/nugs/-/nugs-0.1.6.tgz",
+      "integrity": "sha512-jaJtRMtYi9M2TzGGE/8ploWkDMijkk3FSVwItK38r67aYvEMnaFuI9JXzP6636vjmY68+xNGTKsJd2MClre+hw==",
+      "compressed_bytes": 139951656,
+      "binary_bytes": 49463458,
+      "binary_sha256": "80ab68761931d9a65ae01a26d6f17e43d89196878661c899a13488a266b8e624",
+      "source_commit": "cee3d1fa0dc61de81fb233d2eca9080ede63dadf"
     },
     "bd": {
       "resource": "toolchain/bd-54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e.gz",
