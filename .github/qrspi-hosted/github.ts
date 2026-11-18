@@ -2,6 +2,17 @@ import { createSign } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { assert } from "./core.ts";
 
+export function gitEnvironment(env: NodeJS.ProcessEnv, repository: string, token: string): NodeJS.ProcessEnv {
+  assert(/^[\w.-]+\/[\w.-]+$/.test(repository), "Invalid GitHub repository");
+  // Git URL scopes match path components, not arbitrary string prefixes: repo
+  // does not match repo.git. Cover only the two canonical forms of this repo.
+  return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: `http.https://github.com/${repository}.git.extraheader`,
+    GIT_CONFIG_KEY_1: `http.https://github.com/${repository}.extraheader`,
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+    GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}` };
+}
+
 /** Host-only App auth. No token or signing key is passed to agent tools or setup. */
 export class GitHub {
   private tokens = new Map<string, { token: string; expires: number }>();
@@ -20,7 +31,11 @@ export class GitHub {
     const response = await this.transport(`https://api.github.com${path}`, { method, signal: AbortSignal.timeout(30000),
       headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    assert(response.ok, `GitHub API rejected operation (${response.status})`);
+    if (!response.ok) {
+      const error = new Error(`GitHub API rejected ${method} ${path.split("?")[0]} (${response.status})`);
+      Object.assign(error, { $metadata: { httpStatusCode: response.status } });
+      throw error;
+    }
     return response.status === 204 ? undefined : response.json();
   }
   async token(repository: string, access: "read" | "write" | "dispatch" = "read") {
@@ -39,7 +54,6 @@ export class GitHub {
   async git(directory: string, args: string[], repository: string, write = false) {
     const token = await this.token(repository, write ? "write" : "read");
     return execFileSync("git", ["-C", directory, ...args], { encoding: "utf8", timeout: 180000, maxBuffer: 8_000_000,
-      env: { ...this.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `http.https://github.com/${repository}.extraheader`,
-        GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}` }, stdio: ["ignore", "pipe", "pipe"] }).trim();
+      env: gitEnvironment(this.env, repository, token), stdio: ["ignore", "pipe", "pipe"] }).trim();
   }
 }

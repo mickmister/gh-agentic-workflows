@@ -3,13 +3,26 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { manifestMembers, materialize, localGit, within, type Manifest } from "./workspace.ts";
 import { Sources, files, command } from "./source.ts";
 import { WorkspaceTools } from "./workspace-tools.ts";
-import { GitHub } from "./github.ts";
+import { GitHub, gitEnvironment } from "./github.ts";
 import { SetupWorkflows } from "./setup.ts";
+
+test("actual Git URL matching scopes source auth to canonical repo URLs including .git", () => {
+  const env = gitEnvironment(process.env, "owner/repo", "fixture-token");
+  const expected = `AUTHORIZATION: basic ${Buffer.from("x-access-token:fixture-token").toString("base64")}`;
+  for (const url of ["https://github.com/owner/repo", "https://github.com/owner/repo.git", "https://github.com/owner/repo.git/info/refs"]) {
+    assert.equal(execFileSync("git", ["config", "--get-urlmatch", "http.extraheader", url], { env, encoding: "utf8" }).trim(), expected);
+  }
+  for (const url of ["https://github.com/owner/repo-neighbor.git", "https://github.com/other/repo.git", "https://example.com/owner/repo.git"]) {
+    const result = spawnSync("git", ["config", "--get-urlmatch", "http", url], { env, encoding: "utf8" });
+    assert([0, 1].includes(result.status!));
+    assert.equal(result.stdout.includes(expected), false);
+  }
+});
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "workspace-native-"));
