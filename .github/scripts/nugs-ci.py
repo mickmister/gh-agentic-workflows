@@ -24,7 +24,10 @@ from urllib.parse import urlsplit
 SCRIPT = Path(__file__).resolve()
 LOCK = SCRIPT.parent.parent / "nugs-toolchain.lock.json"
 RESOURCE = "ci/persistence/proof.json"
-NPM_ARCHIVE_LIMIT = 64 * 1024 * 1024
+# nugs bundles six portable native executables. Current-state pack support uses
+# pinned native Dolt format libraries; keep admission above the verified release
+# sizes while still checking exact tarball/binary lengths and digests below.
+NPM_ARCHIVE_LIMIT = 192 * 1024 * 1024
 
 
 def require(value, message):
@@ -97,8 +100,8 @@ def verified_npm_binary(compressed, item):
             "sha512-" + base64.b64encode(hashlib.sha512(compressed).digest()).decode() == item["integrity"],
             "npm tarball integrity mismatch")
     with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as stream:
-        expanded = stream.read(128 * 1024 * 1024 + 1)
-    require(len(expanded) <= 128 * 1024 * 1024, "npm tarball exceeds expansion limit")
+        expanded = stream.read(384 * 1024 * 1024 + 1)
+    require(len(expanded) <= 384 * 1024 * 1024, "npm tarball exceeds expansion limit")
     with tarfile.open(fileobj=io.BytesIO(expanded), mode="r:") as archive:
         def member(name, limit):
             matches = [m for m in archive.getmembers() if m.name == name]
@@ -108,7 +111,7 @@ def verified_npm_binary(compressed, item):
         metadata = json.loads(member("package/package.json", 65536))
         require(metadata.get("name") == item["package"] and metadata.get("version") == item["version"],
                 "npm package identity mismatch")
-        data = member("package/binaries/linux-x64/nugs", 16 * 1024 * 1024)
+        data = member("package/binaries/linux-x64/nugs", 64 * 1024 * 1024)
     require(len(data) == item["binary_bytes"] and data.startswith(b"\x7fELF") and
             hashlib.sha256(data).hexdigest() == item["binary_sha256"], "npm binary digest mismatch")
     return data
