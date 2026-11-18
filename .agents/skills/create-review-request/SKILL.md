@@ -5,292 +5,143 @@ description: Use when the user asks to create, publish, read or update a review 
 
 # Create a review request
 
-## Routing and status
+## Routing and authority
 
-All task-related questions go through focused hosted review requests. Chat may
-contain progress, answers/explanations and full immutable-revision UI links, but
-no task-decision questions. Place review-request links at the end of the response,
-after explanations, status and next steps, so they remain prominent at the bottom
-of the chat feed. Group multiple review-request links in a final section; do not
-append commentary after them. Group related decisions; do not create a packet per
-tool action. Workers return uncertainties to the parent unless specifically
-delegated packet authoring. The parent orchestrates and manages authority.
-Only trusted parent/runner-designated orchestrators may spawn agents, delegate
-through subagent/task tools, or dispatch workflows. Ordinary implementers,
-reviewers, researchers and packet authors relay such requests to the parent;
-explicit packet-authoring scope does not permit recursive delegation, including
-via shell/CLI. Explicit orchestration scope is required. Ordinary test/build
-subprocesses are not agent spawning. The future host must enforce scoped
-capabilities and role-specific tool surfaces, including disabling worker-native
-delegation tools; this prose neither enforces isolation nor decides QRSPI gates.
-`/compact` is a harness context suggestion, not task approval or another task dialog.
+- Route task-related questions through focused hosted review requests. Chat may
+  contain explanations and progress, but no task-decision questions. Group related
+  decisions rather than creating a packet per tool action.
+- Put full immutable-revision UI links at the end of the response, grouped when
+  multiple, with no commentary afterward. Never fabricate a link. Missing tooling,
+  publication or verified binding is a capability blocker to report.
+- QRSPI owns routes, artifacts, approvals and transitions. Hosted review is an
+  adapter, not a competing workflow engine. Publication creates no blanket commit
+  gate and grants no permission to commit, push or implement.
+- Only trusted parent/runner-designated orchestrators may spawn agents or dispatch
+  workflows. Workers return uncertainties to their parent unless delegated packet
+  authoring; that assignment does not permit recursive delegation, even via CLI.
+  Ordinary builds/tests are not agent spawning. Prose is not capability enforcement.
+- This procedure remains provisional pending task-z5a.3 and installed-extension
+  acceptance. `/compact` is a context suggestion, not approval.
 
-This documents the existing procedure, provisionally pending task-z5a.3 human
-acceptance and installed-extension end-to-end acceptance. It does not establish
-completed QRSPI acceptance or replace existing approval/response protocols.
+## Form-content requirements
 
-QRSPI remains workflow authority: derive route and artifact state from its existing
-routes/artifacts. Hosted review and UI code is adapter, transport and evidence
-projection only; do not introduce a new workflow engine, independent state machine,
-or competing gate/approval/transition authority.
+**Make the form a standalone artifact: all knowledge needed for discussion must
+be in the questions and choices of the form.** A reviewer must be able to understand
+the decision, compare alternatives and explain a preference without reading chat,
+another document or linked resources. Links may support evidence, not replace
+decision-relevant content.
 
-## Review committed changes before handoff
-
-After committing task-related source, workflow or guidance changes, create or
-legitimately amend a focused hosted review request referencing the actual committed
-code before handoff. One logical packet may cover related commit sets across
-repositories. For each repository include its identity, full base/head SHAs, one
-immutable GitHub compare permalink, individual full-SHA commit links, reviewed scope
-and actual checks/limitations in authored Markdown or form descriptions. Never use
-a moving-branch compare. Verify full SHAs, ancestry and the intended review range;
-exclude accidental unrelated commits. GitHub three-dot comparisons are merge-base
-based: use a verified ancestor base, or choose a direct two-dot comparison with
-explicit intended semantics. Do not describe every compare URL as an exact tree
-comparison.
-
-Use existing `document`/`form` members only; a document-only packet is sufficient
-when no human decision is outstanding. Do not reopen already chosen policies or
-invent an approval ceremony. Invite comments on whether code matches instructions.
-Preserve answered revisions and use a new linked follow-up when required by the
-history rules below. Clearly separate committed code from proposed uncommitted
-patches; a later commit needs an updated or follow-up review with its actual SHAs.
-Publication does not automatically block every commit or add a human gate beyond
-existing QRSPI authority, and this rule does not authorize self-commits or pushes.
-Link-based packets work now; custom code-review UI remains deferred.
-
-## Prerequisites and identities
-
-Use the published `@mickmister/nugs` version/integrity pinned in
-`.github/nugs-toolchain.lock.json`, never a source-built operational binary.
-Verify a trusted explicit, pinned compatible github-ultimate checkout and its
-dependencies: this repository neither bundles nor installs its `cli/review.ts`.
-Do not download unpinned tools to satisfy file references below.
-
-Configure `GITHUB_ULTIMATE_ROOT` (that checkout), `WORKSPACE_ROOT` (shared Beads
-root), `REVIEW_WORKSPACE` (stored readable handle), `REVIEW_REPOSITORY` (bound
-storage owner/repository), and `REVIEW_APP_URL` (verified deployed viewer base).
-Resolve the runtime stable workspace reference to the readable handle using
-published `nugs workspace context` from the workspace root. They are different
-identities; do not derive workspace/viewer bindings from a branch or assume a
-sibling path. Verify viewer/storage binding and authorization before publication.
-
-An owning Bead owns `threads/<bead-id>/`. Stable request/revision IDs identify
-review history, not form IDs, native sessions or Actions attempts. Resources are:
-
-- `review-requests/<request-id>/request.json`
-- `review-requests/<request-id>/forms/<form-id>.json`
-- immutable `review-requests/<request-id>/responses/<response-id>.json`
-
-Authored forms/docs/compact evidence belong in nugs; runtime payload logs, native
-databases/checkpoints and telemetry belong in private S3, never Documents or
-Actions artifacts (including trace-context metadata).
-
-## Author substantive decision forms
-
-Use the standard BeadsForm concepts supported by the pinned production schema;
-do not assume the dashboard's newer question/content types are accepted here.
-
-- **Make the form a standalone artifact: all knowledge needed for discussion
-  must be in the questions and choices of the form.** The reviewer should not
-  need the chat, another document or a linked resource to understand the decision,
-  compare alternatives or explain a preference. Links may provide supporting
-  evidence, but must not substitute for decision-relevant content in the form.
-- Give the form a concise `goal`. Every question needs a clear title and
-  description explaining the concrete decision, relevant facts, settled
-  requirements and prior reasoning. Put option-specific context in choice
-  descriptions; use stable, contextual question/choice IDs. Ask only the next
-  useful unresolved questions; do not reopen answered choices or turn discussion
-  into phase approval.
+- Give the form a concise `goal`. Every question needs a clear title and description
+  with relevant facts, settled requirements and prior reasoning. Put option-specific
+  context in choice descriptions. Use stable, contextual question/choice IDs.
+- Ask only useful unresolved questions; do not reopen answered policies or turn
+  discussion into phase approval. Preserve relevant reviewer concerns and useful
+  original wording/attribution.
 - Describe what each option actually does. Put recommendation rationale in
-  `is_recommended_reason`, rather than only adding “recommended” to a label.
-  Recommendations and `assumedTrue` are author context, never preselected answers.
-- Treat `choice.prosAndCons: { pros?: string[]; cons?: string[] }` as required
-  authoring content for every substantive choice, even though the wire schema
-  permits omission. Supply concrete benefits and costs. Preserve relevant
-  reviewer concerns, risks, prior reasoning and tradeoffs instead of compressing
-  them away. Descriptions carry context; structured pros/cons carry tradeoffs.
-  Omit empty or unhelpful lists, and do not invent a disadvantage just to fill a
-  slot. Omit `prosAndCons` only for non-substantive choices such as Other or when
-  no meaningful tradeoff exists. Preserve useful original wording/attribution
-  where practical.
-- All choice questions remain multi-select checkboxes, including ones an author
-  calls single-select or groups as `atMostOne`/`exactlyOne`. Those modes express
-  suggested grouping, not exclusive-answer enforcement. Never clear peer choices,
-  reject multiple selections, or replace these with radio controls. Other remains
-  available through the production renderer.
-- Reviewers can add notes to each individual choice, selected or unselected,
-  including Other. These are independent from question-wide context and master
-  notes. Do not add duplicate questions just to collect choice explanations.
-  Preserve every `<question>_<choice>_more_info` field, question
-  `<question>_more_info`, `additional_notes` and `next_instruction` on response
-  intake; a note does not itself select or approve an option. Keep
-  `additional_notes` as the master notes field.
-- Prefer an inspectable JSON file when drafting substantial forms. Refine focused
-  questions before publication; use the hosted request's revision/history rules
-  below rather than assuming dashboard mutation commands update a published pin.
+  `is_recommended_reason`. Recommendations and `assumedTrue` never preselect answers.
+- **Treat `prosAndCons` as required for every substantive choice**, even though the
+  wire schema makes it optional. Put concrete benefits and costs in structured
+  `pros`/`cons` arrays, not only prose. Omit empty lists and invented disadvantages;
+  omit the object only for non-substantive choices such as Other or when no
+  meaningful tradeoff exists.
+- Choice questions are always multi-select checkboxes. `atMostOne`/`exactlyOne`
+  groups suggest grouping, not exclusivity: never clear peers, reject multiple
+  selections or substitute radios. The renderer supplies Other.
+- Reviewers can annotate each choice, selected or not, including Other. Do not add
+  duplicate explanation questions. Keep `additional_notes` as the master notes
+  field; preserve per-choice and question-wide notes on intake.
+- Use `allowCodeFileChanges:false` for discussion-only forms. A design choice or
+  note is not code authorization. Prefer inspectable JSON files for substantial drafts.
 
-For example, a choice can carry its explanation and structured tradeoffs:
+### Complete discussion-form example
 
 ```json
 {
-  "id": "dedicated_compositions",
-  "label": "Dedicated phone compositions",
-  "description": "Separate phone layouts with shared controllers.",
-  "is_recommended_reason": "Allows intentional phone workflows with manageable maintenance.",
-  "prosAndCons": {
-    "pros": ["Freedom to redesign phone navigation", "Shared domain behavior"],
-    "cons": ["Requires careful component-sharing boundaries"]
-  }
+  "format": "standard",
+  "id": "phone_layout",
+  "task_id": "task-example",
+  "title": "Choose a phone layout approach",
+  "goal": "Decide the layout direction before implementation planning.",
+  "allowCodeFileChanges": false,
+  "questions": [
+    {
+      "type": "choices",
+      "id": "layout_strategy",
+      "title": "How should phone navigation be organized?",
+      "description": "The current desktop layout uses a persistent sidebar. Phone users need navigation that fits a narrow screen; shared domain behavior must remain unchanged. No layout implementation has been authorized. Compare a dedicated phone composition with adapting the existing layout. Select any useful directions and annotate concerns on individual choices.",
+      "choices": [
+        {
+          "id": "dedicated",
+          "label": "Dedicated phone composition",
+          "description": "Build phone-specific navigation while sharing domain controllers with desktop.",
+          "is_recommended_reason": "Allows navigation designed for small screens while retaining shared behavior.",
+          "prosAndCons": {
+            "pros": ["Phone navigation can be designed independently", "Domain behavior stays shared"],
+            "cons": ["Two layout compositions need maintenance"]
+          }
+        },
+        {
+          "id": "adaptive",
+          "label": "Adapt the existing layout",
+          "description": "Collapse the desktop sidebar into a drawer and retain the existing layout structure.",
+          "prosAndCons": {
+            "pros": ["Reuses the existing composition", "Smaller initial layout change"],
+            "cons": ["Desktop structure constrains phone navigation"]
+          }
+        }
+      ]
+    },
+    {
+      "type": "textarea",
+      "id": "additional_notes",
+      "title": "Additional notes",
+      "description": "Add cross-cutting constraints or a different direction; use choice notes for option-specific feedback."
+    }
+  ]
 }
 ```
 
-Before publishing, review authoring quality as well as schema validity: could the
-human compare the real alternatives and understand the recommendation using only
-the form's questions and choices, without rereading chat or opening linked
-documents? Does every substantive choice include meaningful `prosAndCons`? Are
-important tradeoffs missing or buried in prose? Fix missing substantive tradeoffs
-before publication without inventing filler. This authoring requirement adds no
-workflow approval gate. Production validation remains the wire-format authority.
+## Prepare, publish and verify
 
-## Prepare, publish, verify
+Read [publication and intake](references/publication-and-intake.md) before executing
+commands. Read [supported fields](references/form-fields.md) before using fields
+not shown above; the pinned production schema remains authoritative.
 
-1. Read the owner, current thread and related requests. Discover with published
-   `nugs documents list --workspace "$REVIEW_WORKSPACE" --prefix ...`; follow
-   `page.next_token` with `--token` at the same fixed snapshot. Inspect installed
-   help for snapshot inputs. The review CLI's `list` currently reads only the
-   first page; absence there does not prove a name or response is absent.
-2. Prepare a focused manifest and, when a decision is needed, a standard form
-   against the production contracts in the pinned checkout: `src/protocol.ts` and
-   `src/review-protocol.ts`.
-   Form `format: "standard"`, `id` and `task_id` must match member `form_id` and
-   `bead_id`; reject invalidated forms. Use `allowCodeFileChanges:false` for
-   discussion-only forms. Document-only packets need no form. Validate forms with
-   production `parseRecord` and manifests with `parseReviewRequest`, not a copied
-   schema. A concrete local validation example
-   (configured `FORM_FILE` and `REQUEST_FILE` are prepared JSON files):
+1. Verify the published pinned nugs CLI, compatible pinned github-ultimate checkout,
+   viewer/storage authorization and workspace identities. Read the owning Bead,
+   current thread and related requests; paginate discovery at a fixed snapshot.
+2. Draft a focused manifest and form using existing `document`/`form` members.
+   A document-only packet suffices when no decision is outstanding. Validate using
+   production `parseRecord` and `parseReviewRequest`; reject invalidated forms and
+   mismatched form/member/Bead identities.
+3. Check authoring quality: can the reviewer discuss the decision using only the
+   questions and choices? Does every substantive choice include meaningful
+   `prosAndCons`? Fix omissions before publication without filler or new approval gates.
+4. Publish new members create-only. Pin actual receipt resource/blob/snapshot values
+   in the manifest, read exact pinned bytes back and revalidate. Publish the manifest
+   with the review CLI; verify the request receipt and every member.
+5. Amend only legitimately unanswered revisions using the observed expected version
+   and a fresh revision ID. Answered revisions need a new linked follow-up; preserve
+   prior answers. Dashboard mutations do not update a published pin.
+6. Record exact references in the owning Bead and return the CLI-produced pinned UI
+   URL at the end of the response. Forms, documents and compact evidence belong in
+   nugs; raw logs, native state and telemetry belong in private S3, never Actions artifacts.
 
-   ```bash
-   node --experimental-strip-types --input-type=module -e '
-   import {readFileSync} from "node:fs";
-   import {pathToFileURL} from "node:url";
-   const base = process.env.GITHUB_ULTIMATE_ROOT;
-   const {parseRecord} = await import(pathToFileURL(`${base}/src/protocol.ts`));
-   const {parseReviewRequest} = await import(pathToFileURL(`${base}/src/review-protocol.ts`));
-   parseRecord(readFileSync(process.env.FORM_FILE, "utf8"));
-   parseReviewRequest(readFileSync(process.env.REQUEST_FILE, "utf8"));'
-   ```
-
-3. Publish each new form/document create-only, omitting `--expected` (skip the form
-   command for document-only packets):
-
-   ```bash
-   nugs documents upsert --workspace "$REVIEW_WORKSPACE" \
-     --name "review-requests/$REQUEST_ID/forms/$FORM_ID.json" --file "$FORM_FILE"
-   ```
-
-   Use `import-form --root ... --bead ... --form ... --request ...` instead only
-   if that Beads-attached form actually exists; import is not mandatory.
-4. Fill the manifest with the actual form receipt: `dsl` has `resource`,
-   `version_kind:"git-blob"`, blob `version`, and historical `snapshot` (receipt
-   commit). Pin every document target and meaningful Changes baseline similarly.
-   Read every exact snapshot/blob and compare its bytes, including form/baseline;
-   verify member/form/Bead identities. Revalidate the completed manifest. Required
-   manifest context includes owner `bead_id`, owning `thread`, readable `workspace`,
-   stable `request_id`, fresh `revision_id`, title/purpose/question,
-   `status:"published"`, `change_kind` and members.
-5. Publish using the existing CLI:
-
-   ```bash
-   node --experimental-strip-types "$GITHUB_ULTIMATE_ROOT/cli/review.ts" publish \
-     --workspace "$REVIEW_WORKSPACE" --root "$WORKSPACE_ROOT" \
-     --file "$REQUEST_FILE" --repository "$REVIEW_REPOSITORY" \
-     --app-url "$REVIEW_APP_URL"
-   ```
-
-   New names are create-only. Legitimate unanswered amendments require the
-   observed `--expected` blob version and fresh revision ID. An answered revision
-   requires a new linked follow-up (`previous_request`); preserve prior answers.
-   Paginated response discovery and host stale/current checks remain necessary.
-6. Read back the exact request receipt snapshot/version and all pinned members;
-   compare bytes and identities. Record resource/version/snapshot references in
-   the owning Bead and return the CLI-produced full URL, which includes request
-   version and snapshot, at the end of the response. Put any explanation or status
-   before the final review-request links, with no commentary after them. Never
-   fabricate a link. Missing tools, publication or binding is a reported capability
-   blocker, not permission for a chat question.
-
-## Current Pi pilot adapter — task-3vt.50.51
-
-The separate TypeScript pilot in `.github/qrspi-hosted/` and
-`.github/workflows/qrspi-process.yml` now provisions a pinned production review
-CLI and validates authenticated, exact-pinned responses with best-effort private
-S3 check-before-create admission (not atomic; overlapping absent reads can both
-admit). Observed existing/uncertain admissions suppress work; transport failures
-never authorize replay. Historical checkpoints retain the document/review adapter.
-New processes use the methodology-neutral workspace capability path: manifest/native
-restore, separate setup specialist, scoped concurrent source/test workers and normal
-existing-branch integration. Local synthetic-inference and real-Git tests cover
-these capabilities; they do not establish hosted source delivery, shared Beads write
-coordination or complete canonical verifier rounds. Source effects require explicit
-caller capability and actual methodology authority. See the package README for the
-cooperative command boundary and outstanding acceptance limits.
-`.github/workflows/qrspi-inspect.yml` is read-only operator inspection,
-never process admission or replay authority. Consult the package README and the
-owning Bead for observed hosted results; source/tests do not establish genuine
-human-response or installed-extension acceptance. The legacy ingester/OpenCode
-details below do not describe this new pilot's implementation status.
+After committing task-related source, workflow or guidance changes, publish or
+legitimately amend a focused review before handoff. Include each repository's full
+base/head SHAs, immutable compare and commit links, scope and actual checks/limits.
+Verify ancestry and range; distinguish committed code from uncommitted proposals.
+See the publication reference for comparison semantics and history rules.
 
 ## Read responses and continue
 
-Persisted drafts are not submissions. Read the immutable submitted response and
-resolve the exact awaited request version/snapshot plus matching member/form DSL
-pins. Validate with production `parseReviewArtifact`/`validateReviewArtifact` and
-verify relevant review, source and authority context. Preserve every choice and
-optional note, not merely top-level intent. Form intent may be `discussion` or
-scoped `approved-next-steps`; feedback/discussion is not automatically code
-approval. `allowCodeFileChanges:false` permits only discussion intent and forbids
-code authorization; design decisions may still be recorded in answers.
+Read immutable submissions, not drafts. Resolve the exact awaited request and form
+pins; validate with `parseReviewArtifact`/`validateReviewArtifact` and check current
+authority. Preserve all choices, `<question>_<choice>_more_info`,
+`<question>_more_info`, `additional_notes` and `next_instruction`, not just intent.
+Notes do not select or approve choices. Discussion is not implementation approval;
+`allowCodeFileChanges:false` forbids code authorization. Reconcile prior effects
+before dispatch; never blindly replay. New decisions need an amendment or follow-up.
 
-The existing command can validate records and attach Bead pointers:
-
-```bash
-node --experimental-strip-types "$GITHUB_ULTIMATE_ROOT/cli/review.ts" ingest \
-  --root "$WORKSPACE_ROOT" --workspace "$REVIEW_WORKSPACE" --request "$REQUEST_ID"
-```
-
-Do not rely on its request-ID filter alone: first-page listing, exact-await and
-current/stale intake gaps require host checks. Reconcile prior effects/admission
-before dispatching another worker; never blindly replay or submit responses.
-No background automatic orchestrator or authenticated response-to-Actions trigger
-is established by this ingester. New human decisions require a focused amended
-or follow-up hosted request.
-
-Legacy OpenCode Actions neither provision this review CLI nor automatically load this
-skill under pure mode. `opencode-bead.py` injects working instructions directing
-explicit reads of `$GC_ENGINE_ROOT/AGENTS.md` and this skill in the engine checkout;
-older deployed runs do not automatically gain them. Honor applicable instructions
-in the actual target worktree separately: `$GC_SOURCE_WORKTREES` is its parent,
-and unrelated target repositories need not contain this skill. Tool bootstrap and
-response-to-Actions dispatch remain unimplemented in that legacy path. The
-separate Pi pilot above has its own bounded adapter and acceptance obligations.
-Existing Gas City direction
-needs reconciliation before future operational reuse; this guidance does not
-promise an implemented runtime migration.
-
-Current versus planned runtime: the local
-`/tmp/opencode/tools/qrspi-cli-design/dispatch-design-worker.py` is disposable,
-not shipped or used by Actions. Existing Actions `opencode-bead.py` invokes native
-`opencode run`, not acpx; Python `nugs-ci.py` and other helpers handle
-bootstrap/auth/storage. Committed `agent-workflows/qrspi/scripts/dispatch-acp.mjs`
-uses Node to spawn the published acpx CLI, not its SDK. The pending CLI
-recommendation is TS/Node `acpx/runtime` `createSharedAcpRuntime`, with typed native
-events/result/watch and bounded concurrent turns. Cancellation and settlement
-remain explicit; the SDK neither decides QRSPI/human gates nor implements the
-review protocol. The existing TypeScript review CLI owns form/protocol validation;
-published nugs owns publication/readback. The user selected TypeScript for all new
-first-party CLI/MCP/Actions orchestration, including bootstrap, authentication,
-storage and wrappers, with no hidden Python dependency or active fallback. Existing
-legacy Python is not yet migrated; preserve its parity evidence and historical
-receipts without making it authority in the new cutover path. This documentation edit performs no
-runtime migration and needs no additional architecture approval question; the
-relevant CLI review already exists.
+For adapter limitations and historical runtime context, see
+[runtime status](references/runtime-status.md) and the owning Bead.
