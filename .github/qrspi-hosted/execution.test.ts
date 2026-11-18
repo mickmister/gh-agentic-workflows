@@ -38,6 +38,21 @@ test("lost private publication latches failure and prevents another effect bound
   await assert.rejects(evidence.close());
   assert.equal(writes, 1);
 });
+test("lost OTLP publication preserves completed chunk but prevents subsequent effects", async () => {
+  const stored = new Map<string, any>(); let spanWrites = 0;
+  const evidence = new ExecutionEvidence(binding, "123-1", async (key, value) => {
+    if (key.startsWith("spans/")) { spanWrites++; throw new Error("span storage unavailable"); }
+    stored.set(key, value);
+  });
+  const end = await evidence.begin("session");
+  await assert.rejects(end(), /span storage unavailable/);
+  const events = [...stored.values()].flatMap(row => row.events);
+  assert.deepEqual(events.map(row => row.kind), ["started", "completed"]);
+  await assert.rejects(evidence.begin("worker"), /Private execution evidence unavailable/);
+  await assert.rejects(evidence.close(), /span storage unavailable/);
+  assert.equal(spanWrites, 1);
+  assert.equal(stored.size, 2);
+});
 test("SIGKILL preserves acknowledged running-operation evidence without fabricating completion or replay", { timeout: 15000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "qrspi-journal-kill-"));
   const module = fileURLToPath(new URL("execution.ts", import.meta.url));
