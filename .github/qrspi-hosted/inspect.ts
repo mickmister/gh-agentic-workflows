@@ -6,6 +6,15 @@ import { classify, missingObject } from "./diagnostics.ts";
 
 export const OUTPUT_LIMIT = 6000;
 export const DESCRIPTION_LIMIT = 1000;
+export function hostErrorDetails(message: unknown, env: NodeJS.ProcessEnv) {
+  if (env.HOST_ERROR_DETAILS !== "true" || typeof message !== "string" || message.length > 64000 ||
+      !/^Command failed: nugs (?:workspace restore|beads sync) /.test(message)) return undefined;
+  const newline = message.indexOf("\n");
+  if (newline < 0) return undefined;
+  // Opt-in, exact bound host CLI failures only. Do not expose the command line,
+  // arbitrary native sessions, provider bodies, or unsanitized error payloads.
+  return sanitize(message.slice(newline + 1), env).slice(0, DESCRIPTION_LIMIT);
+}
 export function hostDiagnostic(message: unknown) {
   if (typeof message !== "string" || message.length > 64000) return undefined;
   const api = /^GitHub API rejected (?:operation|(?:GET|POST) \/repos\/[\w./-]+) \(([1-5][0-9]{2})\)$/.exec(message);
@@ -136,7 +145,8 @@ export async function inspect(env: NodeJS.ProcessEnv, send?: (command: GetObject
         } else {
           // Legacy private messages may contain arbitrary native output. Never render them.
           results[kind] = { existence: "present", description: "Private diagnostic retained; raw payload omitted",
-            ...(hostDiagnostic(value?.message) ? { host: hostDiagnostic(value.message) } : {}) };
+            ...(hostDiagnostic(value?.message) ? { host: hostDiagnostic(value.message) } : {}),
+            ...(hostErrorDetails(value?.message, env) ? { hostCliError: hostErrorDetails(value.message, env) } : {}) };
         }
       } catch (error) {
         const status = classification(error);

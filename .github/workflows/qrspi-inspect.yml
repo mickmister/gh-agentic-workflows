@@ -27,6 +27,10 @@ on:
         description: Also download and inspect bounded native role/session/performance records (no model work)
         type: boolean
         default: false
+      host-error-details:
+        description: Include bounded scrubbed stderr for the exact bound nugs restore/sync failure
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -53,6 +57,7 @@ jobs:
           BEAD_ID: ${{ inputs.bead }}
           TARGET_RUN_ID: ${{ inputs.target-run }}
           TARGET_RUN_ATTEMPT: ${{ inputs.target-attempt }}
+          HOST_ERROR_DETAILS: ${{ inputs.host-error-details }}
           # Existing secrets are needed solely for SDK access and value redaction.
           # No App signing key, App token, model call, setup or publication.
           NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
