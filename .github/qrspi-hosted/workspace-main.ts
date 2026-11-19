@@ -17,14 +17,23 @@ import { ExecutionEvidence } from "./execution.ts";
 import type { SessionIdentity, SessionRecord } from "./session.ts";
 import { reportFailure, type Stage } from "./diagnostics.ts";
 import { reconcileInitialization } from "./workspace-recovery.ts";
+import { recoverPublication } from "./workspace-publication-recovery.ts";
+import { reviewDocuments } from "./workspace-publication.ts";
 
 type State = Checkpoint & { schemaVersion: 2; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
 const env = process.env, home = env.QRSPI_HOME!;
-const workspaceTurn: typeof invokeWorkspaceTurn = (directory, prompt, ...args) => invokeWorkspaceTurn(directory,
-  `Caller configuration metadata (not phase/product approval): ${JSON.stringify({ routeTemplate: env.QRSPI_ROUTE,
+const workspaceTurn: typeof invokeWorkspaceTurn = (directory, prompt, ...args) => {
+  if (env.RECOVER_PUBLICATION && env.WORKSPACE_COMMAND === "work") {
+    const result = localState(home).recoveredResult;
+    assert(result && typeof result === "object", "Verified completed discussion result missing");
+    return Promise.resolve(result); // Finalize retained bytes; never replay model/tools.
+  }
+  return invokeWorkspaceTurn(directory,
+  `Checkpoint output contract: reviewDocuments?:string[] names extra staged Markdown artifacts; the required reviewArtifact/config are always included. Workspace repository names are source inventory, not review document names.\nCaller configuration metadata (not phase/product approval): ${JSON.stringify({ routeTemplate: env.QRSPI_ROUTE,
     runtimeModels: [{ provider: "hosted", model: env.QRSPI_MODEL }],
     alternateModelProvisioned: false,
     methodologySupport: "methodology list/read with args.source:true accesses supporting source-package docs omitted from the built skill bundle; default reads built skills" })}\n` + prompt, ...args);
+};
 assert(home, "Bootstrap required");
 const seed = validateSeed(JSON.parse(env.NUGS_WORKSPACE_SEED!));
 const binding: Binding = { workspace: env.REVIEW_WORKSPACE!, workspace_ref: seed.workspace_ref, process: slug(env.QRSPI_PROCESS!), bead: env.BEAD_ID! };
@@ -46,6 +55,17 @@ const boundary = `You are the trusted workspace orchestrator. Practice Zero Fram
 async function prepare() {
   assert(/^[\w.-]+\/[\w.-]+$/.test(env.REVIEW_REPOSITORY ?? "") && new URL(env.REVIEW_APP_URL!).protocol === "https:", "Invalid review publication binding");
   await protocol(env.GITHUB_ULTIMATE_ROOT!);
+  if (env.RECOVER_PUBLICATION) {
+    assert(!env.RECOVER_BEFORE_MODEL && !env.REVIEW_RESPONSE, "Publication recovery cannot combine another recovery or response");
+    const state = await recoverPublication(env, store, github, binding, key, home);
+    docs.ready(seed);
+    for (const pin of Object.values(state.prior.pins) as Pin[]) await docs.pin(pin, true);
+    localState(home, state);
+    const slot = resolve(".agentic/active-setup"); mkdirSync(slot, { recursive: true });
+    writeFileSync(join(slot, "action.yml"), "name: Recover completed discussion publication\ndescription: No model or project setup replay\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: 'true'\n");
+    output("admitted", "true");
+    return;
+  }
   await step("receipt-authentication");
   const receipt: Receipt | undefined = env.REVIEW_RESPONSE ? JSON.parse(env.REVIEW_RESPONSE) : undefined;
   if (receipt) authenticateReceipt(receipt.reviewer);
@@ -163,12 +183,13 @@ async function work() {
   };
   const result = await workspaceTurn(home, boundary + `Inspect the owning Bead, relevant existing documents and durable artifact state. Decide whether methodology work starts or resumes and perform the next appropriate bounded work. Discover existing decisions before asking duplicate questions. Read skills/using-qrspi/SKILL.md and applicable phase instructions; use isolated role dispatch with their required context. Never invent unanswered product decisions or implementation authority. Caller source authority is only a capability ceiling, never permission to bypass methodology or product gates. Stage config.md from the selected methodology's actual template/instructions if absent; host has no route table. Follow current artifacts to choose roles/order/parallelism. Use existing branch integration for verified source results. Do not modify source yourself: delegate explicitly scoped workers.\nReturn {title,question,reviewArtifact,members?:string[],questions?:standardQuestion[],approvalOffered:boolean}. The host publishes staged artifacts and next pinned human request. approvalOffered is a content gate only, never source authorization. For a prior explicit approval, interpret ALL feedback first: conditions, uncertainty or revisions mean discuss/revise, not promotion. Only when appropriate call artifact approve to apply the real exact-byte authorization before continuing. The tool cannot create authority absent the submitted approval.\nBinding:${JSON.stringify(binding)}\nIntent:${env.QRSPI_GOAL ?? ""}\nPrior request:${JSON.stringify(prior?.awaiting ?? null)}\nComplete feedback:${JSON.stringify(state.feedback ?? null)}\nSetup:${JSON.stringify(state.setup)} outcome:${env.SETUP_OUTCOME}`,
     { docs, prefix, root: state.root, home, methodology: resolve("agent-workflows/qrspi/build"), artifacts: state.artifacts, pins: state.pins, sources, approve: applyApproval }, session("orchestrator"), archive, record, evidence);
+  await step("publication-validation");
+  await store.put(`${key}/private/completed-discussion-${executionId}.json`, { binding, state, result }, { create: true });
   const artifacts = state.artifacts as Record<string, string>, pins = state.pins as Record<string, Pin>;
   assert(typeof result.title === "string" && result.title.length <= 1000 && typeof result.question === "string" && result.question.length <= 12000 &&
     typeof result.approvalOffered === "boolean", "Invalid human checkpoint output");
   assert(artifacts["config.md"] && artifacts[result.reviewArtifact], "Missing methodology config or review document");
-  const names: string[] = result.members ?? [result.reviewArtifact];
-  assert(names.length > 0 && names.length <= 12 && names.includes(result.reviewArtifact) && names.every(n => Object.hasOwn(artifacts, n)), "Invalid checkpoint members");
+  const names = reviewDocuments(result, artifacts, sources.members.map(m => m.path));
   const requestId = `${binding.process}-${randomUUID()}`, formId = "workflow-decision";
   const form = { format: "standard", id: formId, task_id: binding.bead, title: result.title,
     description: "Pinned methodology content. Discussion and content approval do not authorize source changes.", allowCodeFileChanges: false,
@@ -177,6 +198,7 @@ async function work() {
       choiceGroups: [{ id: "one", mode: "exactlyOne", choiceIds: ["approve", "revise", "discuss"] }] },
       { id: "notes", type: "textarea", title: "Feedback and conditions", required: false }] : dialogueQuestions(result.question, result.questions) };
   const p = await protocol(env.GITHUB_ULTIMATE_ROOT!); p.parseRecord(JSON.stringify(form));
+  await step("artifact-publication");
   for (const [name, text] of Object.entries(artifacts)) if (text !== prior?.artifacts[name] || !pins[name]) pins[name] = docs.save(prefix + name, text, pins[name]);
   const formPin = docs.save(`review-requests/${requestId}/forms/${formId}.json`, JSON.stringify(form));
   const request = { kind: "review-request", schema_version: 1, request_id: requestId, revision_id: randomUUID(), workspace: binding.workspace,
@@ -186,6 +208,7 @@ async function work() {
     members: [...new Set([...names, "config.md"])].map((name, i) => ({ kind: "document", id: `artifact-${i}`, label: name, target: pins[name] })).concat([
       { kind: "form", id: "decision", label: "Workflow content decision", bead_id: binding.bead, form_id: formId, dsl: formPin } as any]) };
   p.parseReviewRequest(JSON.stringify(request));
+  await step("request-publication");
   const publication = publish(env.GITHUB_ULTIMATE_ROOT!, docs, request);
   const cp: State = { schemaVersion: 2, binding, artifacts, pins, members: sources.members, tasks: sources.tasks, manifest: state.manifest,
     sourceAuthority: state.sourceAuthority, setup: { ...state.setup, outcome: env.SETUP_OUTCOME },

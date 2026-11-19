@@ -18,6 +18,22 @@ is never retried merely because its records are old or its checkpoint is absent.
 
 ## Known-workspace capability path
 
+Checkpoint output uses `reviewDocuments` for extra staged Markdown references;
+the required review artifact and configuration are always included. A historical
+`members` value equal to the complete workspace repository inventory is treated
+as source metadata, not mistaken for Markdown document names. Unknown extra
+document references still fail validation.
+
+For the identified pre-publication membership failure only, an authorized direct
+operator may use `recover-publication` with the exact failed run. This verifies
+the completed native parent result and acknowledged draft writes, rejects any
+source/approval effects or failed tools, and finalizes retained discussion bytes
+without rerunning the model or child workers. It is limited to source-disabled,
+no-op-setup discussion with an existing unchanged checkpoint. Original admission
+and native evidence remain private and intact; a new recovery receipt/admission
+records the finalization. New completed discussion results are also checkpointed
+privately before output validation, with accurate publication-stage diagnostics.
+
 The orchestrator receives the caller's route-template value and the actual single
 configured hosted model as metadata, not approval. `methodology` reads the built
 skill bundle by default; `args.source:true` accesses the confined methodology
