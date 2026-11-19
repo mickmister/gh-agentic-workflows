@@ -40,7 +40,7 @@ export function nativeSummary(value:any) {
        const name=['qrspi_context','qrspi_document','qrspi_dispatch','workspace_operation','workspace_workers'].includes(item.name)?item.name:'other';
        toolCallsByName[name]=(toolCallsByName[name]??0)+1;
        if(name==='workspace_operation') {
-         const operations:Record<string,string[]>= {help:[],methodology:['list','read'],files:['list','read','write'],execute:['run'],
+         const operations:Record<string,string[]>= {help:[],methodology:['list','read','run'],files:['list','read','write'],execute:['run'],
            documents:['list','read'],beads:['show','list','comments'],artifact:['list','read','write','approve'],
            source:['members','tasks','head','create','status','commit','publish','integrate'],setup:['dispatch','inspect','wait']};
          const args=item.arguments;

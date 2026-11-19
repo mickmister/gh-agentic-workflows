@@ -4,6 +4,7 @@ import type { Documents } from "./documents.ts";
 import { files, command, type Sources } from "./source.ts";
 import { sourceDirectory } from "./workspace.ts";
 import { execFileSync } from "node:child_process";
+import { methodologyCheck, methodologyChecks } from "./workspace-methodology.ts";
 
 export type Work = { id: string; role: string; prompt: string; task?: string; documents?: Pin[]; access: "read" | "write" | "test" };
 export type ToolDependencies = {
@@ -63,6 +64,8 @@ export class WorkspaceTools {
       capabilities: {
         ...(!this.d.worker || this.d.worker.task ? { files: "list/read/write {member?,task?,path?,content?,offset?}; worker is confined to assigned task; write only assigned write workers" } : {}),
         methodology: "list/read {path?,offset?,source?}; default reads built skills; source:true reads the methodology source package, including supporting docs omitted from build",
+        ...(!this.d.worker ? { methodologyChecks: { operation: "methodology run {script,argv}; existing read-only probe or config-field validator; validator argv is [field] and uses an exact disposable copy of current staged config.md", scripts: methodologyChecks },
+          runtimeTransport: "hosted is the configured Pi provider, not a vendor CLI. workspace_workers uses the single configured hosted model in isolated sessions; no alternate vendor/model is provisioned. Five routing tiers can explicitly choose that one model or disable optional tiers; native vendor CLI dispatch is not used by this host. Native probe/validator results are evidence, never methodology approval." } : {}),
         ...(this.d.worker?.documents?.length ? { documents: "read {name}; exact assigned resource/version/snapshot only; assignedDocuments lists available pins", assignedDocuments: this.d.worker.documents } : {}),
         ...(this.d.worker ? {} : {
           documents: "list {prefix?,snapshot?,token?} or read {name,snapshot?}; authored workspace resources only",
@@ -75,7 +78,13 @@ export class WorkspaceTools {
       },
       notice: "Read artifacts/instructions to decide methodology, dependencies, roles and next work. Tool outcomes are evidence, not phase approval. Host permissions never authorize bypassing methodology gates.",
     };
-    if (area === "methodology") return files(args.source === true ? dirname(this.d.methodology) : this.d.methodology, { ...args, operation }, false);
+    if (area === "methodology") {
+      if (operation === "run") {
+        assert(!this.d.worker, "Methodology checks require the designated orchestrator");
+        return methodologyCheck(this.d.methodology, this.d.home, this.d.artifacts, args);
+      }
+      return files(args.source === true ? dirname(this.d.methodology) : this.d.methodology, { ...args, operation }, false);
+    }
     if (area === "documents" && this.d.worker) {
       const pin = this.d.worker.documents?.find(p => p.resource === args.name);
       assert(operation === "read" && pin && (!args.snapshot || args.snapshot === pin.snapshot), "Worker document is not assigned");

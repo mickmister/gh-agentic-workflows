@@ -43,6 +43,16 @@ version and snapshot bindings. They do not advertise source-file access without 
 assigned source task, and cannot list arbitrary workspace documents or publish.
 Preparation can inspect existing artifact names/bytes but cannot change them.
 
+The designated orchestrator can run the existing second-reviewer availability
+probe and config-field validator through `methodology run`. This permits only
+the two declared read-only scripts, bounded arguments/deadline and a sanitized
+environment. The validator receives a disposable exact copy of staged `config.md`;
+neither product source nor approved bytes are changed. Nonzero probe/validation
+results are factual evidence for the agent, not automatic workflow decisions.
+`hosted` denotes this runner's configured Pi provider and isolated worker sessions,
+not an invented native vendor CLI. Only the supplied model is provisioned; routing
+choices and all methodology/product approvals remain explicit.
+
 New processes enter through `entry.ts` and `workspace-main.ts`. Schema-less historical
 checkpoints keep their original document adapter; `legacy-document-pilot` selects
 that compatibility adapter for a new fixture. Existing process identities and
