@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hostDiagnostic } from "./inspect.ts";
+import { hostDiagnostic, hostErrorDetails } from "./inspect.ts";
 
 test("read-only checkout diagnostics select constants and HTTP status without exposing private text", () => {
   assert.deepEqual(hostDiagnostic("GitHub API rejected operation (404)"), { reason: "github-api-rejected", httpStatus: 404 });
@@ -9,4 +9,12 @@ test("read-only checkout diagnostics select constants and HTTP status without ex
   assert.equal(hostDiagnostic("arbitrary private prose SECRET"), undefined);
   assert.equal(hostDiagnostic("GitHub API rejected operation (403)\nSECRET"), undefined);
   assert.equal(hostDiagnostic({ message: "SECRET" }), undefined);
+});
+
+test("opt-in bound nugs stderr is scrubbed before selection; command/native payloads remain hidden", () => {
+  const message = "Command failed: nugs workspace restore --root /private --remote https://private.invalid\ninvalid workspace handoff object\nSECRET extra lines";
+  assert.equal(hostErrorDetails(message, {}), undefined);
+  assert.equal(hostErrorDetails(message, { HOST_ERROR_DETAILS: "true", NUGS_STORAGE_TOKEN: "SECRET" }), "invalid workspace handoff object [additional lines omitted]");
+  assert.equal(hostErrorDetails("Command failed: arbitrary program\nSECRET", { HOST_ERROR_DETAILS: "true" }), undefined);
+  assert.equal(hostErrorDetails("Command failed: nugs beads sync --root /private\nhttps://credential@private.invalid token=foo", { HOST_ERROR_DETAILS: "true" })?.includes("private.invalid"), false);
 });
