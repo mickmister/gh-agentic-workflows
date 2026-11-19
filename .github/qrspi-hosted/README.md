@@ -1,5 +1,21 @@
 # QRSPI hosted workspace runtime
 
+## Initialization diagnostics and explicit recovery
+
+Native synchronization runs from the restored workspace attachment, not the engine
+checkout. To diagnose an existing failed run, `qrspi-inspect.yml` can opt in to
+`host-error-details`: bounded scrubbed stderr for the exact bound nugs restore/sync
+command, without rendering its command line or arbitrary native payloads.
+
+An authorized direct operator can set `recover-before-model` to the failed run ID
+on `qrspi-process.yml`. Recovery verifies a completed failed first attempt, matching
+active binding/admission, no checkpoint, a positively identified nugs initialization
+failure, and private execution records containing only pre-model stages. It writes
+a create-only reconciliation receipt and a distinct new admission; the original
+admission/error evidence remains intact. It refuses missing/ambiguous evidence,
+interrupted setup/model/tool work, and reusable-workflow callers. A failed process
+is never retried merely because its records are old or its checkpoint is absent.
+
 ## Known-workspace capability path
 
 New processes enter through `entry.ts` and `workspace-main.ts`. Schema-less historical

@@ -16,6 +16,7 @@ import { workspaceTurn } from "./workspace-turn.ts";
 import { ExecutionEvidence } from "./execution.ts";
 import type { SessionIdentity, SessionRecord } from "./session.ts";
 import { reportFailure, type Stage } from "./diagnostics.ts";
+import { reconcileInitialization } from "./workspace-recovery.ts";
 
 type State = Checkpoint & { schemaVersion: 2; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
 const env = process.env, home = env.QRSPI_HOME!;
@@ -46,11 +47,13 @@ async function prepare() {
   await step("checkpoint-read");
   const previous = await store.read(checkpointKey), prior = previous?.value as State | undefined;
   if (prior) assert(prior.schemaVersion === 2 && JSON.stringify(prior.binding) === JSON.stringify(binding), "Wrong process checkpoint");
-  const admission = `${key}/admissions/${digest(receipt ? admissionIdentity(receipt) : prior ? { request: env.GITHUB_RUN_ID } : { start: true })}.json`;
+  let admission = `${key}/admissions/${digest(receipt ? admissionIdentity(receipt) : prior ? { request: env.GITHUB_RUN_ID } : { start: true })}.json`;
   await step("admission-read");
   const active = await store.read(`${key}/active-invocation.json`);
+  const reconciled = env.RECOVER_BEFORE_MODEL ? await reconcileInitialization(env, store, github, binding, key, active?.value) : false;
+  if (reconciled) admission = `${key}/admissions/${digest({ initializationRecovery: env.RECOVER_BEFORE_MODEL, run: env.GITHUB_RUN_ID })}.json`;
   const waiting = active?.value.outcome === "waiting-setup" ? (await store.read(`${key}/pending-setup.json`))?.value : undefined;
-  assert(!active || active.value.outcome === "settled" || waiting, "Previous invocation effects uncertain; reconcile before another prompt");
+  assert(!active || active.value.outcome === "settled" || waiting || reconciled, "Previous invocation effects uncertain; reconcile before another prompt");
   if (waiting) {
     assert(JSON.stringify(waiting.binding) === JSON.stringify(binding) && waiting.etag === previous?.etag, "Setup continuation checkpoint changed");
     assert(digest(waiting.receipt ?? null) === digest(receipt ?? null), "Setup continuation must retain the original response receipt");
@@ -91,7 +94,7 @@ async function prepare() {
   restoreCollection(workspace.root, join(home, "collection"), seed, env.NUGS_STORAGE_URL!);
   // Published nugs owns synchronization; collection identity must never be recreated.
   const { execFileSync } = await import("node:child_process");
-  execFileSync("nugs", ["beads", "sync", "--root", workspace.root], { encoding: "utf8", timeout: 180000, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("nugs", ["beads", "sync", "--root", workspace.root], { cwd: workspace.root, encoding: "utf8", timeout: 180000, stdio: ["ignore", "pipe", "pipe"] });
   const sourceAuthority = waiting ? waiting.sourceAuthority : env.ALLOW_SOURCE_EFFECTS === "true" || Boolean(prior?.sourceAuthority);
   const sources = new Sources(workspace.root, home, workspace.members, github, false, binding.process, prior?.tasks);
   await sources.restore();

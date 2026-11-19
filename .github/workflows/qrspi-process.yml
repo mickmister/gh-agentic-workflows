@@ -40,6 +40,10 @@ on:
         description: Use the historical document-only adapter for a new compatibility fixture
         type: boolean
         default: false
+      recover-before-model:
+        description: Explicitly reconcile this failed pre-model initialization run; never model/setup replay
+        type: string
+        default: ""
       response:
         description: Exact immutable submitted receipt JSON (never a comment or draft)
         type: string
@@ -55,6 +59,7 @@ on:
       prepare-project: { type: boolean, default: false }
       allow-source-effects: { type: boolean, default: false }
       legacy-document-pilot: { type: boolean, default: false }
+      recover-before-model: { type: string, default: "" }
       response: { type: string, default: "" }
     secrets:
       AGENT_APP_ID: { required: true }
@@ -147,6 +152,7 @@ jobs:
           PREPARE_PROJECT: ${{ inputs.prepare-project }}
           ALLOW_SOURCE_EFFECTS: ${{ inputs.allow-source-effects }}
           LEGACY_DOCUMENT_PILOT: ${{ inputs.legacy-document-pilot }}
+          RECOVER_BEFORE_MODEL: ${{ inputs.recover-before-model }}
           AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
           AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
           REVIEW_RESPONSE: ${{ inputs.response }}

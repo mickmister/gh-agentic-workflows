@@ -38,14 +38,14 @@ export class GitHub {
     }
     return response.status === 204 ? undefined : response.json();
   }
-  async token(repository: string, access: "read" | "write" | "dispatch" = "read") {
+  async token(repository: string, access: "read" | "write" | "dispatch" | "inspect" = "read") {
     assert(/^[\w.-]+\/[\w.-]+$/.test(repository), "Invalid GitHub repository");
     const key = `${repository}:${access}`, cached = this.tokens.get(key);
     if (cached && cached.expires > Date.now() + 120000) return cached.token;
     const jwt = this.jwt();
     const installation = await this.api(`/repos/${repository}/installation`, jwt);
     const result = await this.api(`/app/installations/${installation.id}/access_tokens`, jwt, "POST", {
-      repositories: [repository.split("/")[1]], permissions: access === "dispatch" ? { actions: "write", contents: "read" } : { contents: access },
+      repositories: [repository.split("/")[1]], permissions: access === "dispatch" || access === "inspect" ? { actions: access === "dispatch" ? "write" : "read", contents: "read" } : { contents: access },
     });
     assert(typeof result.token === "string" && Number.isFinite(Date.parse(result.expires_at)), "Invalid App token response");
     this.tokens.set(key, { token: result.token, expires: Date.parse(result.expires_at) });
