@@ -28,6 +28,16 @@ test('recorded tool-dispatched child links correlate with parent without leaking
  assert.ok(result.session?.parentId);
  assert.doesNotMatch(JSON.stringify(result),/private-child|private-parent|private-call|private-native/);
 });
+test('workspace native tools report mechanical capability counts, never arguments or arbitrary keys',()=>{
+ const content=[{type:'toolCall',name:'workspace_operation',arguments:{area:'beads',operation:'show',args:{id:'PRIVATE-BEAD'}}},
+  {type:'toolCall',name:'workspace_operation',arguments:{area:'artifact',operation:'write',args:{content:'PRIVATE-DRAFT'}}},
+  {type:'toolCall',name:'workspace_operation',arguments:{area:'PRIVATE-AREA',operation:'PRIVATE-OPERATION'}},
+  {type:'toolCall',name:'workspace_workers',arguments:{workers:[{prompt:'PRIVATE-PROMPT'}]}}];
+ const result=nativeSummary({...archive,native:[JSON.stringify({type:'message',message:{role:'assistant',content,stopReason:'toolUse'}})]});
+ assert.deepEqual(result.workspaceCapabilities,{'beads.show':1,'artifact.write':1,other:1});
+ assert.equal(result.toolCallsByName.workspace_workers,1);
+ assert.doesNotMatch(JSON.stringify(result),/PRIVATE-/);
+});
 test('invalid targets and out-of-prefix listings cannot read arbitrary objects; absent evidence remains absent',async()=>{
  let calls=0;
  await assert.rejects(analyzeNative({...env,TARGET_RUN_ID:'../other'},async()=>{calls++;return{};}));assert.equal(calls,0);

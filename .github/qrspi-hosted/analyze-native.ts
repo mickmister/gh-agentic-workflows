@@ -16,7 +16,7 @@ export function nativeSummary(value:any) {
   const eventTypes=new Set(['text_delta','thought_delta','tool_call','tool_result','session_started','turn_started','turn_completed','status','error']);
   for(const event of value.events){const type=eventTypes.has(event?.type)?event.type:'other';events[type]=(events[type]??0)+1;}
   const sessions=new Set<string>(), times:number[]=[];
-  const toolCallsByName:Record<string,number>={}, dispatchCallIds:string[]=[];
+   const toolCallsByName:Record<string,number>={}, workspaceCapabilities:Record<string,number>={}, dispatchCallIds:string[]=[];
   let toolResultFailures=0,toolResults=0;
   const assistantOutcomes: {stop:string;errorKind?:string}[]=[];
   let assistantMessages=0,toolCalls=0,inputTokens=0,outputTokens=0,cacheReadTokens=0,cacheWriteTokens=0,cost=0,invalidLines=0,usageRecords=0,costReported=false;
@@ -37,8 +37,16 @@ export function nativeSummary(value:any) {
     stops[stop]=(stops[stop]??0)+1;
     toolCalls+=Array.isArray(message.content)?message.content.filter((item:any)=>['toolCall','tool_use'].includes(item?.type)).length:0;
     for(const item of Array.isArray(message.content)?message.content:[])if(['toolCall','tool_use'].includes(item?.type)){
-      const name=['qrspi_context','qrspi_document','qrspi_dispatch'].includes(item.name)?item.name:'other';
-      toolCallsByName[name]=(toolCallsByName[name]??0)+1;
+       const name=['qrspi_context','qrspi_document','qrspi_dispatch','workspace_operation','workspace_workers'].includes(item.name)?item.name:'other';
+       toolCallsByName[name]=(toolCallsByName[name]??0)+1;
+       if(name==='workspace_operation') {
+         const operations:Record<string,string[]>= {help:[],methodology:['list','read'],files:['list','read','write'],execute:['run'],
+           documents:['list','read'],beads:['show','list','comments'],artifact:['list','read','write','approve'],
+           source:['members','tasks','head','create','status','commit','publish','integrate'],setup:['dispatch','inspect','wait']};
+         const args=item.arguments;
+         const key=Object.hasOwn(operations,args?.area)&&operations[args.area].includes(args?.operation)?`${args.area}.${args.operation}`:'other';
+         workspaceCapabilities[key]=(workspaceCapabilities[key]??0)+1;
+       }
       if(name==='qrspi_dispatch'&&typeof item.id==='string')dispatchCallIds.push(sha(item.id).slice(0,16));
     }
     if(message.usage&&typeof message.usage==='object')usageRecords++;
@@ -52,7 +60,7 @@ export function nativeSummary(value:any) {
     (session.parentId === null || typeof session.parentId === 'string');
   return {role:['preparation','setup-planner','orchestrator','worker-researcher','worker-reviewer','approval-consistency','questions-author','review-quality','review-scope','exit-interview'].includes(value.role)?value.role:'other',
     resultStatus:['completed','failed','cancelled','timed_out'].includes(value.result?.status)?value.result.status:'unknown',failurePresent:Boolean(value.failure),
-    events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,assistantOutcomes,toolCalls,toolCallsByName,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
+     events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,assistantOutcomes,toolCalls,toolCallsByName,workspaceCapabilities,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
     observedNativeDurationMs:times.length>1?times.reduce((a,b)=>Math.max(a,b))-times.reduce((a,b)=>Math.min(a,b)):null,
     usage:{records:usageRecords,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,reportedCost:costReported?cost:null},authoredDocuments,questionHash,
     ...(linked ? {session:{id:sha(session.id).slice(0,16),parentId:session.parentId===null?null:sha(session.parentId).slice(0,16),
