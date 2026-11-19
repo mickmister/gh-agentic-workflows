@@ -28,7 +28,7 @@ on:
         type: boolean
         default: false
       host-error-details:
-        description: Include bounded scrubbed stderr for the exact bound nugs restore/sync failure
+        description: Include bounded scrubbed host invariants/schema paths or exact nugs restore/sync stderr
         type: boolean
         default: false
 permissions:

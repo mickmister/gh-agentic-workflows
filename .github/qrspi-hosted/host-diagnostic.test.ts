@@ -16,5 +16,8 @@ test("opt-in bound nugs stderr is scrubbed before selection; command/native payl
   assert.equal(hostErrorDetails(message, {}), undefined);
   assert.equal(hostErrorDetails(message, { HOST_ERROR_DETAILS: "true", NUGS_STORAGE_TOKEN: "SECRET" }), "invalid workspace handoff object [additional lines omitted]");
   assert.equal(hostErrorDetails("Command failed: arbitrary program\nSECRET", { HOST_ERROR_DETAILS: "true" }), undefined);
+  assert.equal(hostErrorDetails("Invalid checkpoint members", { HOST_ERROR_DETAILS: "true" }), "Invalid checkpoint members");
+  const schema = hostErrorDetails(JSON.stringify([{ code: "invalid_type", path: ["questions", 0, "PRIVATE-FIELD"], message: "PRIVATE-VALUE", input: "PRIVATE-INPUT" }]), { HOST_ERROR_DETAILS: "true" });
+  assert.deepEqual(JSON.parse(schema!), [{ code: "invalid_type", path: ["questions", 0, "field"] }]);
   assert.equal(hostErrorDetails("Command failed: nugs beads sync --root /private\nhttps://credential@private.invalid token=foo", { HOST_ERROR_DETAILS: "true" })?.includes("private.invalid"), false);
 });

@@ -7,8 +7,21 @@ import { classify, missingObject } from "./diagnostics.ts";
 export const OUTPUT_LIMIT = 6000;
 export const DESCRIPTION_LIMIT = 1000;
 export function hostErrorDetails(message: unknown, env: NodeJS.ProcessEnv) {
-  if (env.HOST_ERROR_DETAILS !== "true" || typeof message !== "string" || message.length > 64000 ||
-      !/^Command failed: nugs (?:workspace restore|beads sync) /.test(message)) return undefined;
+  if (env.HOST_ERROR_DETAILS !== "true" || typeof message !== "string" || message.length > 64000) return undefined;
+  if (!message.startsWith("Command failed:")) {
+    // Schema errors can span many lines. Keep only issue codes and structural
+    // paths, never validation inputs, human prose or arbitrary field names.
+    try {
+      const issues = JSON.parse(message);
+      const fields = new Set(["questions", "choices", "members", "id", "type", "title", "description", "target", "resource", "version", "snapshot", "process", "config", "format", "required"]);
+      if (Array.isArray(issues)) return JSON.stringify(issues.slice(0, 8).map(issue => ({
+        code: ["invalid_type", "invalid_value", "unrecognized_keys", "too_small", "too_big", "custom"].includes(issue.code) ? issue.code : "other",
+        path: Array.isArray(issue.path) ? issue.path.slice(0, 10).map((p: unknown) => typeof p === "number" ? p : typeof p === "string" && fields.has(p) ? p : "field") : [],
+      }))).slice(0, DESCRIPTION_LIMIT);
+    } catch { /* Plain host invariant, scrubbed and bounded below. */ }
+    return sanitize(message, env).slice(0, DESCRIPTION_LIMIT);
+  }
+  if (!/^Command failed: nugs (?:workspace restore|beads sync) /.test(message)) return undefined;
   const newline = message.indexOf("\n");
   if (newline < 0) return undefined;
   // Opt-in, exact bound host CLI failures only. Do not expose the command line,
