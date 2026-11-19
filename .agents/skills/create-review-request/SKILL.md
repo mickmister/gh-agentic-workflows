@@ -52,6 +52,7 @@ decision-relevant content.
   field; preserve per-choice and question-wide notes on intake.
 - Use `allowCodeFileChanges:false` for discussion-only forms. A design choice or
   note is not code authorization. Prefer inspectable JSON files for substantial drafts.
+- Forms and documents must follow ASD-STE100 conventions.
 
 ### Complete discussion-form example
 
