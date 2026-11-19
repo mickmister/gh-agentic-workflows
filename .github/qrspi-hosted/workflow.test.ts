@@ -19,6 +19,7 @@ test("workflow matches the shared input contract and runs selected setup in the 
     "response",
     "allow-source-effects",
     "legacy-document-pilot",
+    "recover-before-model",
   ].sort();
   assert.deepEqual(
     Object.keys(workflow.on.workflow_dispatch.inputs).sort(),
