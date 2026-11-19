@@ -1,11 +1,11 @@
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { assert, frontmatter, type Pin } from "./core.ts";
 import type { Documents } from "./documents.ts";
 import { files, command, type Sources } from "./source.ts";
 import { sourceDirectory } from "./workspace.ts";
 import { execFileSync } from "node:child_process";
 
-export type Work = { id: string; role: string; prompt: string; task?: string; access: "read" | "write" | "test" };
+export type Work = { id: string; role: string; prompt: string; task?: string; documents?: Pin[]; access: "read" | "write" | "test" };
 export type ToolDependencies = {
   docs: Documents; prefix: string; root: string; home: string; methodology: string;
   artifacts: Record<string, string>; pins: Record<string, Pin>; sources: Sources;
@@ -33,7 +33,11 @@ export class WorkspaceTools {
         assert(/^[a-z0-9][a-z0-9-]{0,59}$/.test(w.id) && typeof w.role === "string" && w.role.length <= 100 &&
           typeof w.prompt === "string" && w.prompt.length <= 64000 && ["read", "write", "test"].includes(w.access), "Invalid worker assignment");
         if (w.access !== "read") assert(w.task && this.d.sources.writable, "Source execution not authorized");
-        if (w.task) this.d.sources.get(w.task);
+         if (w.task) this.d.sources.get(w.task);
+         if (w.documents) assert(Array.isArray(w.documents) && w.documents.length <= 12 && w.documents.every((p: Pin) =>
+           p.version_kind === "git-blob" && /^[a-f0-9]{40}$/.test(p.version) && /^[a-f0-9]{40}$/.test(p.snapshot) &&
+           typeof p.resource === "string" && /^(?:projects|threads|review-requests|archive)\/[\w./-]+$/.test(p.resource) &&
+           p.resource.length <= 400 && !p.resource.split("/").includes("..")), "Invalid worker document pins");
       }
       assert(new Set(work.map(w => w.id)).size === work.length, "Duplicate group identities");
       // Explicitly reject simultaneous writers/test processes in the same mutable
@@ -57,8 +61,9 @@ export class WorkspaceTools {
     if (area === "help") return {
       role: this.d.worker ?? "orchestrator", sourceEffectsAuthorized: this.d.sources.writable,
       capabilities: {
-        files: "list/read/write {member?,task?,path?,content?,offset?}; worker is confined to assigned task; write only assigned write workers",
-        methodology: "list/read {path?,offset?}; read selected methodology instructions, do not invent a phase contract",
+        ...(!this.d.worker || this.d.worker.task ? { files: "list/read/write {member?,task?,path?,content?,offset?}; worker is confined to assigned task; write only assigned write workers" } : {}),
+        methodology: "list/read {path?,offset?,source?}; default reads built skills; source:true reads the methodology source package, including supporting docs omitted from build",
+        ...(this.d.worker?.documents?.length ? { documents: "read {name}; exact assigned resource/version/snapshot only; assignedDocuments lists available pins", assignedDocuments: this.d.worker.documents } : {}),
         ...(this.d.worker ? {} : {
           documents: "list {prefix?,snapshot?,token?} or read {name,snapshot?}; authored workspace resources only",
           artifact: "list/read/write {name,content?}; stage process Markdown, cannot create approval markers or mutate approved bytes. approve {name} applies only an actually submitted exact-byte approval after YOU interpret all notes/conditions",
@@ -70,7 +75,14 @@ export class WorkspaceTools {
       },
       notice: "Read artifacts/instructions to decide methodology, dependencies, roles and next work. Tool outcomes are evidence, not phase approval. Host permissions never authorize bypassing methodology gates.",
     };
-    if (area === "methodology") return files(this.d.methodology, { ...args, operation }, false);
+    if (area === "methodology") return files(args.source === true ? dirname(this.d.methodology) : this.d.methodology, { ...args, operation }, false);
+    if (area === "documents" && this.d.worker) {
+      const pin = this.d.worker.documents?.find(p => p.resource === args.name);
+      assert(operation === "read" && pin && (!args.snapshot || args.snapshot === pin.snapshot), "Worker document is not assigned");
+      const text = await this.d.docs.pin(pin);
+      assert(Buffer.byteLength(text) <= 200000, "Assigned document exceeds context bound");
+      return { ...pin, text };
+    }
     if (area === "files") {
       const task = this.d.worker?.task ?? args.task;
       assert(!this.d.worker || task, "Worker requires an assigned task to inspect source");
@@ -104,7 +116,7 @@ export class WorkspaceTools {
         { cwd: this.d.root, encoding: "utf8", timeout: 30000, maxBuffer: 256000, stdio: ["ignore", "pipe", "pipe"] }));
     }
     assert(area === "artifact", "Unknown capability");
-    assert(!this.d.preparation, "Preparation cannot change methodology artifacts");
+    assert(!this.d.preparation || ["list", "read"].includes(operation), "Preparation cannot change methodology artifacts");
     if (operation === "list") return Object.keys(this.d.artifacts);
     assert(typeof args.name === "string" && /^(?:[\w-]+\/)*[\w-]+\.md$/.test(args.name) && args.name.length <= 300, "Invalid authored artifact name");
     if (operation === "approve") { assert(this.d.approve, "No submitted approval capability"); return this.d.approve(args.name); }

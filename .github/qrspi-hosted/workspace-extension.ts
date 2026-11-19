@@ -8,7 +8,7 @@ export default function(pi: ExtensionAPI) {
   for (const name of names) pi.registerTool(defineTool({ name, label: name,
     description: name === "workspace_operation"
       ? "Execute a workspace capability. First call {area:'help'} for actual operations and authority. You decide workflow semantics from instructions/artifacts; tool successes never imply methodology approval."
-      : "Dispatch an explicit group of independent workers concurrently, then await every outcome. Pass {workers:[{id,role,prompt,task?,access:'read'|'write'|'test'}]}. Select work from methodology/artifacts; tool does not decide dependencies or roles. Do not retry uncertain work.",
+      : "Dispatch an explicit group of independent workers concurrently, then await every outcome. Pass {workers:[{id,role,prompt,task?,documents?:[{resource,version_kind:'git-blob',version,snapshot}],access:'read'|'write'|'test'}]}. Assign task for source reads; assign exact document pins for document reads (not files). Select work from methodology/artifacts; tool does not decide dependencies or roles. Do not retry uncertain work.",
     parameters: Type.Object({ area: Type.Optional(Type.String()), operation: Type.Optional(Type.String()), args: Type.Optional(Type.Any()), workers: Type.Optional(Type.Array(Type.Any(), { maxItems: 2 })) }),
     async execute(callId, args, signal) {
       const value = await new Promise<string>((ok, fail) => {

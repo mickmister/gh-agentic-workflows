@@ -18,6 +18,15 @@ is never retried merely because its records are old or its checkpoint is absent.
 
 ## Known-workspace capability path
 
+The orchestrator receives the caller's route-template value and the actual single
+configured hosted model as metadata, not approval. `methodology` reads the built
+skill bundle by default; `args.source:true` accesses the confined methodology
+source package for supporting documents omitted from the build. Document-only
+workers receive explicit `documents` pins and can read only those exact resource,
+version and snapshot bindings. They do not advertise source-file access without an
+assigned source task, and cannot list arbitrary workspace documents or publish.
+Preparation can inspect existing artifact names/bytes but cannot change them.
+
 New processes enter through `entry.ts` and `workspace-main.ts`. Schema-less historical
 checkpoints keep their original document adapter; `legacy-document-pilot` selects
 that compatibility adapter for a new fixture. Existing process identities and

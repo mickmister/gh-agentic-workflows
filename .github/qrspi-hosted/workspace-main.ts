@@ -12,7 +12,7 @@ import { checkoutWorkspace, output, localState } from "./workspace-host.ts";
 import { restoreCollection, sourceDirectory, localGit, within, type Member } from "./workspace.ts";
 import { Sources, type Task } from "./source.ts";
 import { SetupWorkflows, type SetupSelection } from "./setup.ts";
-import { workspaceTurn } from "./workspace-turn.ts";
+import { workspaceTurn as invokeWorkspaceTurn } from "./workspace-turn.ts";
 import { ExecutionEvidence } from "./execution.ts";
 import type { SessionIdentity, SessionRecord } from "./session.ts";
 import { reportFailure, type Stage } from "./diagnostics.ts";
@@ -20,6 +20,11 @@ import { reconcileInitialization } from "./workspace-recovery.ts";
 
 type State = Checkpoint & { schemaVersion: 2; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
 const env = process.env, home = env.QRSPI_HOME!;
+const workspaceTurn: typeof invokeWorkspaceTurn = (directory, prompt, ...args) => invokeWorkspaceTurn(directory,
+  `Caller configuration metadata (not phase/product approval): ${JSON.stringify({ routeTemplate: env.QRSPI_ROUTE,
+    runtimeModels: [{ provider: "hosted", model: env.QRSPI_MODEL }],
+    alternateModelProvisioned: false,
+    methodologySupport: "methodology list/read with args.source:true accesses supporting source-package docs omitted from the built skill bundle; default reads built skills" })}\n` + prompt, ...args);
 assert(home, "Bootstrap required");
 const seed = validateSeed(JSON.parse(env.NUGS_WORKSPACE_SEED!));
 const binding: Binding = { workspace: env.REVIEW_WORKSPACE!, workspace_ref: seed.workspace_ref, process: slug(env.QRSPI_PROCESS!), bead: env.BEAD_ID! };

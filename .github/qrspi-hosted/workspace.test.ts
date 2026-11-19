@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
@@ -139,6 +139,27 @@ test("App auth scopes each repository independently and never puts token in URL"
   assert.deepEqual(JSON.parse(requests[3].init.body).permissions, { contents: "write" });
   assert.deepEqual(JSON.parse(requests[3].init.body).repositories, ["other"]);
   assert(requests.every(r => !String(r.input).includes("scoped-test")));
+});
+
+test("context-only workers can read exact assigned document pins and methodology support without publication authority", async () => {
+  const pin = { resource: "threads/task-media/decision.md", version_kind: "git-blob" as const, version: "a".repeat(40), snapshot: "b".repeat(40) };
+  let reads = 0;
+  const d = { docs: { pin: async (actual: unknown) => { assert.deepEqual(actual, pin); reads++; return "# Exact pinned decision"; } } as any,
+    root: ".", home: ".", methodology: resolve("../../agent-workflows/qrspi/build"), prefix: "", artifacts: { "config.md": "# Draft" }, pins: {}, sources: { writable: false } as any };
+  const worker = new WorkspaceTools({ ...d, worker: { id: "evidence", role: "research", prompt: "Read assigned decision", documents: [pin], access: "read" } });
+  const call = (area: string, operation: string, args = {}) => worker.call({ name: "workspace_operation", callId: "read", args: { area, operation, args } });
+  const help: any = await call("help", "");
+  assert.equal(help.capabilities.files, undefined);
+  assert.deepEqual(help.capabilities.assignedDocuments, [pin]);
+  assert.equal((await call("documents", "read", { name: pin.resource }) as any).text, "# Exact pinned decision");
+  await assert.rejects(call("documents", "read", { name: "threads/other/private.md" }), /not assigned/);
+  await assert.rejects(call("documents", "read", { name: pin.resource, snapshot: "c".repeat(40) }), /not assigned/);
+  await assert.rejects(call("documents", "write", { name: pin.resource }), /not assigned/);
+  assert.equal(reads, 1);
+  assert.match((await call("methodology", "read", { path: "CONTRIBUTING.md", source: true }) as any).text, /^# Contributing to qrspi-plus/);
+  await assert.rejects(call("methodology", "read", { path: "../AGENTS.md", source: true }), /Invalid/);
+  const preparation = new WorkspaceTools({ ...d, preparation: true });
+  assert.deepEqual(await preparation.call({ name: "workspace_operation", callId: "list", args: { area: "artifact", operation: "list" } }), ["config.md"]);
 });
 
 test("setup dispatch records uncertain intent before API and exact launch inspection never launches again", async () => {
