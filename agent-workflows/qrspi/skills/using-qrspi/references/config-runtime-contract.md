@@ -82,6 +82,8 @@ Host detection and per-host dispatch transport (Copilot CLI task-tool vs Claude 
 
 Run `tests/fixtures/validate-config-field.sh <field> <artifact_dir>` before using any field. The script exits 0 on success and exits 1 with the numbered repair menu when the field is missing or invalid (artifact-dir-missing → "Re-run Goals to create config.md and set the pipeline mode"; field-specific menus follow the same shape: "Edit config.md and set `<field>` to a valid value", then "Abort"). The shared canonical rule for `model_routing:` missing/malformed lives in `skills/_shared/config-validation-procedure.md`.
 
+The legacy shell fixture is partial: it does not implement `model_routing`, `verifier_enabled`, or `scope_tagger_enabled`. For those fields, the hosted adapter runs the methodology-owned structural companion `scripts/validate-config-fields.ts` through `methodology run {script, argv:[field]}` against exact disposable staged `config.md` bytes. Its adapter uses the pinned YAML parser, rejects malformed frontmatter/duplicate keys, and returns the same success or repair-or-abort semantics. Routing validation requires exactly five tier rows, each `none` or a nonempty `{vendor, model}` pair, and an explicit valid `default_tier`. It validates structure only, never availability, approval, user preference or permission to dispatch a `none` tier. Neither validator supplies missing routing or silently backfills booleans.
+
 ### No silent defaults
 
 Skills must not:
