@@ -53,8 +53,11 @@ export function nativeSummary(value:any) {
     inputTokens+=count(message.usage?.input);outputTokens+=count(message.usage?.output);
     cacheReadTokens+=count(message.usage?.cacheRead);cacheWriteTokens+=count(message.usage?.cacheWrite);cost+=count(message.usage?.cost?.total);costReported ||= typeof message.usage?.cost?.total==='number';
   }
-  let authoredDocuments=0,questionHash:string|undefined;
-  try{const output=JSON.parse(value.text);authoredDocuments=output?.artifacts&&typeof output.artifacts==='object'?Object.keys(output.artifacts).length:0;if(typeof output?.question==='string')questionHash=sha(output.question);}catch{/* Not every role returns structured authored output. */}
+   let authoredDocuments=0,questionHash:string|undefined,checkpointOutput:unknown;
+   try{const output=JSON.parse(value.text);authoredDocuments=output?.artifacts&&typeof output.artifacts==='object'?Object.keys(output.artifacts).length:0;if(typeof output?.question==='string')questionHash=sha(output.question);
+     const reference=(v:unknown)=>typeof v==='string'&&/^[\w./-]{1,400}$/.test(v)?v:'invalid-reference';
+     if(output?.reviewArtifact)checkpointOutput={reviewArtifact:reference(output.reviewArtifact),members:Array.isArray(output.members)?output.members.slice(0,12).map(reference):typeof output.members,questions:Array.isArray(output.questions)?output.questions.length:typeof output.questions};
+   }catch{/* Not every role returns structured authored output. */}
   const session = value.session;
   const linked = session && typeof session.id === 'string' && typeof session.executionId === 'string' &&
     (session.parentId === null || typeof session.parentId === 'string');
@@ -62,7 +65,7 @@ export function nativeSummary(value:any) {
     resultStatus:['completed','failed','cancelled','timed_out'].includes(value.result?.status)?value.result.status:'unknown',failurePresent:Boolean(value.failure),
      events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,assistantOutcomes,toolCalls,toolCallsByName,workspaceCapabilities,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
     observedNativeDurationMs:times.length>1?times.reduce((a,b)=>Math.max(a,b))-times.reduce((a,b)=>Math.min(a,b)):null,
-    usage:{records:usageRecords,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,reportedCost:costReported?cost:null},authoredDocuments,questionHash,
+     usage:{records:usageRecords,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,reportedCost:costReported?cost:null},authoredDocuments,questionHash,...(checkpointOutput?{checkpointOutput}:{}),
     ...(linked ? {session:{id:sha(session.id).slice(0,16),parentId:session.parentId===null?null:sha(session.parentId).slice(0,16),
       executionId:sha(session.executionId).slice(0,16),nativeSessions: Array.isArray(session.nativeSessionIds)?session.nativeSessionIds.map((id:string)=>sha(id).slice(0,16)):[],
       ...(typeof session.toolCallId==='string'?{toolCallId:sha(session.toolCallId).slice(0,16)}:{}),
