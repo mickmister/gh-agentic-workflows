@@ -20,6 +20,8 @@ test("real Pi/acpx workspace parent delegates two overlapping scoped tool worker
   const one = await sources.create("one", "app"), two = await sources.create("two", "app");
   const counters = new Map<string, number>(), archives: any[] = [], records: any[] = [], chunks: any[] = [];
   let simultaneous = 0, maximum = 0;
+  let cancelling = false;
+  const cancellation = new AbortController();
   let release!: () => void;
   const bothWorkers = new Promise<void>(resolve => { release = resolve; });
   const server = createServer(async (req, res) => {
@@ -44,9 +46,10 @@ test("real Pi/acpx workspace parent delegates two overlapping scoped tool worker
         if (simultaneous === 2) release();
         await Promise.race([bothWorkers, new Promise(resolve => setTimeout(resolve, 15000))]); simultaneous--;
       }
+      if (cancelling && identity === "review") return; // Quiet inference must be interrupted by parent cancellation.
       if (identity === "implement" && round === 0) delta = tool("workspace_operation", { area: "files", operation: "write", args: { path: "answer.txt", content: "42" } });
       else if (identity === "implement" && round === 1) delta = tool("workspace_operation", { area: "execute", operation: "run", args: {
-        argv: [process.execPath, "-e", "require('node:assert/strict').equal(require('node:fs').readFileSync('answer.txt','utf8'),'42'); console.log('ACTUAL_CHECK_PASSED')"],
+        argv: [process.execPath, "-e", cancelling ? "console.log('CANCEL_READY');setInterval(()=>{},1000)" : "require('node:assert/strict').equal(require('node:fs').readFileSync('answer.txt','utf8'),'42'); console.log('ACTUAL_CHECK_PASSED')"],
       } });
       else if (identity === "review" && round === 0) delta = tool("workspace_operation", { area: "files", operation: "read", args: { path: "package.json" } });
       else {
@@ -65,7 +68,10 @@ test("real Pi/acpx workspace parent delegates two overlapping scoped tool worker
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const previous = { ...process.env };
   const binding = { workspace: "fixture", workspace_ref: "ws-fixture", process: "native", bead: "task-fixture" };
-  const evidence = new ExecutionEvidence(binding, "1-1", async (_key, value) => { chunks.push(value); });
+  const evidence = new ExecutionEvidence(binding, "1-1", async (_key, value: any) => {
+    chunks.push(value);
+    if (cancelling && value.events?.some((e: any) => e.kind === "command" && e.data.text?.includes("CANCEL_READY"))) cancellation.abort(new Error("Cancel parent and descendants"));
+  });
   try {
     Object.assign(process.env, { HOME: home, INFERENCE_BASE_URL: `http://127.0.0.1:${(server.address() as any).port}/v1`,
       INFERENCE_API_KEY: "test", CF_ACCESS_CLIENT_ID: "test", CF_ACCESS_CLIENT_SECRET: "test", QRSPI_MODEL: "test-model" });
@@ -81,7 +87,17 @@ test("real Pi/acpx workspace parent delegates two overlapping scoped tool worker
     assert.equal(records.filter(r => r.status === "allocated").length, 3);
     await evidence.flush();
     assert(chunks.some(c => c.resourceSpans));
+    cancelling = true; counters.clear();
+    const cancelledParent = { ...parent, id: randomUUID() };
+    await assert.rejects(workspaceTurn(home, "Use assigned fixture capabilities.",
+      { docs: {} as any, prefix: "", root, home, methodology: root, artifacts: {}, pins: {}, sources }, cancelledParent,
+      async (_id, value) => { archives.push(value); }, async value => { records.push(value); }, evidence,
+      { signal: cancellation.signal }), /Cancel parent/);
+    const cancelledChildren = archives.filter(a => a.session?.parentId === cancelledParent.id);
+    assert.equal(cancelledChildren.length, 2); assert(cancelledChildren.every(a => a.session.status === "failed"));
+    assert(chunks.flatMap(c => c.events ?? []).some(e => e.kind === "command" && e.data.state === "cancelled"));
   } finally {
+    server.closeAllConnections();
     await evidence.close(); await new Promise<void>(resolve => server.close(() => resolve()));
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous);
     rmSync(home, { recursive: true, force: true });

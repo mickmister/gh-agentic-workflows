@@ -34,6 +34,52 @@ test("settled ACP success alone cannot hide a native agent error", () => {
   assert.throws(() => verifyNative([...recovered].reverse()), /Native Pi/);
   assert.throws(() => verifyNative([JSON.stringify({ type: "message", message: { role: "assistant", stopReason: "aborted" } }), recovered[1]]), /cancellation/);
 });
+test("published in-process ACPX does not inherit startup deadline for work; explicit deadline and cancellation still stop it", { timeout: 180000 }, async () => {
+  let delay = 21000, cancel: AbortController | undefined;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const server = createServer(async (req, res) => {
+    for await (const _part of req) { /* Drain request. */ }
+    if (cancel) { cancel.abort(new Error("Operator cancelled test turn")); return; }
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      for (const chunk of [
+        { choices: [{ index: 0, delta: { role: "assistant", content: '{"ok":true}' }, finish_reason: null }] },
+        { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+      ]) res.write(`data: ${JSON.stringify({ id: "long-test", object: "chat.completion.chunk", created: 1, model: "test-model", ...chunk })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    }, delay);
+    timers.add(timer); res.once("close", () => { clearTimeout(timer); timers.delete(timer); });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  await mkdir(join(process.cwd(), ".test-state"), { recursive: true });
+  const dir = await mkdtemp(join(process.cwd(), ".test-state/long-pi-")), previous = { ...process.env }, archives: any[] = [], statuses: any[] = [];
+  try {
+    Object.assign(process.env, { HOME: dir, INFERENCE_BASE_URL: `http://127.0.0.1:${(server.address() as any).port}/v1`,
+      INFERENCE_API_KEY: "test", CF_ACCESS_CLIENT_ID: "test", CF_ACCESS_CLIENT_SECRET: "test", QRSPI_MODEL: "test-model" });
+    await configurePi(dir);
+    const options = { toolRole: "worker" as const, baseDir: join(dir, "pi"), mode: "oneshot" as const, startupTimeoutMs: 20000,
+      onStatus: (status: unknown) => { statuses.push(status); } };
+    const save = async (value: unknown) => { archives.push(value); };
+    const output = await piTurn(dir, "long", "Return JSON.", save, options);
+    assert.deepEqual(JSON.parse(output), { ok: true });
+    assert(statuses.some(s => s.state === "running" && s.elapsedMs >= 20000));
+    delay = 30000;
+    await assert.rejects(piTurn(dir, "deadline", "Return JSON.", save, { ...options, timeoutMs: 1000 }), /deadline/);
+    cancel = new AbortController();
+    await assert.rejects(piTurn(dir, "cancelled", "Return JSON.", save, { ...options, signal: cancel.signal }), /Operator cancelled/);
+    assert(archives[1].failure); assert(archives[2].failure);
+    assert(statuses.some(s => s.state === "cancelled"));
+    process.env.PI_ACP_PI_COMMAND = join(dir, "nonexistent-launcher");
+    await assert.rejects(piTurn(dir, "startup-failure", "Return JSON.", save, { ...options, startupTimeoutMs: 1000 }));
+    assert(archives[3].failure);
+  } finally {
+    for (const timer of timers) clearTimeout(timer);
+    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("real pinned Pi + acpx drains events, awaits result and verifies secret-env inference headers with NO tools", async () => {
   const requests: any[] = [];
   let fail = false;

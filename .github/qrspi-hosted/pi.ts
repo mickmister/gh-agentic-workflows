@@ -7,6 +7,8 @@ import { assert, settled } from "./core.ts";
 import { limits, boundedText } from "./bounds.ts";
 import { nativeSessionIds, type SessionIdentity, type SessionRecord } from "./session.ts";
 import { sessionSpan, type ExecutionEvidence } from "./execution.ts";
+import { NativeCapture } from "./native-capture.ts";
+import { abortable, turnTimeout } from "./turn-policy.ts";
 export async function configurePi(home: string) {
   for (const name of ["INFERENCE_BASE_URL", "INFERENCE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "QRSPI_MODEL"])
     assert(process.env[name], `Missing ${name}`);
@@ -49,23 +51,15 @@ export async function nativeFiles(dir: string, snapshotOnly = false): Promise<Re
 }
 /** Export complete appended native rows while a process is alive, not only on exit. */
 export function observeNative(dir: string, evidence?: ExecutionEvidence, session?: SessionIdentity) {
-  const offsets = new Map<string, number>();
+  const capture = new NativeCapture(dir, row => evidence?.event("native", evidence.scope(session), row), () => evidence?.flush() ?? Promise.resolve());
   let chain = Promise.resolve(), failure: unknown;
   const collect = async () => {
-    if (!evidence || failure) return;
-    for (const [path, bytes] of Object.entries(await nativeFiles(dir, true))) {
-      if (!/\.(?:jsonl|ndjson)$/.test(path)) continue;
-      const complete = bytes.slice(0, bytes.lastIndexOf("\n") + 1).split("\n").filter(Boolean);
-      const from = offsets.get(path) ?? 0;
-      assert(complete.length >= from, "Native evidence was rewritten");
-      for (const line of complete.slice(from)) evidence.event("native", evidence.scope(session), JSON.parse(line));
-      offsets.set(path, complete.length);
-    }
-    await evidence.flush();
+    if (!failure) await capture.collect();
   };
   const poll = () => { chain = chain.then(collect).catch(error => { failure ??= error; }); };
   const timer = setInterval(poll, 5000); timer.unref();
-  return async () => { clearInterval(timer); poll(); await chain; if (failure) throw failure; };
+  const stop = async () => { clearInterval(timer); poll(); await chain; if (failure) throw failure; };
+  return Object.assign(stop, { capture });
 }
 export function verifyNative(lines: string[]) {
   const messages = lines.filter(Boolean).map(line => JSON.parse(line))
@@ -85,6 +79,7 @@ async function deadline<T>(task: Promise<T>, ms: number, label: string) {
 export async function piTurn(cwd: string, role: string, prompt: string, save: (value: unknown) => Promise<unknown>, options: {
   tools?: { socket: string; token: string }; session?: SessionIdentity; record?: (value: SessionRecord) => Promise<unknown>; evidence?: ExecutionEvidence;
   toolRole?: "orchestrator" | "worker"; baseDir?: string; mode?: "persistent" | "oneshot"; timeoutMs?: number;
+  signal?: AbortSignal; startupTimeoutMs?: number; onStatus?: (value: TurnStatus) => void; onStop?: () => void;
 } = {}) {
   boundedText(prompt, limits.prompt, "Pi prompt");
   assert(!options.tools || role === "orchestrator" || options.toolRole === "worker", "Only assigned capability roles may receive tools");
@@ -103,8 +98,10 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
     childEnv.QRSPI_TOOL_SOCKET = options.tools.socket; childEnv.QRSPI_TOOL_TOKEN = options.tools.token;
     if (options.toolRole) childEnv.WORKSPACE_AGENT_ROLE = options.toolRole;
   }
-  const timeoutMs = options.timeoutMs ?? (options.tools ? 480000 : 180000);
-  assert(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 900000, "Invalid session deadline");
+  const timeoutMs = turnTimeout(options.timeoutMs);
+  const startupTimeoutMs = options.startupTimeoutMs ?? 120000;
+  assert(Number.isSafeInteger(startupTimeoutMs) && startupTimeoutMs > 0 && startupTimeoutMs <= 2_147_483_647, "Invalid startup deadline");
+  options.signal?.throwIfAborted();
   const session = options.session;
   const sessionDir = join(turnDir, "sessions");
   const agentRegistry = createAgentRegistry({ overrides: { pi: [process.execPath, fileURLToPath(new URL("node_modules/pi-acp/dist/index.js", import.meta.url))] } });
@@ -118,65 +115,99 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
     else { delete process.env.QRSPI_TOOL_SOCKET; delete process.env.QRSPI_TOOL_TOKEN; }
   }
   const runtime = options.toolRole
-    ? createAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs, agentRegistry,
+    ? createAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs: startupTimeoutMs, agentRegistry,
       sessionStore: createFileSessionStore({ stateDir: join(turnDir, "acpx-state") }),
       agentProcessEnvAllow: [], agentProcessEnv: childEnv, fs: false, terminal: false })
-    : createSharedAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs, ttlMs: 1000, agentRegistry });
+    : createSharedAcpRuntime({ cwd, permissionMode: "deny-all", nonInteractivePermissions: "fail", timeoutMs: startupTimeoutMs, ttlMs: 1000, agentRegistry });
   const events: unknown[] = [];
   let result: unknown, failure: string | undefined, handle: AcpRuntimeHandle | undefined;
   let text = "", native: string[] = [], eventBytes = 0;
   let recoveredAssistantErrors = 0;
   const stopNative = observeNative(sessionDir, options.evidence, session);
+  let turn: ReturnType<typeof runtime.startTurn> | undefined;
+  const started = Date.now();
+  let state: TurnStatus["state"] = "starting", lastActivityAt: string | null = null, eventCount = 0;
+  const report = () => options.onStatus?.({ sessionId: session?.id, role, state, elapsedMs: Date.now() - started,
+    lastActivityAt, eventCount, acpxRecordId: handle?.acpxRecordId });
+  const controller = new AbortController();
+  const statusTimer = setInterval(() => { try { report(); } catch (error) { controller.abort(error); } }, 5000); statusTimer.unref();
+  const abort = () => controller.abort(options.signal?.reason ?? new Error("Turn cancelled"));
+  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) abort();
+  let turnTimer: ReturnType<typeof setTimeout> | undefined;
   let finish: ((error?: unknown) => Promise<void>) | undefined;
   let originalError: unknown;
   try {
     finish = await options.evidence?.begin("session", options.evidence.scope(session), session ? sessionSpan(session.id) : undefined);
     if (session) await options.record?.({ ...session, status: "allocated" });
-    await deadline((async () => {
-      handle = await runtime.ensureSession({ sessionKey: `qrspi-${role}-${randomUUID()}`, agent: "pi", mode: options.mode ?? "persistent", cwd });
-      const turn = runtime.startTurn({ handle, text: prompt, mode: "prompt", requestId: randomUUID(), timeoutMs });
+    report();
+    handle = await abortable(deadline(runtime.ensureSession({ sessionKey: `qrspi-${role}-${randomUUID()}`, agent: "pi", mode: options.mode ?? "persistent", cwd }), startupTimeoutMs + 5000, "Pi startup deadline exceeded"), controller.signal);
+    state = "running"; report();
+    if (timeoutMs) turnTimer = setTimeout(() => controller.abort(new Error("Pi turn deadline exceeded")), timeoutMs);
+    await abortable((async () => {
+      // Explicit zero overrides the runtime's finite startup timeout in acpx 0.22.0.
+      turn = runtime.startTurn({ handle: handle!, text: prompt, mode: "prompt", requestId: randomUUID(), timeoutMs, signal: controller.signal });
       const completion = turn.result;
       void completion.catch(() => {});
       for await (const event of turn.events) {
         const size = Buffer.byteLength(JSON.stringify(event));
-        assert(events.length < limits.events && eventBytes + size <= limits.evidence, "Bound exceeded: Pi events");
+        controller.signal.throwIfAborted();
+        assert(size <= limits.evidence, "Bound exceeded: Pi event");
+        lastActivityAt = new Date().toISOString(); eventCount++;
         eventBytes += size;
         events.push(event);
+        while (events.length > limits.events || eventBytes > limits.evidence) eventBytes -= Buffer.byteLength(JSON.stringify(events.shift()));
         options.evidence?.event("acp", options.evidence.scope(session), event);
-        if (event.type === "text_delta" && event.stream !== "thought") {
+        if (eventCount % 128 === 0) await options.evidence?.flush();
+        if (!options.tools && event.type === "text_delta" && event.stream !== "thought") {
           boundedText(text + event.text, limits.text, "Pi output");
           text += event.text;
         }
       }
       result = await completion;
-    })(), timeoutMs + 5000, "Hard Pi turn deadline exceeded");
-    native = Object.values(await nativeFiles(sessionDir)).flatMap(bytes => bytes.split("\n").filter(Boolean));
-    recoveredAssistantErrors = verifyNative(native).recoveredAssistantErrors;
+    })(), controller.signal);
+    await stopNative(); stopNative.capture.assertComplete();
+    native = stopNative.capture.snapshot();
+    const capture = stopNative.capture;
+    verifyNative([...(capture.aborted ? [JSON.stringify({ type: "message", message: { role: "assistant", stopReason: "aborted" } })] : []),
+      JSON.stringify({ type: "message", message: capture.lastAssistant })]);
+    recoveredAssistantErrors = capture.recoveredAssistantErrors;
     if (options.tools) {
       // Tool-using turns can include assistant progress prose before tool calls.
       // The final structured result is the last native assistant message, not
       // concatenated prose from every assistant message in the event stream.
-      const final = native.map(line => JSON.parse(line)).filter(row => row.type === "message" && row.message?.role === "assistant").at(-1).message;
+      const final = capture.lastAssistant;
       text = final.content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("");
       boundedText(text, limits.text, "final Pi output");
     }
-    return settled(result, text);
+    const output = settled(result, text); state = "completed"; return output;
   } catch (error) {
     originalError = error;
     failure = error instanceof Error ? error.message.slice(0, 2000) : "Pi turn failed";
+    state = controller.signal.aborted ? "cancelled" : "failed";
+    controller.abort(error);
+    options.onStop?.();
+    await deadline((async () => { await turn?.cancel({ reason: "Host stopped turn" }); if (handle) await runtime.close({ handle, reason: "Host stopped turn" }); })(), 10000, "Pi cancellation deadline exceeded").catch(() => {});
     throw error;
   } finally {
+    clearTimeout(turnTimer); clearInterval(statusTimer); options.signal?.removeEventListener("abort", abort);
     try {
+      let statusFailure: unknown;
+      try { report(); } catch (error) { statusFailure = error; originalError ??= error; failure ??= "Status persistence failed"; }
       let incrementalFailure: unknown;
-      try { await stopNative(); await finish?.(originalError); } catch (error) { incrementalFailure = error; }
+      try { await stopNative(); } catch (error) { incrementalFailure = error; }
+      try { await finish?.(originalError ?? incrementalFailure); } catch (error) { incrementalFailure ??= error; }
+      if (incrementalFailure) failure ??= "Incremental evidence persistence failed";
       if (!native.length) {
-        try { native = Object.values(await nativeFiles(sessionDir)).flatMap(bytes => bytes.split("\n").filter(Boolean)); }
-        catch { native = ["Native evidence bound exceeded; full files intentionally not ingested"]; }
+        native = stopNative.capture.snapshot();
       }
       const final = session ? { ...session, status: failure ? "failed" as const : "completed" as const,
         nativeSessionIds: nativeSessionIds(native), acpxRecordId: (handle as AcpRuntimeHandle | undefined)?.acpxRecordId } : undefined;
-      await deadline(save({ role, session: final, prompt, events, result, text, native, recoveredAssistantErrors, failure, settlementOnly: true, bounded: true }), 15000, "Evidence persistence deadline exceeded");
+      await deadline(save({ role, session: final, prompt, events, eventCount, eventsTruncated: eventCount > events.length, result, text, native,
+        nativeRows: stopNative.capture.rows, nativeTruncated: stopNative.capture.truncated,
+        recoveredAssistantErrors, failure, settlementOnly: true, bounded: true }), 15000, "Evidence persistence deadline exceeded");
       if (final) await options.record?.(final);
+      if (statusFailure) throw statusFailure;
       if (incrementalFailure && !originalError) throw incrementalFailure;
     } finally {
       if (!options.toolRole) {
@@ -184,8 +215,8 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
           if (value === undefined) delete process.env[name!]; else process.env[name!] = value;
       }
       await deadline((async () => {
-        if (handle) await runtime.close({ handle, reason: "bounded turn settled" });
-        await runtime.shutdown();
+        try { if (handle) await runtime.close({ handle, reason: "bounded turn settled" }); }
+        finally { await runtime.shutdown(); }
       })(), 10000, "Pi cleanup deadline exceeded").catch(error => {
         // A cleanup timeout must not replace the actual native failure which
         // was already archived. Successful work still fails on failed cleanup.
@@ -194,6 +225,8 @@ export async function piTurn(cwd: string, role: string, prompt: string, save: (v
     }
   }
 }
+export type TurnStatus = { sessionId?: string; role: string; state: "starting" | "running" | "completed" | "failed" | "cancelled";
+  elapsedMs: number; lastActivityAt: string | null; eventCount: number; acpxRecordId?: string };
 export function jsonOutput(text: string): any {
   boundedText(text, limits.text, "JSON output");
   return JSON.parse(text.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, ""));

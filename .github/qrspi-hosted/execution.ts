@@ -6,7 +6,7 @@ import type { SessionIdentity } from "./session.ts";
 
 export const operations = ["session", "worker", "qrspi_context", "qrspi_document", "qrspi_dispatch", "workspace_operation", "workspace_workers"] as const;
 export type Operation = typeof operations[number];
-export const eventKinds = ["stage", "started", "completed", "failed", "heartbeat", "acp", "native"] as const;
+export const eventKinds = ["stage", "started", "completed", "failed", "heartbeat", "acp", "native", "command", "progress"] as const;
 type Kind = typeof eventKinds[number];
 type Scope = { sessionId?: string; parentId?: string | null; toolCallId?: string; role?: string; sourceSha?: string; operation?: Operation };
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -29,8 +29,12 @@ export class ExecutionEvidence {
   readonly traceId: string;
   readonly binding: { workspace: string; workspace_ref: string; process: string; bead: string };
   readonly executionId: string;
+  readonly budgets: { bytes: number; events: number; chunks: number };
   constructor(binding: { workspace: string; workspace_ref: string; process: string; bead: string }, executionId: string,
-    privateWrite: (suffix: string, value: unknown) => Promise<unknown>) {
+    privateWrite: (suffix: string, value: unknown) => Promise<unknown>,
+    budgets = { bytes: 256_000_000, events: 200000, chunks: 4096 }) {
+    assert(Object.values(budgets).every(n => Number.isSafeInteger(n) && n > 0), "Invalid execution evidence budgets");
+    this.budgets = budgets;
     this.binding = binding; this.executionId = executionId;
     this.traceId = hash(JSON.stringify([binding, executionId])).slice(0, 32);
     this.write = privateWrite;
@@ -48,7 +52,7 @@ export class ExecutionEvidence {
     assert(!this.failure, "Private execution evidence unavailable");
     const event = { schemaVersion: 1, sequence: ++this.sequence, timestamp: new Date().toISOString(), kind, ...scope, ...(data === undefined ? {} : { data }) };
     const bytes = Buffer.byteLength(JSON.stringify(event));
-    assert(bytes <= 4_000_000 && this.totalBytes + bytes <= 32_000_000 && this.sequence <= 20000, "Execution evidence budget exceeded");
+    assert(bytes <= 4_000_000 && this.totalBytes + bytes <= this.budgets.bytes && this.sequence <= this.budgets.events, "Execution evidence budget exceeded");
     if (this.pendingBytes + bytes > 4_000_000) this.enqueue();
     this.pending.push(event); this.pendingBytes += bytes; this.totalBytes += bytes;
     if (this.pendingBytes >= 128000) this.enqueue();
@@ -57,7 +61,7 @@ export class ExecutionEvidence {
     if (!this.pending.length) return;
     const events = this.pending; this.pending = []; this.pendingBytes = 0;
     const chunk = ++this.chunks;
-    assert(chunk <= 512, "Execution chunk budget exceeded");
+    assert(chunk <= this.budgets.chunks, "Execution chunk budget exceeded");
     const payload = { schemaVersion: 1, binding: this.binding, threadId: `threads/${this.binding.bead}`, executionId: this.executionId, traceId: this.traceId,
       engineSha: /^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? "") ? process.env.GITHUB_SHA : null, events,
       phaseApproval: false, replayAuthorized: false };
@@ -67,6 +71,10 @@ export class ExecutionEvidence {
     }).catch(error => { this.failure ??= error; });
   }
   async flush() { this.enqueue(); await this.chain; if (this.failure) throw this.failure; }
+  usage() {
+    return { bytes: this.totalBytes, events: this.sequence, chunks: this.chunks, budgets: this.budgets,
+      nearLimit: this.totalBytes >= this.budgets.bytes * .9 || this.sequence >= this.budgets.events * .9 || this.chunks >= this.budgets.chunks * .9 };
+  }
   async begin(operation: Operation, scope: Scope = {}, id = randomBytes(8).toString("hex")) {
     const started = performance.now(), startTimeUnixNano = `${BigInt(Date.now()) * 1_000_000n}`;
     this.active.set(id, { operation, scope, started });

@@ -40,7 +40,7 @@ export function nativeSummary(value:any) {
        const name=['qrspi_context','qrspi_document','qrspi_dispatch','workspace_operation','workspace_workers'].includes(item.name)?item.name:'other';
        toolCallsByName[name]=(toolCallsByName[name]??0)+1;
        if(name==='workspace_operation') {
-         const operations:Record<string,string[]>= {help:[],methodology:['list','read','run'],files:['list','read','write'],execute:['run'],
+          const operations:Record<string,string[]>= {help:[],runtime:['status'],methodology:['list','read','run'],files:['list','read','write'],execute:['run'],
            documents:['list','read'],beads:['show','list','comments'],artifact:['list','read','write','approve'],
            source:['members','tasks','head','create','status','commit','publish','integrate'],setup:['dispatch','inspect','wait']};
          const args=item.arguments;
@@ -62,7 +62,9 @@ export function nativeSummary(value:any) {
   const linked = session && typeof session.id === 'string' && typeof session.executionId === 'string' &&
     (session.parentId === null || typeof session.parentId === 'string');
   return {role:['preparation','setup-planner','orchestrator','worker-researcher','worker-reviewer','approval-consistency','questions-author','review-quality','review-scope','exit-interview'].includes(value.role)?value.role:'other',
-    resultStatus:['completed','failed','cancelled','timed_out'].includes(value.result?.status)?value.result.status:'unknown',failurePresent:Boolean(value.failure),
+     resultStatus:['completed','failed','cancelled','timed_out'].includes(value.result?.status)?value.result.status:'unknown',failurePresent:Boolean(value.failure),
+     eventsTruncated:value.eventsTruncated===true,nativeTruncated:value.nativeTruncated===true,
+     usageScope:value.nativeTruncated===true?'retained-tail-only':'retained-native-rows',
      events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,assistantOutcomes,toolCalls,toolCallsByName,workspaceCapabilities,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
     observedNativeDurationMs:times.length>1?times.reduce((a,b)=>Math.max(a,b))-times.reduce((a,b)=>Math.min(a,b)):null,
      usage:{records:usageRecords,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,reportedCost:costReported?cost:null},authoredDocuments,questionHash,...(checkpointOutput?{checkpointOutput}:{}),

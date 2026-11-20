@@ -1,11 +1,11 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
+import { mkdir, readFile, writeFile, readdir, stat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { assert } from "./core.ts";
 import { within, localGit, sourceDirectory, type Member } from "./workspace.ts";
 import type { GitHub } from "./github.ts";
-const execute = promisify(execFile);
 export type Task = { id: string; member: string; base: string; branch: string; commit?: string };
 export function taskId(value: string) { assert(/^[a-z0-9][a-z0-9-]{0,59}$/.test(value), "Invalid task identity"); return value; }
 export function readable(root: string, name: string) {
@@ -34,18 +34,71 @@ export async function files(root: string, args: any, writable: boolean) {
   await writeFile(readable(root, args.path), args.content);
   return { written: args.path };
 }
-export async function command(root: string, home: string, argv: string[], seconds = 120) {
+export async function command(root: string, home: string, argv: string[], seconds = 1800,
+  options: { signal?: AbortSignal; log?: (value: unknown) => Promise<void>; allowUnlimited?: boolean; outputBytes?: number } = {}) {
   assert(Array.isArray(argv) && argv.length > 0 && argv.length <= 40 && argv.every(v => typeof v === "string" && v.length < 16000), "Invalid execution arguments");
-  assert(Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 180, "Execution deadline exceeds policy");
+  assert(Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 2_147_483 && (seconds !== 0 || options.allowUnlimited), "Execution deadline exceeds policy");
+  options.signal?.throwIfAborted();
   await mkdir(home, { recursive: true, mode: 0o700 });
+  const id = randomUUID(), started = Date.now(), logs = join(home, `command-${id}`);
+  await mkdir(logs, { mode: 0o700 });
+  const stdoutFile = await open(join(logs, "stdout.log"), "wx", 0o600);
+  const stderrFile = await open(join(logs, "stderr.log"), "wx", 0o600);
+  const tails = { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }, bytes = { stdout: 0, stderr: 0 };
+  const maximum = options.outputBytes ?? 256_000_000;
+  assert(Number.isSafeInteger(maximum) && maximum > 0, "Invalid command output allowance");
+  let termination: "timeout" | "cancelled" | "output-limit" | "capture-failed" | undefined;
+  let killTimer: ReturnType<typeof setTimeout> | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  const child = spawn(argv[0], argv.slice(1), { cwd: root, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
+    env: { PATH: process.env.PATH, HOME: home, CI: "true", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0",
+      GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+  const kill = (signal: NodeJS.Signals) => {
+    try { if (child.pid) process.platform === "win32" ? child.kill(signal) : process.kill(-child.pid, signal); }
+    catch (error: any) { if (error.code !== "ESRCH") throw error; }
+  };
+  const stop = (reason: NonNullable<typeof termination>) => {
+    termination ??= reason;
+    kill("SIGTERM");
+    killTimer ??= setTimeout(() => kill("SIGKILL"), 1000);
+  };
+  const abort = () => stop("cancelled");
+  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) abort();
+  if (seconds) timer = setTimeout(() => stop("timeout"), seconds * 1000);
+  let launchError: string | undefined;
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => {
+    child.once("error", error => { launchError = (error as NodeJS.ErrnoException).code ?? "spawn-error"; });
+    child.once("exit", () => { kill("SIGKILL"); }); // No detached descendants survive their owning command.
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const drain = async (stream: "stdout" | "stderr", file: typeof stdoutFile) => {
+    const decoder = new StringDecoder("utf8");
+    for await (const part of child[stream]!) {
+      const chunk = Buffer.from(part);
+      bytes[stream] += chunk.length;
+      if (bytes.stdout + bytes.stderr > maximum) { stop("output-limit"); continue; }
+      await file.write(chunk);
+      tails[stream] = Buffer.concat([tails[stream], chunk]).subarray(-32000);
+      await options.log?.({ commandId: id, stream, text: decoder.write(chunk) });
+    }
+    const text = decoder.end();
+    if (text) await options.log?.({ commandId: id, stream, text });
+  };
+  let drains: Promise<void>[] = [];
   try {
-    const result = await execute(argv[0], argv.slice(1), { cwd: root, timeout: seconds * 1000, maxBuffer: 128000,
-      env: { PATH: process.env.PATH, HOME: home, CI: "true", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0",
-        GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" }, killSignal: "SIGTERM" });
-    return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
-  } catch (error: any) {
-    return { exitCode: typeof error.code === "number" ? error.code : null, terminated: Boolean(error.killed),
-      stdout: String(error.stdout ?? "").slice(-64000), stderr: String(error.stderr ?? "").slice(-64000) };
+    await options.log?.({ commandId: id, state: "started", argv, deadlineSeconds: seconds || null });
+    drains = [drain("stdout", stdoutFile), drain("stderr", stderrFile)].map(p => p.catch(error => { stop("capture-failed"); throw error; }));
+    await Promise.all(drains);
+    const result = await closed;
+    const outcome = termination ?? (launchError ? "launch-failed" : result.code === 0 ? "completed" : "failed");
+    await options.log?.({ commandId: id, state: outcome, ...result, bytes });
+    return { commandId: id, exitCode: result.code, signal: result.signal, outcome, terminated: Boolean(termination),
+      durationMs: Date.now() - started, stdout: tails.stdout.toString("utf8"), stderr: tails.stderr.toString("utf8"),
+      truncated: bytes.stdout > 32000 || bytes.stderr > 32000, bytes, logs, ...(launchError ? { launchError } : {}) };
+  } catch (error) { stop("capture-failed"); await Promise.allSettled(drains); await closed; throw error; }
+  finally {
+    clearTimeout(timer); clearTimeout(killTimer); options.signal?.removeEventListener("abort", abort);
+    kill("SIGKILL"); await Promise.all([stdoutFile.close(), stderrFile.close()]);
   }
 }
 export class Sources {

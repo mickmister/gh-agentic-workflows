@@ -5,6 +5,9 @@ import { files, command, type Sources } from "./source.ts";
 import { sourceDirectory } from "./workspace.ts";
 import { execFileSync } from "node:child_process";
 import { methodologyCheck, methodologyChecks } from "./workspace-methodology.ts";
+import { classify } from "./diagnostics.ts";
+import type { ExecutionEvidence } from "./execution.ts";
+import type { SessionIdentity } from "./session.ts";
 
 export type Work = { id: string; role: string; prompt: string; task?: string; documents?: Pin[]; access: "read" | "write" | "test" };
 export type ToolDependencies = {
@@ -12,6 +15,12 @@ export type ToolDependencies = {
   artifacts: Record<string, string>; pins: Record<string, Pin>; sources: Sources;
   worker?: Work;
   preparation?: boolean;
+  signal?: AbortSignal;
+  evidence?: ExecutionEvidence;
+  session?: SessionIdentity;
+  activity?: Map<string, unknown>;
+  budgets?: { calls: number; workers: number };
+  allowUnlimitedCommands?: boolean;
   dispatch?: (work: Work) => Promise<unknown>;
   setup?: (operation: string, args: any) => Promise<unknown>;
   approve?: (name: string) => Promise<unknown>;
@@ -23,9 +32,13 @@ export class WorkspaceTools {
   private groupActive = false;
   private uncertain = false;
   readonly d: ToolDependencies;
-  constructor(d: ToolDependencies) { this.d = d; }
+  constructor(d: ToolDependencies) {
+    this.d = { ...d, budgets: d.budgets ?? { calls: 2000, workers: 48 } };
+    assert(Object.values(this.d.budgets!).every(n => Number.isSafeInteger(n) && n > 0 && n <= 100000), "Invalid workspace budgets");
+  }
   async call(call: { name: string; args: any; callId: string }) {
-    assert(++this.calls <= 100 && typeof call.callId === "string", "Workspace tool budget exceeded");
+    this.d.signal?.throwIfAborted();
+    assert(++this.calls <= this.d.budgets!.calls && typeof call.callId === "string", "Workspace tool budget exceeded");
     if (call.name === "workspace_workers") {
       assert(!this.d.worker && !this.d.preparation && this.d.dispatch && !this.groupActive && !this.uncertain, "Delegation unavailable");
       const work = call.args.workers;
@@ -49,12 +62,14 @@ export class WorkspaceTools {
         const results = await Promise.allSettled(work.map(async w => {
           const input = JSON.stringify(w), previous = this.dispatches.get(w.id);
           if (previous) { assert(previous.input === input && previous.result !== undefined, "Worker identity changed or outcome uncertain"); return previous.result; }
-          assert(this.dispatches.size < 12, "Worker launch budget exceeded");
+           assert(this.dispatches.size < this.d.budgets!.workers, "Worker launch budget exceeded");
           const record: { input: string; result?: unknown } = { input }; this.dispatches.set(w.id, record);
           record.result = await this.d.dispatch!(w); return record.result;
         }));
         this.uncertain ||= results.some(r => r.status === "rejected");
-        return results.map((r, i) => ({ id: work[i].id, ...(r.status === "fulfilled" ? { outcome: "settled", result: r.value } : { outcome: "uncertain", replayAuthorized: false }) }));
+        return results.map((r, i) => ({ id: work[i].id, ...(r.status === "fulfilled" ? { outcome: "settled", result: r.value } : {
+          outcome: "uncertain", failure: classify(r.reason), sessionId: r.reason?.sessionId ?? null,
+          evidenceReference: { workerId: work[i].id, sessionId: r.reason?.sessionId ?? null }, replayAuthorized: false }) }));
       } finally { this.groupActive = false; }
     }
     assert(call.name === "workspace_operation", "Tool not permitted");
@@ -62,6 +77,7 @@ export class WorkspaceTools {
     if (area === "help") return {
       role: this.d.worker ?? "orchestrator", sourceEffectsAuthorized: this.d.sources.writable,
       capabilities: {
+        runtime: "status {}; observed session/command activity, elapsed time and remaining allowances; heartbeat alone does not prove progress",
         ...(!this.d.worker || this.d.worker.task ? { files: "list/read/write {member?,task?,path?,content?,offset?}; worker is confined to assigned task; write only assigned write workers" } : {}),
         methodology: "list/read {path?,offset?,source?}; default reads built skills; source:true reads the methodology source package, including supporting docs omitted from build",
         ...(!this.d.worker ? { methodologyChecks: { operation: "methodology run {script,argv}; read-only probe or config-field validator; validator argv is [field] and uses an exact disposable copy of current staged config.md. scripts/validate-config-fields.ts is the QRSPI structural companion for model_routing (including default_tier), verifier_enabled, scope_tagger_enabled; the legacy shell fixture does not implement those fields. Missing routing is a repair-or-abort result, never permission to invent the human's tier selection.", scripts: methodologyChecks },
@@ -74,10 +90,18 @@ export class WorkspaceTools {
           source: "members/tasks/head {member}/create {id,member,base?}/status {task}/commit {task,paths,message}/publish {task,expectedCommit}/integrate {task,expectedHead}; publication needs caller source authority. Integrate requires candidate includes exact observed branch head: delegate merge/rebase and verification first if branch advanced",
           setup: "dispatch {member,prompt}, inspect {launch}, wait {launch}; separate registered authoring workflow, not parent-authored YAML",
         }),
-        ...(this.d.worker?.access === "test" || this.d.worker?.access === "write" ? { execute: "run {argv,seconds?}; assigned worktree, sanitized process environment, bounded output" } : {}),
+         ...(this.d.worker?.access === "test" || this.d.worker?.access === "write" ? { execute: `run {argv,seconds?}; default1800seconds, zero ${this.d.allowUnlimitedCommands ? "permitted" : "not permitted"}; assigned worktree, sanitized environment, full private logs and bounded tails` } : {}),
       },
       notice: "Read artifacts/instructions to decide methodology, dependencies, roles and next work. Tool outcomes are evidence, not phase approval. Host permissions never authorize bypassing methodology gates.",
     };
+    if (area === "runtime") {
+      assert(operation === "status", "Unknown runtime operation");
+      return { activity: [...(this.d.activity?.entries() ?? [])].filter(([id]) => !this.d.worker || id === this.d.worker.id),
+        callsRemaining: this.d.budgets!.calls - this.calls, workerIdentitiesRemaining: this.d.budgets!.workers - this.dispatches.size,
+        nearLimit: this.calls >= this.d.budgets!.calls * .9 || this.dispatches.size >= this.d.budgets!.workers * .9,
+        evidence: this.d.evidence?.usage(),
+        groupActive: this.groupActive, uncertain: this.uncertain, replayAuthorized: false };
+    }
     if (area === "methodology") {
       if (operation === "run") {
         assert(!this.d.worker, "Methodology checks require the designated orchestrator");
@@ -100,7 +124,13 @@ export class WorkspaceTools {
     }
     if (area === "execute") {
       assert(this.d.worker && this.d.worker.task && ["write", "test"].includes(this.d.worker.access) && this.d.sources.writable && operation === "run", "Execution not authorized");
-      return command(this.d.sources.directory(this.d.sources.get(this.d.worker.task)), join(this.d.home, `shell-${this.d.worker.id}`), args.argv, args.seconds);
+      return command(this.d.sources.directory(this.d.sources.get(this.d.worker.task)), join(this.d.home, `shell-${this.d.worker.id}`), args.argv, args.seconds, {
+        signal: this.d.signal, allowUnlimited: this.d.allowUnlimitedCommands,
+        log: async value => {
+          this.d.evidence?.event("command", { ...this.d.evidence.scope(this.d.session), toolCallId: call.callId, role: this.d.worker!.role }, value);
+          await this.d.evidence?.flush();
+        },
+      });
     }
     assert(!this.d.worker, "Worker capability does not permit this operation");
     if (area === "source") {
