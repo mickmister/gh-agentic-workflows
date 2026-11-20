@@ -1,0 +1,18 @@
+schema_version: '1.0'
+workflow:
+  id: qrspi-goals-intake
+  name: Bounded QRSPI Goals intake through direct Pi
+  version: 0.1.0
+steps:
+  - id: intake
+    type: shell
+    strict: true
+    timeout: 900
+    output_format: json
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" run-pi
+  - id: validate
+    type: shell
+    strict: true
+    timeout: 30
+    output_format: json
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" validate
