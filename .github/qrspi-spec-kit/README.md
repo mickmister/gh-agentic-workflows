@@ -9,6 +9,13 @@ of an existing process, and retains ACPX for historical/source-enabled paths.
 Checkpoint metadata persists the selection. An explicit conflicting selection on
 an existing process fails before admission; this is not an implicit migration.
 
+The native Beads handoff must include the owning task. Publish current native
+context with the released `nugs beads sync`, then use its verified `handoff` as
+the workflow's `workspace-context` (or refresh the matching trusted repository
+seed). A newly created local Bead is not automatically present in an older
+remote snapshot. Beads listing returns bounded compact summaries; use `show`
+for the selected task rather than transporting every description/dependency.
+
 ```text
 Trusted Actions host: binding, receipt validation, admission and workspace restore
   → Spec Kit YAML: direct Pi intake → deterministic native/result validation
