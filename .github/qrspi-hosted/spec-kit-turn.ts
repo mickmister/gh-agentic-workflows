@@ -70,7 +70,8 @@ export async function specKitTurn(home: string, prompt: string, d: Omit<ToolDepe
     try {
       await stopNative(); await finish?.(failure);
       const final = { ...session, nativeSessionIds: nativeSessionIds(stopNative.capture.snapshot()), status: failure ? "failed" as const : "completed" as const };
-      await archive(session.id, { role: session.role, session: final, backend: "spec-kit", workflowSha256: createHash("sha256").update(yaml).digest("hex"),
+      await archive(session.id, { role: session.role, session: final, backend: "spec-kit", events: [], result: { status: final.status }, nativeRows: stopNative.capture.rows,
+        nativeTruncated: stopNative.capture.truncated, workflowSha256: createHash("sha256").update(yaml).digest("hex"),
         specKitCommit: "980b3d027f4bd7958c35f97f618d854b41320e3f", engineOutput: output, engineStderr: stderr,
         native: stopNative.capture.snapshot(), nativeFiles: await nativeFiles(dir), failure: failure instanceof Error ? failure.message : undefined, phaseApproval: false });
       await record(final);
