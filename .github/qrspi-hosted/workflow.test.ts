@@ -19,6 +19,7 @@ test("workflow matches the shared input contract and runs selected setup in the 
     "response",
     "allow-source-effects",
     "legacy-document-pilot",
+    "execution-backend",
     "recover-before-model",
     "recover-publication",
   ].sort();
@@ -53,7 +54,9 @@ test("workflow matches the shared input contract and runs selected setup in the 
   const notification = workflow.jobs.notify.steps.find((s: any) => s.run?.includes('checkpoint-comment.ts'));
   assert.equal(notification.env.GH_TOKEN, '${{ github.token }}');
   assert.equal(notification.env.INFERENCE_API_KEY, undefined);
-  assert.doesNotMatch(text, /upload-artifact|\bpython[23]?\b/);
+  assert.doesNotMatch(text, /upload-artifact|\bpython[23]?\s+[\w./-]+\.py/);
+  assert.equal(workflow.on.workflow_dispatch.inputs["execution-backend"].default, "auto");
+  assert(job.steps.some((s: any) => s.run === "uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev"), "third-party Python engine is explicit and locked; first-party orchestration remains TS");
   assert.ok(
     job.steps.some((s: any) =>
       s.uses?.startsWith("actions/create-github-app-token@"),

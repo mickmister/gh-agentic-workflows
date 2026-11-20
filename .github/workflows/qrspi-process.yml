@@ -40,6 +40,11 @@ on:
         description: Use the historical document-only adapter for a new compatibility fixture
         type: boolean
         default: false
+      execution-backend:
+        description: Auto preserves existing processes and uses Spec Kit for new source-disabled Goals intake
+        type: choice
+        options: [auto, spec-kit, acpx]
+        default: auto
       recover-before-model:
         description: Explicitly reconcile this failed pre-model initialization run; never model/setup replay
         type: string
@@ -63,6 +68,7 @@ on:
       prepare-project: { type: boolean, default: false }
       allow-source-effects: { type: boolean, default: false }
       legacy-document-pilot: { type: boolean, default: false }
+      execution-backend: { type: string, default: auto }
       recover-before-model: { type: string, default: "" }
       recover-publication: { type: string, default: "" }
       response: { type: string, default: "" }
@@ -108,6 +114,12 @@ jobs:
       - name: Install frozen published toolchain
         working-directory: .github/qrspi-hosted
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - name: Install pinned third-party Spec Kit runtime
+        run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
       - name: Resolve trusted storage App target
         id: storage-target
         env:
@@ -157,6 +169,7 @@ jobs:
           PREPARE_PROJECT: ${{ inputs.prepare-project }}
           ALLOW_SOURCE_EFFECTS: ${{ inputs.allow-source-effects }}
           LEGACY_DOCUMENT_PILOT: ${{ inputs.legacy-document-pilot }}
+          QRSPI_EXECUTION_BACKEND: ${{ inputs.execution-backend }}
           RECOVER_BEFORE_MODEL: ${{ inputs.recover-before-model }}
           RECOVER_PUBLICATION: ${{ inputs.recover-publication }}
           AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}

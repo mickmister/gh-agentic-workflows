@@ -4,7 +4,7 @@ import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function(pi: ExtensionAPI) {
   // Worker capability does not register a delegation tool. Host checks it again.
-  const names = process.env.WORKSPACE_AGENT_ROLE === "worker" ? ["workspace_operation"] : ["workspace_operation", "workspace_workers"];
+  const names = ["worker", "intake"].includes(process.env.WORKSPACE_AGENT_ROLE ?? "") ? ["workspace_operation"] : ["workspace_operation", "workspace_workers"];
   for (const name of names) pi.registerTool(defineTool({ name, label: name,
     description: name === "workspace_operation"
       ? "Execute a workspace capability. First call {area:'help'} for actual operations and authority. You decide workflow semantics from instructions/artifacts; tool successes never imply methodology approval."

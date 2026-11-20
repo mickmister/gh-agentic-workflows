@@ -20,7 +20,7 @@ import { reconcileInitialization } from "./workspace-recovery.ts";
 import { recoverPublication } from "./workspace-publication-recovery.ts";
 import { reviewDocuments } from "./workspace-publication.ts";
 
-type State = Checkpoint & { schemaVersion: 2; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
+type State = Checkpoint & { schemaVersion: 2; executionBackend?: string; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
 const env = process.env, home = env.QRSPI_HOME!;
 const workspaceTurn: typeof invokeWorkspaceTurn = (directory, prompt, ...args) => {
   if (env.RECOVER_PUBLICATION && env.WORKSPACE_COMMAND === "work") {
@@ -210,7 +210,7 @@ async function work() {
   p.parseReviewRequest(JSON.stringify(request));
   await step("request-publication");
   const publication = publish(env.GITHUB_ULTIMATE_ROOT!, docs, request);
-  const cp: State = { schemaVersion: 2, binding, artifacts, pins, members: sources.members, tasks: sources.tasks, manifest: state.manifest,
+   const cp: State = { schemaVersion: 2, executionBackend: env.QRSPI_EXECUTION_BACKEND ?? "acpx", binding, artifacts, pins, members: sources.members, tasks: sources.tasks, manifest: state.manifest,
     sourceAuthority: state.sourceAuthority, setup: { ...state.setup, outcome: env.SETUP_OUTCOME },
     awaiting: { request: publication.pin, config: pins["config.md"], artifact: pins[result.reviewArtifact], form: formPin,
       artifactName: result.reviewArtifact, requestId, approvalOffered: result.approvalOffered, approvalChoice: "approve" } };
