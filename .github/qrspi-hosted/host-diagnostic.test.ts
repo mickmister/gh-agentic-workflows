@@ -5,6 +5,7 @@ test("opt-in read-only Beads tool stderr is selected without exposing command ar
   const message = "Command failed: bd --sandbox show task-private --json --readonly\nError: no database found\nPRIVATE-SECOND-LINE";
   assert.equal(hostErrorDetails(message, {}), undefined);
   assert.equal(hostErrorDetails(message, { HOST_ERROR_DETAILS: "true" }), "Error: no database found [additional lines omitted]");
+  assert.equal(hostErrorDetails(message.replace("Error:", "warning: role unset\nError:"), { HOST_ERROR_DETAILS: "true" }), "Error: no database found [additional lines omitted]");
   assert.equal(hostErrorDetails("Command failed: bd update task-private --json\nPRIVATE", { HOST_ERROR_DETAILS: "true" }), undefined);
 });
 
