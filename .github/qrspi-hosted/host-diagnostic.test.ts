@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { hostDiagnostic, hostErrorDetails } from "./inspect.ts";
+test("opt-in read-only Beads tool stderr is selected without exposing command arguments", () => {
+  const message = "Command failed: bd --sandbox show task-private --json --readonly\nError: no database found\nPRIVATE-SECOND-LINE";
+  assert.equal(hostErrorDetails(message, {}), undefined);
+  assert.equal(hostErrorDetails(message, { HOST_ERROR_DETAILS: "true" }), "Error: no database found [additional lines omitted]");
+  assert.equal(hostErrorDetails("Command failed: bd update task-private --json\nPRIVATE", { HOST_ERROR_DETAILS: "true" }), undefined);
+});
 
 test("read-only checkout diagnostics select constants and HTTP status without exposing private text", () => {
   assert.deepEqual(hostDiagnostic("GitHub API rejected operation (404)"), { reason: "github-api-rejected", httpStatus: 404 });
