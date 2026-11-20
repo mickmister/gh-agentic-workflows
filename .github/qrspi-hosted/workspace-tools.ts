@@ -3,7 +3,7 @@ import { assert, frontmatter, type Pin } from "./core.ts";
 import type { Documents } from "./documents.ts";
 import { files, command, type Sources } from "./source.ts";
 import { sourceDirectory } from "./workspace.ts";
-import { execFileSync } from "node:child_process";
+import { readBeads } from "./beads-context.ts";
 import { methodologyCheck, methodologyChecks } from "./workspace-methodology.ts";
 import { classify } from "./diagnostics.ts";
 import type { ExecutionEvidence } from "./execution.ts";
@@ -86,7 +86,7 @@ export class WorkspaceTools {
         ...(this.d.worker ? {} : {
           documents: "list {prefix?,snapshot?,token?} or read {name,snapshot?}; authored workspace resources only",
           artifact: "list/read/write {name,content?}; stage process Markdown, cannot create approval markers or mutate approved bytes. approve {name} applies only an actually submitted exact-byte approval after YOU interpret all notes/conditions",
-          beads: "show {id?}, list {}, comments {id?}; native read-only context",
+          beads: "show {id}, list {}, comments {id}; native read-only context. list returns up to 50 compact issue summaries; use show for exact task details",
           source: "members/tasks/head {member}/create {id,member,base?}/status {task}/commit {task,paths,message}/publish {task,expectedCommit}/integrate {task,expectedHead}; publication needs caller source authority. Integrate requires candidate includes exact observed branch head: delegate merge/rebase and verification first if branch advanced",
           setup: "dispatch {member,prompt}, inspect {launch}, wait {launch}; separate registered authoring workflow, not parent-authored YAML",
         }),
@@ -148,11 +148,7 @@ export class WorkspaceTools {
       return { name: doc.name, version: doc.version, snapshot: doc.commit, text: doc.text };
     }
     if (area === "beads") {
-      assert(["show", "list", "comments"].includes(operation), "Beads operation is read-only");
-      const id = args.id;
-      assert(operation === "list" || (typeof id === "string" && /^[\w.:-]+$/.test(id)), "Invalid Bead identity");
-      return JSON.parse(execFileSync("bd", ["--sandbox", operation, ...(operation === "list" ? ["--limit", "50"] : [id]), "--json", "--readonly"],
-        { cwd: this.d.root, encoding: "utf8", timeout: 30000, maxBuffer: 256000, stdio: ["ignore", "pipe", "pipe"] }));
+      return readBeads(this.d.root, operation, args.id);
     }
     assert(area === "artifact", "Unknown capability");
     assert(!this.d.preparation || ["list", "read"].includes(operation), "Preparation cannot change methodology artifacts");
