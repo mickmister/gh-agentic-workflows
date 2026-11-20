@@ -13,6 +13,13 @@ test('native counters retain useful performance/session evidence without raw bod
  assert.equal(result.events.other,1);assert.equal(result.authoredDocuments,1);
  assert.doesNotMatch(JSON.stringify(result),/SECRET-PROMPT|PRIVATE-QUESTION|PRIVATE-BODY|PRIVATE-ANSWER|private-session/);
 });
+test('direct Pi Spec Kit evidence projects only bounded engine identity/status, not raw engine state',()=>{
+ const result=nativeSummary({...archive,events:undefined,result:undefined,backend:'spec-kit',session:{status:'completed'},
+   specKitCommit:'a'.repeat(40),workflowSha256:'b'.repeat(64),engineOutput:JSON.stringify({status:'completed',workflow_id:'qrspi-goals-intake',private:'SECRET-ENGINE'})});
+ assert.equal(result.resultStatus,'completed');assert.equal(result.backend,'spec-kit');
+ assert.deepEqual(result.specKit,{engineStatus:'completed',workflowId:'qrspi-goals-intake',commit:'a'.repeat(40),definitionSha256:'b'.repeat(64)});
+ assert.doesNotMatch(JSON.stringify(result),/SECRET-ENGINE|PRIVATE-ANSWER/);
+});
 test('inspection lists only bound run-prefix and GETs native evidence, never writes or dispatches',async()=>{
  const {binding}=target(env);
  const prefix=`qrspi/qrspi-hosted/processes/${digest(binding)}/private/123-1-`;

@@ -11,10 +11,10 @@ const sha=(text:string|Buffer)=>createHash('sha256').update(text).digest('hex');
 const count=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)&&value>=0?value:0;
 /** Parse private evidence without emitting prompts, output text, log bodies or arbitrary attributes. */
 export function nativeSummary(value:any) {
-  assert(value && Array.isArray(value.events) && Array.isArray(value.native),'Invalid native archive');
+  assert(value && (Array.isArray(value.events) || value.backend==='spec-kit' && value.events===undefined) && Array.isArray(value.native),'Invalid native archive');
   const events:Record<string,number>={}, stops:Record<string,number>={};
   const eventTypes=new Set(['text_delta','thought_delta','tool_call','tool_result','session_started','turn_started','turn_completed','status','error']);
-  for(const event of value.events){const type=eventTypes.has(event?.type)?event.type:'other';events[type]=(events[type]??0)+1;}
+  for(const event of value.events??[]){const type=eventTypes.has(event?.type)?event.type:'other';events[type]=(events[type]??0)+1;}
   const sessions=new Set<string>(), times:number[]=[];
    const toolCallsByName:Record<string,number>={}, workspaceCapabilities:Record<string,number>={}, dispatchCallIds:string[]=[];
   let toolResultFailures=0,toolResults=0;
@@ -58,11 +58,21 @@ export function nativeSummary(value:any) {
      const reference=(v:unknown)=>typeof v==='string'&&/^[\w./-]{1,400}$/.test(v)?v:'invalid-reference';
      if(output?.reviewArtifact)checkpointOutput={reviewArtifact:reference(output.reviewArtifact),members:Array.isArray(output.members)?output.members.slice(0,12).map(reference):typeof output.members,questions:Array.isArray(output.questions)?output.questions.length:typeof output.questions};
    }catch{/* Not every role returns structured authored output. */}
-  const session = value.session;
+   const session = value.session;
+   const resultStatus=value.result?.status??(value.backend==='spec-kit'?session?.status:undefined);
+   let specKit:unknown;
+   if(value.backend==='spec-kit') {
+     let state:any;try{state=JSON.parse(value.engineOutput);}catch{}
+     specKit={engineStatus:['completed','failed','paused','aborted'].includes(state?.status)?state.status:'unknown',
+       workflowId:state?.workflow_id==='qrspi-goals-intake'?state.workflow_id:'unknown',
+       commit:typeof value.specKitCommit==='string'&&/^[a-f0-9]{40}$/.test(value.specKitCommit)?value.specKitCommit:null,
+       definitionSha256:typeof value.workflowSha256==='string'&&/^[a-f0-9]{64}$/.test(value.workflowSha256)?value.workflowSha256:null};
+   }
   const linked = session && typeof session.id === 'string' && typeof session.executionId === 'string' &&
     (session.parentId === null || typeof session.parentId === 'string');
   return {role:['preparation','setup-planner','orchestrator','worker-researcher','worker-reviewer','approval-consistency','questions-author','review-quality','review-scope','exit-interview'].includes(value.role)?value.role:'other',
-     resultStatus:['completed','failed','cancelled','timed_out'].includes(value.result?.status)?value.result.status:'unknown',failurePresent:Boolean(value.failure),
+      resultStatus:['completed','failed','cancelled','timed_out'].includes(resultStatus)?resultStatus:'unknown',failurePresent:Boolean(value.failure),
+      ...(specKit?{backend:'spec-kit',specKit}:{}),
      eventsTruncated:value.eventsTruncated===true,nativeTruncated:value.nativeTruncated===true,
      usageScope:value.nativeTruncated===true?'retained-tail-only':'retained-native-rows',
      events,nativeLines:value.native.length,invalidLines,nativeSessions:[...sessions],assistantMessages,assistantOutcomes,toolCalls,toolCallsByName,workspaceCapabilities,toolResults,toolResultFailures,dispatchCallIds,nativeStopReasons:stops,
