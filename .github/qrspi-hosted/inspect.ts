@@ -27,7 +27,7 @@ export function hostErrorDetails(message: unknown, env: NodeJS.ProcessEnv) {
   if (newline < 0) return undefined;
   // Opt-in, exact bound host CLI failures only. Do not expose the command line,
   // arbitrary native sessions, provider bodies, or unsanitized error payloads.
-  return sanitize(message.slice(newline + 1), env).slice(0, DESCRIPTION_LIMIT);
+  return sanitize(message.slice(newline + 1), env, message.startsWith("Command failed: bd --sandbox ")).slice(0, DESCRIPTION_LIMIT);
 }
 export function hostDiagnostic(message: unknown) {
   if (typeof message !== "string" || message.length > 64000) return undefined;
@@ -41,7 +41,7 @@ const secretNames = /^(?:S3_CACHE_.*|NUGS_STORAGE_.*|INFERENCE_.*|CF_ACCESS_.*|G
 
 // Applied to the complete message BEFORE truncation or rendering. Never stringify
 // an exception or arbitrary payload as a fallback. Keep Actions commands inert.
-export function sanitize(text: string, env: NodeJS.ProcessEnv): string {
+export function sanitize(text: string, env: NodeJS.ProcessEnv, preferError = false): string {
   // Omit oversized descriptions altogether, never truncate unsanitized bytes.
   if (Buffer.byteLength(text) > 64_000) return "Oversized diagnostic description omitted";
   const secrets = Object.entries(env)
@@ -71,6 +71,10 @@ export function sanitize(text: string, env: NodeJS.ProcessEnv): string {
   // Select only AFTER whole-message redaction (including multiline secrets).
   // execFile errors put the actionable stderr after the command headline.
   const [first, ...rest] = text.split(/\r\n|[\r\n]/);
+  if (preferError) {
+    const error = [first, ...rest].find(line => /^\s*(?:error|fatal):/i.test(line));
+    if (error) return (error.trim() + (rest.length ? " [additional lines omitted]" : "")).replace(/[^\x20-\x7e]/g, " ");
+  }
   const summary = /^Command failed: \S/.test(first) ? rest.find((line) => line.trim())?.trim() : undefined;
   text = summary
     ? `${first.slice(0, DESCRIPTION_LIMIT / 2)} [stderr] ${summary.slice(0, 400)} [additional lines omitted]`
