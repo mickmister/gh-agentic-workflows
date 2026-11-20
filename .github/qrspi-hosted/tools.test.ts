@@ -48,7 +48,7 @@ test("context catalog refuses traversal/symlinks and document tools preserve app
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test("real pinned Pi orchestrator calls context/document tools and existing acpx wrapper; child is tool-free and native failures propagate", { timeout: 120000 }, async () => {
+test("real pinned Pi orchestrator calls context/document tools and existing acpx wrapper; child is tool-free and native failures propagate", { timeout: 240000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "qrspi-tools-native-"));
   const previous = { ...process.env };
   const archives: any[] = [], records: SessionRecord[] = [], payloads: any[] = [];

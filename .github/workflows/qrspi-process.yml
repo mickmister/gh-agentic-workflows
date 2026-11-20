@@ -90,7 +90,7 @@ jobs:
       checkpoint_url: ${{ steps.work.outputs.checkpoint_url }}
       request_version: ${{ steps.work.outputs.request_version }}
       request_snapshot: ${{ steps.work.outputs.request_snapshot }}
-    timeout-minutes: 55
+    timeout-minutes: 360
     concurrency:
       group: qrspi-${{ inputs.workspace }}-${{ inputs.process }}
       cancel-in-progress: false

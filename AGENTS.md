@@ -1,5 +1,8 @@
 # Review requests
 
+For designated-orchestrator helper work through the ACPX workspace wrapper, read
+[run-acpx-helpers](.agents/skills/run-acpx-helpers/SKILL.md).
+
 Read and follow [create-review-request](.agents/skills/create-review-request/SKILL.md)
 when creating, publishing, reading or updating a review request, or whenever a
 task-related human clarification, scope/run/route/setup decision or approval is
