@@ -1,0 +1,39 @@
+---
+options:
+  max_actions: 10
+  max_concurrent_actions: 1
+  crash_on_yield: false
+deadlock_detection: false
+liveness: strict
+---
+BAD_SAFETY = False
+BAD_WITNESS = False
+UNFAIR = False
+
+role Reconciler:
+    action Init:
+        self.done = False
+
+    atomic fair action FairService:
+        require not UNFAIR and submitted
+        self.done = True
+
+    atomic action UnfairService:
+        require UNFAIR and submitted
+        self.done = True
+
+action Init:
+    submitted = False
+    service = Reconciler()
+
+atomic action Submit:
+    submitted = True
+
+always assertion NamedSafety:
+    return not BAD_SAFETY or not submitted
+
+exists assertion Reachability:
+    return service.done and not BAD_WITNESS
+
+assertion StrictConditionalProgress:
+    return submitted leadsto service.done
