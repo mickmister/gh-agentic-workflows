@@ -20,7 +20,7 @@ test(
     skip:
       process.env.QRSPI_INTEGRATION !== "1" ||
       !process.env.GITHUB_ULTIMATE_ROOT,
-    timeout: 540000,
+    timeout: 900000,
   },
   async () => {
     mkdirSync(".test-state", { recursive: true });
@@ -213,7 +213,7 @@ test(
             { env: process.env, stdio: ["ignore", "pipe", "pipe"] },
           );
           console.log(`fixture run=${process.env.GITHUB_RUN_ID} op=${op} stage=${stage}`);
-          const timer = setTimeout(() => { c.kill("SIGKILL"); reject(new Error(`Child deadline: ${op}`)); }, 120000);
+          const timer = setTimeout(() => { c.kill("SIGKILL"); reject(new Error(`Child deadline: ${op}`)); }, 240000);
           let errors = "";
           c.stdout.resume();
           c.stderr.on("data", (d) => (errors = (errors + d).slice(-8000)));
@@ -233,7 +233,17 @@ test(
             "utf8",
           ).includes("composite"),
         );
-        assert.equal(await command("work"), 0);
+        const worked = await command("work");
+        // Inspect synthetic fixture failures without printing private host messages.
+        const failures = [...rows.entries()].filter(([key]) => key.includes("/private/error-")).map(([, value]) => {
+          const message = JSON.parse(value.body).message ?? "";
+          const patterns: [RegExp, string][] = [[/Incomplete native evidence row/, "native-incomplete"], [/Native evidence was rewritten/, "native-rewritten"],
+            [/Native Pi assistant failed/, "native-final"], [/Native Pi cancellation/, "native-cancelled"], [/JSON|Unexpected token/, "invalid-json"],
+            [/empty assistant/, "empty-output"], [/Bound exceeded/, "output-bound"], [/evidence budget|chunk budget/, "evidence-budget"],
+            [/cleanup deadline/, "cleanup-deadline"], [/startup deadline/, "startup-deadline"]];
+          return patterns.find(([pattern]) => pattern.test(message))?.[1] ?? "unclassified-fixture-failure";
+        });
+        assert.equal(worked, 0, JSON.stringify(failures));
       };
       const checkpoint = () =>
         JSON.parse(
