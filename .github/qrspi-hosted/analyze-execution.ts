@@ -2,7 +2,7 @@ import { GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { PrivateStore, digest } from "./storage.ts";
-import { target } from "./inspect.ts";
+import { target, hostErrorDetails } from "./inspect.ts";
 import { assert } from "./core.ts";
 import { classify, stages } from "./diagnostics.ts";
 import { eventKinds, operations } from "./execution.ts";
@@ -23,6 +23,7 @@ export async function analyzeExecution(env: NodeJS.ProcessEnv, send?: (command: 
   let objects = 0, bytes = 0, spans = 0, failedSpans = 0, lastActivity: string | null = null, lastStage: string | null = null;
   let nativeRows = 0, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, maxSpanMs = 0;
   const traceIds = new Set<string>();
+  const hostCliErrors: string[] = [];
   try {
     let token: string | undefined;
     for (let page = 0; page < 8; page++) {
@@ -43,7 +44,12 @@ export async function analyzeExecution(env: NodeJS.ProcessEnv, send?: (command: 
           assert(digest(value.binding) === digest(binding) && value.executionId === `${env.TARGET_RUN_ID}-${env.TARGET_RUN_ATTEMPT ?? "1"}`, "Execution evidence binding mismatch");
           for (const event of value.events) {
             const kind = eventKinds.includes(event.kind) ? event.kind : "other";
-            counts[kind] = (counts[kind] ?? 0) + 1;
+             counts[kind] = (counts[kind] ?? 0) + 1;
+             if (kind === "failed" && hostCliErrors.length < 8 && typeof event.data?.privateError?.message === "string" &&
+                 event.data.privateError.message.startsWith("Command failed: bd --sandbox ")) {
+               const detail = hostErrorDetails(event.data.privateError.message, env);
+               if (detail) hostCliErrors.push(detail);
+             }
             if (typeof event.timestamp === "string" && Number.isFinite(Date.parse(event.timestamp)) && (!lastActivity || event.timestamp > lastActivity)) {
               lastActivity = event.timestamp;
               if (kind === "stage" && stages.includes(event.data?.stage)) lastStage = event.data.stage;
@@ -83,6 +89,7 @@ export async function analyzeExecution(env: NodeJS.ProcessEnv, send?: (command: 
     }
     return { diagnosticOnly: true, run: env.TARGET_RUN_ID, downloadedObjects: objects, downloadedBytes: bytes,
       evidenceAvailable: objects > 0, counts, operationCounts: toolCounts, lastActivity, lastStage, unresolvedOperations: [...pending.values()],
+      ...(hostCliErrors.length ? { hostCliErrors } : {}),
       sessions: [...sessions.values()], nativeRows, nativeStops, usage: { inputTokens, outputTokens, cacheReadTokens, billingCost: null },
       otel: { spans, failedSpans, traceIds: [...traceIds], maxSpanMs, providerRequestSpansAvailable: false, nestedDurationsAreNotAdditive: true },
       phaseCompletionClaimed: false, replayAuthorized: false, notice: "Missing completion events are unknown, not proof of failure, approval or permission to retry. Raw event/error/native content stays private." };

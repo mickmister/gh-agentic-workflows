@@ -38,3 +38,12 @@ test("read-only inspector decodes private event/native/OTLP evidence without emi
     assert.equal(absent.evidenceAvailable, false);
   } finally { await evidence.close(); }
 });
+test("read-only CLI failure projection is explicit opt-in and excludes private trailing lines", async () => {
+  const { binding } = target(env), key = `qrspi/qrspi-hosted/processes/${digest(binding)}/executions/123-1/work/chunks/000001.json`;
+  const payload = { binding, executionId: "123-1", events: [{ kind: "failed", data: { privateError: { message: "Command failed: bd --sandbox show task-private --json --readonly\nError: missing database\nPRIVATE-TAIL" } } }] };
+  const send = async (command: GetObjectCommand | ListObjectsV2Command) => command instanceof ListObjectsV2Command ? { Contents: [{ Key: key }] } : { Body: (async function*() { yield Buffer.from(JSON.stringify(payload)); })() };
+  assert.equal((await analyzeExecution(env, send)).hostCliErrors, undefined);
+  const result = await analyzeExecution({ ...env, HOST_ERROR_DETAILS: "true" }, send);
+  assert.deepEqual(result.hostCliErrors, ["Error: missing database [additional lines omitted]"]);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE|task-private/);
+});

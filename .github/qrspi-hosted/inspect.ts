@@ -21,7 +21,8 @@ export function hostErrorDetails(message: unknown, env: NodeJS.ProcessEnv) {
     } catch { /* Plain host invariant, scrubbed and bounded below. */ }
     return sanitize(message, env).slice(0, DESCRIPTION_LIMIT);
   }
-  if (!/^Command failed: nugs (?:workspace restore|beads sync) /.test(message)) return undefined;
+  if (!/^Command failed: nugs (?:workspace restore|beads sync) /.test(message) &&
+      !/^Command failed: bd --sandbox (?:show|comments|list) (?:[\w.:-]+|--limit 50) --json --readonly\n/.test(message)) return undefined;
   const newline = message.indexOf("\n");
   if (newline < 0) return undefined;
   // Opt-in, exact bound host CLI failures only. Do not expose the command line,
