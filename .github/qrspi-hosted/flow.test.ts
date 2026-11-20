@@ -243,7 +243,11 @@ test(
             [/cleanup deadline/, "cleanup-deadline"], [/startup deadline/, "startup-deadline"]];
           return patterns.find(([pattern]) => pattern.test(message))?.[1] ?? "unclassified-fixture-failure";
         });
-        assert.equal(worked, 0, JSON.stringify(failures));
+        const frames = worked ? [...rows.entries()].filter(([key]) => key.includes("/chunks/")).flatMap(([, value]) => {
+          const events = JSON.parse(value.body).events ?? [];
+          return events.flatMap((event: any) => [...String(event.data?.privateError?.stack ?? "").matchAll(/\/qrspi-hosted\/([a-z-]+\.ts:\d+:\d+)/g)].map(match => match[1]));
+        }) : [];
+        assert.equal(worked, 0, JSON.stringify({ failures, frames: [...new Set(frames)].slice(-12) }));
       };
       const checkpoint = () =>
         JSON.parse(
