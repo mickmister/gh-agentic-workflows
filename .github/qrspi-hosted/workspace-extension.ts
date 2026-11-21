@@ -8,7 +8,7 @@ export default function(pi: ExtensionAPI) {
   for (const name of names) pi.registerTool(defineTool({ name, label: name,
     description: name === "workspace_operation"
       ? "Execute a workspace capability. First call {area:'help'} for actual operations and authority. You decide workflow semantics from instructions/artifacts; tool successes never imply methodology approval."
-      : "Dispatch an explicit group of independent workers concurrently, then await every outcome. Pass {workers:[{id,role,prompt,task?,documents?:[{resource,version_kind:'git-blob',version,snapshot}],access:'read'|'write'|'test'}]}. Assign task for source reads; assign exact document pins for document reads (not files). Select work from methodology/artifacts; tool does not decide dependencies or roles. Do not retry uncertain work.",
+      : "Dispatch an explicit group of independent workers concurrently, then await every outcome. Pass {workers:[{id,role,prompt,promptFiles?:['agents/canonical-agent.md'],artifactAccess?:{read:['input.md'],write:['output.md']},task?,documents?:[{resource,version_kind:'git-blob',version,snapshot}],access:'read'|'write'|'test'}]}. Spec Kit workers require canonical promptFiles. Read access to product source is separate from explicitly assigned process-artifact outputs. Assign task for source reads and exact pins for document reads. No parent conversation is inherited. Select work under the methodology; never retry uncertain work.",
     parameters: Type.Object({ area: Type.Optional(Type.String()), operation: Type.Optional(Type.String()), args: Type.Optional(Type.Any()), workers: Type.Optional(Type.Array(Type.Any(), { maxItems: 2 })) }),
     async execute(callId, args, signal) {
       const value = await new Promise<string>((ok, fail) => {

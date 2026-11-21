@@ -1,0 +1,25 @@
+schema_version: '1.0'
+workflow:
+  id: qrspi-canonical-worker
+  name: Assigned canonical prompt files and native report
+  version: 0.1.0
+steps:
+  - id: instructions
+    type: shell
+    strict: true
+    output_format: json
+    timeout: 30
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" load-prompts worker --selection
+  - id: worker
+    type: prompt
+    integration: pi
+    prompt: 'qrspi-file-prompt:worker'
+    capture: true
+    capture_max_bytes: 8192
+    timeout: 900
+  - id: native_report
+    type: shell
+    strict: true
+    output_format: json
+    timeout: 30
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" validate-worker

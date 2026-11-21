@@ -20,7 +20,7 @@ import { reconcileInitialization } from "./workspace-recovery.ts";
 import { recoverPublication } from "./workspace-publication-recovery.ts";
 import { reviewDocuments } from "./workspace-publication.ts";
 
-type State = Checkpoint & { schemaVersion: 2; executionBackend?: string; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
+type State = Checkpoint & { schemaVersion: 2; executionBackend?: string; miniWorkflow?: string; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
 const env = process.env, home = env.QRSPI_HOME!;
 const workspaceTurn: typeof invokeWorkspaceTurn = (directory, prompt, ...args) => {
   if (env.RECOVER_PUBLICATION && env.WORKSPACE_COMMAND === "work") {
@@ -32,7 +32,7 @@ const workspaceTurn: typeof invokeWorkspaceTurn = (directory, prompt, ...args) =
   `Checkpoint output contract: reviewDocuments?:string[] names extra staged Markdown artifacts; the required reviewArtifact/config are always included. Workspace repository names are source inventory, not review document names.\nCaller configuration metadata (not phase/product approval): ${JSON.stringify({ routeTemplate: env.QRSPI_ROUTE,
     runtimeModels: [{ provider: "hosted", model: env.QRSPI_MODEL }],
     alternateModelProvisioned: false,
-    methodologySupport: "methodology list/read with args.source:true accesses supporting source-package docs omitted from the built skill bundle; default reads built skills" })}\n` + prompt, ...args);
+     methodologySupport: "methodology list/read with args.source:true accesses supporting source-package docs omitted from the built skill bundle; default reads built skills" })}\n` + prompt, ...args);
 };
 assert(home, "Bootstrap required");
 const seed = validateSeed(JSON.parse(env.NUGS_WORKSPACE_SEED!));
@@ -210,7 +210,7 @@ async function work() {
   p.parseReviewRequest(JSON.stringify(request));
   await step("request-publication");
   const publication = publish(env.GITHUB_ULTIMATE_ROOT!, docs, request);
-   const cp: State = { schemaVersion: 2, executionBackend: env.QRSPI_EXECUTION_BACKEND ?? "acpx", binding, artifacts, pins, members: sources.members, tasks: sources.tasks, manifest: state.manifest,
+    const cp: State = { schemaVersion: 2, executionBackend: env.QRSPI_EXECUTION_BACKEND ?? "acpx", ...(result.miniWorkflow ? { miniWorkflow: result.miniWorkflow } : {}), binding, artifacts, pins, members: sources.members, tasks: sources.tasks, manifest: state.manifest,
     sourceAuthority: state.sourceAuthority, setup: { ...state.setup, outcome: env.SETUP_OUTCOME },
     awaiting: { request: publication.pin, config: pins["config.md"], artifact: pins[result.reviewArtifact], form: formPin,
       artifactName: result.reviewArtifact, requestId, approvalOffered: result.approvalOffered, approvalChoice: "approve" } };

@@ -41,7 +41,7 @@ on:
         type: boolean
         default: false
       execution-backend:
-        description: Auto preserves existing processes and uses Spec Kit for new source-disabled Goals intake
+        description: Auto preserves existing backends and uses source-referenced Spec Kit mini-workflows for new source-disabled processes
         type: choice
         options: [auto, spec-kit, acpx]
         default: auto
