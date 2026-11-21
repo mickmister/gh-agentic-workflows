@@ -59,6 +59,16 @@ authority. Authoritative state remains canonical artifact frontmatter and real
 approval receipts. No runner is held open waiting for a human and no orphaned
 Spec Kit `running` state is used for cross-run continuation.
 
+An actual hosted qualification encountered terminal 502/503 errors before any
+resume tool call. `recover-failed-resume` is an explicit direct-operator option
+for this narrow observed class, after GET-only inspection. It requires an exact
+failed attempt, unchanged source-disabled checkpoint/source vector, no selected
+setup, only completed read-only preparation, exactly one failed resume session,
+zero resume tools/output-token usage, only terminal 502/503/504 outcomes, no phase
+prompt and no unresolved operations. It records an operator reconciliation and
+a new admission, retaining the original failed admission/evidence. It is not an
+automatic retry or recovery of interrupted/tool-using/model-output work.
+
 Each native worker receives explicit prompt-file references, parameters and exact
 artifact read/write names. It receives no automatic parent dialogue or unassigned
 process artifacts. Research specialists/collators must get the inputs required

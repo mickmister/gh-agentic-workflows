@@ -49,6 +49,10 @@ on:
         description: Explicitly reconcile this failed pre-model initialization run; never model/setup replay
         type: string
         default: ""
+      recover-failed-resume:
+        description: Explicitly reconcile a terminal 502/503/504 resume failure with zero tool/output effects; inspect first
+        type: string
+        default: ""
       recover-publication:
         description: Finalize this completed source-disabled discussion after known membership validation failure, without model replay
         type: string
@@ -70,6 +74,7 @@ on:
       legacy-document-pilot: { type: boolean, default: false }
       execution-backend: { type: string, default: auto }
       recover-before-model: { type: string, default: "" }
+      recover-failed-resume: { type: string, default: "" }
       recover-publication: { type: string, default: "" }
       response: { type: string, default: "" }
     secrets:
@@ -171,6 +176,7 @@ jobs:
           LEGACY_DOCUMENT_PILOT: ${{ inputs.legacy-document-pilot }}
           QRSPI_EXECUTION_BACKEND: ${{ inputs.execution-backend }}
           RECOVER_BEFORE_MODEL: ${{ inputs.recover-before-model }}
+          RECOVER_FAILED_RESUME: ${{ inputs.recover-failed-resume }}
           RECOVER_PUBLICATION: ${{ inputs.recover-publication }}
           AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
           AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}

@@ -21,6 +21,7 @@ test("workflow matches the shared input contract and runs selected setup in the 
     "legacy-document-pilot",
     "execution-backend",
     "recover-before-model",
+    "recover-failed-resume",
     "recover-publication",
   ].sort();
   assert.deepEqual(
