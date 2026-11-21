@@ -20,6 +20,7 @@ import { reconcileInitialization } from "./workspace-recovery.ts";
 import { recoverPublication } from "./workspace-publication-recovery.ts";
 import { reviewDocuments } from "./workspace-publication.ts";
 import { announceLive } from "./live-session.ts";
+import { reconcileFailedResume } from "./resume-recovery.ts";
 
 type State = Checkpoint & { schemaVersion: 2; executionBackend?: string; miniWorkflow?: string; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
 const env = process.env, home = env.QRSPI_HOME!;
@@ -76,8 +77,10 @@ async function prepare() {
   let admission = `${key}/admissions/${digest(receipt ? admissionIdentity(receipt) : prior ? { request: env.GITHUB_RUN_ID } : { start: true })}.json`;
   await step("admission-read");
   const active = await store.read(`${key}/active-invocation.json`);
-  const reconciled = env.RECOVER_BEFORE_MODEL ? await reconcileInitialization(env, store, github, binding, key, active?.value) : false;
-  if (reconciled) admission = `${key}/admissions/${digest({ initializationRecovery: env.RECOVER_BEFORE_MODEL, run: env.GITHUB_RUN_ID })}.json`;
+  assert(!(env.RECOVER_BEFORE_MODEL && env.RECOVER_FAILED_RESUME), "Choose one explicit reconciliation class");
+  const reconciled = env.RECOVER_BEFORE_MODEL ? await reconcileInitialization(env, store, github, binding, key, active?.value)
+    : env.RECOVER_FAILED_RESUME ? await reconcileFailedResume(env, store, github, binding, key, active?.value) : false;
+  if (reconciled) admission = `${key}/admissions/${digest(env.RECOVER_FAILED_RESUME ? { failedResumeRecovery: env.RECOVER_FAILED_RESUME, run: env.GITHUB_RUN_ID } : { initializationRecovery: env.RECOVER_BEFORE_MODEL, run: env.GITHUB_RUN_ID })}.json`;
   const waiting = active?.value.outcome === "waiting-setup" ? (await store.read(`${key}/pending-setup.json`))?.value : undefined;
   assert(!active || active.value.outcome === "settled" || waiting || reconciled, "Previous invocation effects uncertain; reconcile before another prompt");
   if (waiting) {
