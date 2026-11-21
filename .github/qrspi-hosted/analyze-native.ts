@@ -18,7 +18,7 @@ export function nativeSummary(value:any) {
   const sessions=new Set<string>(), times:number[]=[];
    const toolCallsByName:Record<string,number>={}, workspaceCapabilities:Record<string,number>={}, dispatchCallIds:string[]=[];
   let toolResultFailures=0,toolResults=0;
-  const assistantOutcomes: {stop:string;errorKind?:string}[]=[];
+   const assistantOutcomes: {stop:string;errorKind?:string;httpStatus?:number}[]=[];
   let assistantMessages=0,toolCalls=0,inputTokens=0,outputTokens=0,cacheReadTokens=0,cacheWriteTokens=0,cost=0,invalidLines=0,usageRecords=0,costReported=false;
   for(const line of value.native){
     let row:any;try{row=JSON.parse(line);}catch{invalidLines++;continue;}
@@ -33,7 +33,8 @@ export function nativeSummary(value:any) {
     const stop=['stop','error','aborted','length','toolUse'].includes(message.stopReason)?message.stopReason:'unknown';
     const error=typeof message.errorMessage==='string'?message.errorMessage:'';
     const errorKind=/429|rate.?limit|too many requests/i.test(error)?'rate-limit':/50[234]|overload|temporar(?:y|ily)|timeout|timed out/i.test(error)?'transient-provider':/401|403|authenticat|unauthoriz/i.test(error)?'authentication':/context.{0,30}(?:limit|length)|maximum.{0,20}tokens/i.test(error)?'context-limit':/tool|function/i.test(error)?'tool-protocol':'unclassified';
-    assistantOutcomes.push({stop,...(stop==='error'?{errorKind}:{})});
+    const status = error.match(/\b([45]\d\d)\b/);
+    assistantOutcomes.push({stop,...(stop==='error'?{errorKind,...(status?{httpStatus:Number(status[1])}:{})}:{})});
     stops[stop]=(stops[stop]??0)+1;
     toolCalls+=Array.isArray(message.content)?message.content.filter((item:any)=>['toolCall','tool_use'].includes(item?.type)).length:0;
     for(const item of Array.isArray(message.content)?message.content:[])if(['toolCall','tool_use'].includes(item?.type)){
