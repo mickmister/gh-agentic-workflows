@@ -1,0 +1,28 @@
+schema_version: '1.0'
+workflow:
+  id: qrspi-workspace-mini
+  name: Resume QRSPI from durable human feedback
+  version: 0.1.0
+steps:
+  - id: load_resume
+    type: shell
+    strict: true
+    output_format: json
+    timeout: 30
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" load-prompts resume --file skills/using-qrspi/SKILL.md
+  - id: resume
+    type: prompt
+    integration: pi
+    prompt: 'qrspi-file-prompt:resume'
+    capture: true
+    capture_max_bytes: 8192
+    timeout: 600
+  - id: selection
+    type: shell
+    strict: true
+    output_format: json
+    timeout: 30
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" selection
+  - id: next_mini
+    type: workflow
+    workflow: '{{ steps.selection.output.data.workflow }}'

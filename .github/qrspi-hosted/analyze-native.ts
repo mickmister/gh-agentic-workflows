@@ -64,9 +64,16 @@ export function nativeSummary(value:any) {
    if(value.backend==='spec-kit') {
      let state:any;try{state=JSON.parse(value.engineOutput);}catch{}
      specKit={engineStatus:['completed','failed','paused','aborted'].includes(state?.status)?state.status:'unknown',
-       workflowId:state?.workflow_id==='qrspi-goals-intake'?state.workflow_id:'unknown',
+        workflowId:['qrspi-goals-intake','qrspi-workspace-mini','qrspi-canonical-worker'].includes(state?.workflow_id)?state.workflow_id:'unknown',
        commit:typeof value.specKitCommit==='string'&&/^[a-f0-9]{40}$/.test(value.specKitCommit)?value.specKitCommit:null,
-       definitionSha256:typeof value.workflowSha256==='string'&&/^[a-f0-9]{64}$/.test(value.workflowSha256)?value.workflowSha256:null};
+        definitionSha256:typeof value.workflowSha256==='string'&&/^[a-f0-9]{64}$/.test(value.workflowSha256)?value.workflowSha256:null,
+        ...(Array.isArray(value.promptSources)&&value.promptSources.length ? {promptSources:value.promptSources.slice(0,3).map((p:any)=>({
+          slot:['resume','phase','worker'].includes(p.slot)?p.slot:'unknown',phase:['goals','questions','research','handoff'].includes(p.phase)?p.phase:null,
+          sourceSha:typeof p.sourceSha==='string'&&/^[a-f0-9]{40}$/.test(p.sourceSha)?p.sourceSha:null,
+          renderedSha256:typeof p.renderedSha256==='string'&&/^[a-f0-9]{64}$/.test(p.renderedSha256)?p.renderedSha256:null,
+          sources:Array.isArray(p.sources)?p.sources.slice(0,64).map((s:any)=>({path:typeof s.path==='string'&&/^(?:agents|skills)\/[\w./-]+\.md$/.test(s.path)&&!s.path.split('/').includes('..')?s.path:'invalid-reference',
+            sha256:typeof s.sha256==='string'&&/^[a-f0-9]{64}$/.test(s.sha256)?s.sha256:null,bytes:count(s.bytes)})):[]
+        }))}: {})};
    }
   const linked = session && typeof session.id === 'string' && typeof session.executionId === 'string' &&
     (session.parentId === null || typeof session.parentId === 'string');

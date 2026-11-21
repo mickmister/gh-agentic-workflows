@@ -9,12 +9,15 @@ import { serveTools } from "./tools.ts";
 import type { ExecutionEvidence } from "./execution.ts";
 import type { SessionIdentity, SessionRecord } from "./session.ts";
 import { specKitTurn } from "./spec-kit-turn.ts";
+import { specKitWorkspaceTurn } from "./spec-kit-workspace.ts";
 
 export async function workspaceTurn(home: string, prompt: string, d: Omit<ToolDependencies, "dispatch">,
   parent: SessionIdentity, archive: (id: string, value: unknown) => Promise<unknown>,
   record: (value: SessionRecord) => Promise<unknown>, evidence: ExecutionEvidence,
   options: { signal?: AbortSignal; timeoutMs?: number; workerTimeoutMs?: number; onStatus?: (value: TurnStatus) => void } = {}) {
-  if (process.env.QRSPI_EXECUTION_BACKEND === "spec-kit") return specKitTurn(home, prompt, d, parent, archive, record, evidence, options);
+  if (process.env.QRSPI_EXECUTION_BACKEND === "spec-kit") return d.preparation
+    ? specKitTurn(home, prompt, d, parent, archive, record, evidence, options)
+    : specKitWorkspaceTurn(home, prompt, d, parent, archive, record, evidence, options);
   await configurePi(home);
   const controller = new AbortController();
   const cancel = () => controller.abort(options.signal?.reason ?? new Error("Workspace turn cancelled"));

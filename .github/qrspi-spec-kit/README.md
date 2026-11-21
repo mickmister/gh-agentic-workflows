@@ -1,4 +1,16 @@
-# QRSPI Goals/intake on Spec Kit
+# QRSPI on Spec Kit
+
+The current source-disabled work entry uses `workspace.yml` to interpret actual
+human feedback, then invokes source-referenced Goals, Questions or Research
+mini-workflows. See [mini-workflows](MINI-WORKFLOWS.md) for canonical prompt-file
+references, native workers, durable human boundaries and qualification limits.
+The real smoke test is documented separately in [multi-agent smoke](MULTI-AGENT-SMOKE.md);
+its handwritten prompts are execution evidence, not canonical QRSPI prompts.
+
+## Original Goals/intake transport
+
+The original `goals-intake.yml` transport described below still executes the
+preparation turn. Its first hosted delivery evidence retains that historical scope.
 
 Owner: `task-8a7.3`. First hosted execution slice; parallel-integration/FizzBee
 conformance is separately owned by `task-3vt.34.15.4`.
@@ -35,7 +47,7 @@ npm-integrity-pinned `@earendil-works/pi-coding-agent@1.5.2` CLI, with explicit
 model configuration and capability extension, no ambient tools/context discovery.
 The preparation turn uses the same execution path and existing setup contract.
 
-This slice permits scoped document/config/context operations, with no worker
+The original intake slice permits scoped document/config/context operations, with no worker
 delegation and no source editing authority. It ends at an actual Goals/intake
 human checkpoint, including configuration questions where required. It does not
 claim to complete Goals, its reviewer loop, downstream QRSPI phases or parallel
