@@ -1,0 +1,34 @@
+{
+  "schema_version": 2,
+  "platform": "linux-amd64",
+  "storage_ref": "refs/documents/nugs-ci-toolchain",
+  "storage_commit": "6a0abf37089ce7720d3b9d951ba81e1403fd94b4",
+  "tools": {
+    "nugs": {
+      "package": "@mickmister/nugs",
+      "version": "0.1.6",
+      "tarball": "https://registry.npmjs.org/@mickmister/nugs/-/nugs-0.1.6.tgz",
+      "integrity": "sha512-jaJtRMtYi9M2TzGGE/8ploWkDMijkk3FSVwItK38r67aYvEMnaFuI9JXzP6636vjmY68+xNGTKsJd2MClre+hw==",
+      "compressed_bytes": 139951656,
+      "binary_bytes": 49463458,
+      "binary_sha256": "80ab68761931d9a65ae01a26d6f17e43d89196878661c899a13488a266b8e624",
+      "source_commit": "cee3d1fa0dc61de81fb233d2eca9080ede63dadf"
+    },
+    "bd": {
+      "resource": "toolchain/bd-54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e.gz",
+      "sha256": "a744d19dd738a3f9565817231b135ee33b929d7961e65b85922e6f1afde122ce",
+      "binary_sha256": "54fc0e0581ce4c5487a5b242f0a4f34af1ef09cf056e164a1af63a6ec7aa1e0e",
+      "compressed_bytes": 48321685,
+      "binary_bytes": 143260920,
+      "version": "1.2.2 / 6c124203e771433a3550c348771a5b5e27fd3c21; native binary without VD wrapper"
+    },
+    "dolt": {
+      "resource": "toolchain/dolt-14a8d9cd2b2ea7103b7c94e9446923c570919ca525933b53bb05fbc200c8f9cd.gz",
+      "sha256": "a37149fad2fad546512504453175059f2499024d3964352a1fdf14e6ef5fb5f4",
+      "binary_sha256": "14a8d9cd2b2ea7103b7c94e9446923c570919ca525933b53bb05fbc200c8f9cd",
+      "compressed_bytes": 44287811,
+      "binary_bytes": 126903912,
+      "version": "2.3.1; installed custom-ref-capable binary, no source revision claimed"
+    }
+  }
+}

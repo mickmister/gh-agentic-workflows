@@ -1,0 +1,16 @@
+{
+  "inputs": ["goals.md", "config.md", "reviews/goals/quality.json", "reviews/goals/scope.json"],
+  "form": {
+    "format": "standard",
+    "title": "Review the pinned Goals candidate and findings",
+    "description": "This captures feedback only. A trusted acceptance adapter must bind any decision to the exact packet before the workflow advances.",
+    "questions": [{
+      "type": "choices", "id": "decision", "title": "Decision on this exact candidate",
+      "choices": [
+        {"id": "approve", "label": "Approve Goals", "description": "Approve problem framing, not implementation."},
+        {"id": "changes", "label": "Request changes", "description": "Keep the human gate open and provide feedback."},
+        {"id": "stop", "label": "Stop", "description": "Keep the human gate closed to further progression."}
+      ]
+    }, {"type": "textarea", "id": "additional_notes", "title": "Feedback", "description": "Preserve original feedback for the next fresh session."}]
+  }
+}

@@ -1,0 +1,41 @@
+name: Restore project cache
+description: Restore a declared immutable seed using dedicated installation S3 settings
+inputs:
+  spec:
+    description: Host-resolved cache specification JSON file
+    required: true
+  members:
+    description: Host-resolved source member map JSON file
+    required: true
+  cache-root:
+    description: Host-owned root for download cache outputs
+    required: true
+  receipt:
+    description: Local receipt file, reused by the explicit clean-init save step
+    required: true
+  mode:
+    description: normal, rebuild or disabled; persistent bust changes spec generation
+    default: normal
+outputs:
+  status:
+    description: exact, miss, rejected, unavailable, rebuild or disabled
+    value: ${{ steps.restore.outputs.status }}
+  ready_seed:
+    description: True only for a verified installed seed; still run tool activation/readiness
+    value: ${{ steps.restore.outputs.ready_seed }}
+  receipt:
+    description: Local receipt path
+    value: ${{ steps.restore.outputs.receipt }}
+runs:
+  using: composite
+  steps:
+    - id: restore
+      shell: bash
+      env:
+        CACHE_SCRIPT: ${{ github.action_path }}/../../scripts/project-cache.py
+        SPEC: ${{ inputs.spec }}
+        MEMBERS: ${{ inputs.members }}
+        CACHE_ROOT: ${{ inputs.cache-root }}
+        RECEIPT: ${{ inputs.receipt }}
+        MODE: ${{ inputs.mode }}
+      run: python3 "$CACHE_SCRIPT" restore --spec "$SPEC" --members "$MEMBERS" --cache-root "$CACHE_ROOT" --receipt "$RECEIPT" --mode "$MODE"

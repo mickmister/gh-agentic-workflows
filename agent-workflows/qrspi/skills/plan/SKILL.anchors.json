@@ -1,0 +1,138 @@
+{
+  "Overview": {
+    "line_start": 12,
+    "line_end": 15
+  },
+  "Plan OWNS / Plan DEFERS": {
+    "line_start": 16,
+    "line_end": 19
+  },
+  "Artifact Gating": {
+    "line_start": 20,
+    "line_end": 45
+  },
+  "Config Validation": {
+    "line_start": 36,
+    "line_end": 45
+  },
+  "Execution Model": {
+    "line_start": 46,
+    "line_end": 49
+  },
+  "Phase-Scoped Content Rules": {
+    "line_start": 50,
+    "line_end": 53
+  },
+  "Task Sizing": {
+    "line_start": 54,
+    "line_end": 73
+  },
+  "Schema-Migration Task Shape": {
+    "line_start": 74,
+    "line_end": 77
+  },
+  "Multi-Actor Flow Check": {
+    "line_start": 78,
+    "line_end": 81
+  },
+  "Process": {
+    "line_start": 82,
+    "line_end": 362
+  },
+  "Plan Overview Subagent": {
+    "line_start": 84,
+    "line_end": 104
+  },
+  "Quick-Fix Plan Behavior": {
+    "line_start": 105,
+    "line_end": 108
+  },
+  "Sub-Subagent Dispatch (Large Plans Only)": {
+    "line_start": 109,
+    "line_end": 117
+  },
+  "Per-Task Classification (`task_type` and `tier`)": {
+    "line_start": 118,
+    "line_end": 140
+  },
+  "Plan Document Structure (During Review)": {
+    "line_start": 141,
+    "line_end": 195
+  },
+  "Project Environment Fields": {
+    "line_start": 196,
+    "line_end": 202
+  },
+  "Plan Reviewer Agents": {
+    "line_start": 203,
+    "line_end": 216
+  },
+  "Review Round": {
+    "line_start": 217,
+    "line_end": 241
+  },
+  "Apply-Fix Dispatch (Plan override of using-qrspi Apply-fix protocol step 8)": {
+    "line_start": 242,
+    "line_end": 245
+  },
+  "Human Gate": {
+    "line_start": 246,
+    "line_end": 267
+  },
+  "Quick-Fix Auto-Approve Branch": {
+    "line_start": 268,
+    "line_end": 271
+  },
+  "Merge/Split Mechanics": {
+    "line_start": 272,
+    "line_end": 316
+  },
+  "SPEC OVERRIDES SOURCE authority": {
+    "line_start": 317,
+    "line_end": 320
+  },
+  "Refuse-to-Write Contract": {
+    "line_start": 321,
+    "line_end": 331
+  },
+  "Migration: `visual_fidelity_check.ui_producing` → top-level `ui:`": {
+    "line_start": 332,
+    "line_end": 340
+  },
+  "Pipeline + Fix-Task Fields": {
+    "line_start": 341,
+    "line_end": 348
+  },
+  "Artifacts + Terminal State": {
+    "line_start": 349,
+    "line_end": 362
+  },
+  "Test Expectations": {
+    "line_start": 363,
+    "line_end": 411
+  },
+  "Sweep Task Contract": {
+    "line_start": 367,
+    "line_end": 387
+  },
+  "Cross-Task Consumer Surface": {
+    "line_start": 388,
+    "line_end": 411
+  },
+  "Red Flags — STOP": {
+    "line_start": 412,
+    "line_end": 433
+  },
+  "Visual-fidelity hard-gate (pre-fanout refusal condition)": {
+    "line_start": 430,
+    "line_end": 433
+  },
+  "Common Rationalizations — STOP": {
+    "line_start": 434,
+    "line_end": 437
+  },
+  "Worked Example + Iron Laws — Final Reminder": {
+    "line_start": 438,
+    "line_end": 446
+  }
+}

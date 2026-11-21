@@ -1,0 +1,46 @@
+workflow:
+  id: fixture-success
+  name: Bounded fixture
+  version: 1.0.0
+inputs:
+  identity:
+    type: string
+    required: true
+steps:
+  - id: workers
+    type: fan-out
+    items:
+      - w0
+      - w1
+    max_concurrency: 2
+    step:
+      id: worker
+      type: command
+      command: speckit.fixture-worker
+      integration: pi
+      capture: true
+      capture_max_bytes: 8192
+      timeout: 15
+      input:
+        args: "{{ item }} {{ inputs.identity }}"
+  - id: batch
+    type: fan-in
+    wait_for:
+      - workers
+  - id: validate
+    type: shell
+    strict: true
+    timeout: 10
+    run: node --experimental-strip-types "$FIXTURE_SOURCE/accept.ts" validate
+    env:
+      BATCH: "{{ steps.batch.output | to_json }}"
+  - id: review
+    type: shell
+    strict: true
+    timeout: 10
+    run: node --experimental-strip-types "$FIXTURE_SOURCE/accept.ts" review
+  - id: promote
+    type: shell
+    strict: true
+    timeout: 10
+    run: node --experimental-strip-types "$FIXTURE_SOURCE/accept.ts" promote

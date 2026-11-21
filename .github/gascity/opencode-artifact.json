@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "nugs-inference/gpt-6.1-sol",
+  "small_model": "nugs-inference/gpt-6.1-sol",
+  "default_agent": "artifact",
+  "enabled_providers": ["nugs-inference"],
+  "share": "disabled",
+  "autoupdate": false,
+  "snapshot": false,
+  "formatter": false,
+  "lsp": false,
+  "compaction": {"auto": false},
+  "plugin": [],
+  "mcp": {},
+  "permission": {"*": "deny"},
+  "agent": {"artifact": {"mode": "primary", "variant": "medium", "steps": 3}},
+  "provider": {"nugs-inference": {
+    "npm": "@ai-sdk/openai-compatible",
+    "options": {"baseURL": "{env:INFERENCE_BASE_URL}", "apiKey": "{env:INFERENCE_API_KEY}", "timeout": 90000},
+    "models": {"gpt-6.1-sol": {
+      "id": "gpt-6.1-sol", "reasoning": true, "tool_call": true,
+      "limit": {"context": 32768, "output": 4096},
+      "variants": {"medium": {"reasoningEffort": "medium"}},
+      "headers": {"CF-Access-Client-Id": "{env:CF_ACCESS_CLIENT_ID}", "CF-Access-Client-Secret": "{env:CF_ACCESS_CLIENT_SECRET}"}
+    }}
+  }}
+}

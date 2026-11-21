@@ -1,0 +1,42 @@
+[workspace]
+name = "pack-runner"
+install_agent_hooks = []
+[workspace.env]
+GC_PACK_ROOT = ${PACK}
+GC_PACK_DRIVER = ${DRIVER}
+GC_HOME = ${HOME}
+GC_CITY_PATH = ${CITY}
+GC_RUN = ${GC_RUN}
+GC_TURN = ${GC_TURN}
+GC_NUGS = ${GC_NUGS}
+GC_NUGS_ROOT = ${GC_NUGS_ROOT}
+GC_BINARY = ${GC_BINARY}
+OPENCODE_BINARY = ${OPENCODE_BINARY}
+PATH = ${PATH}
+XDG_CONFIG_HOME = ${XDG_CONFIG_HOME}
+HOME = ${NUGS_HOME}
+[beads]
+provider = "file"
+[session]
+provider = "tmux"
+[daemon]
+patrol_interval = "1s"
+shutdown_timeout = "5s"
+
+# The bundled control worker's default query invokes bd. The pilot uses GC's
+# native file store, so its query must use the native GC reader as well.
+[[patches.agent]]
+name = "core.control-dispatcher"
+suspended = true
+
+[[agent]]
+name = "file-control"
+start_command = "gc convoy control --serve --follow file-control"
+prompt_mode = "none"
+process_names = ["gc"]
+max_active_sessions = 1
+min_active_sessions = 0
+work_query = "gc ready --metadata-field gc.routed_to=core.control-dispatcher --unassigned --json"
+scale_check = "gc ready --metadata-field gc.routed_to=core.control-dispatcher --unassigned --json | jq length"
+on_boot = "true"
+on_death = "true"

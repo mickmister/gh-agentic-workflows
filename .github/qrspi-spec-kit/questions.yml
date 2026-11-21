@@ -1,0 +1,25 @@
+schema_version: '1.0'
+workflow:
+  id: qrspi-questions
+  name: Canonical QRSPI Questions to the next human boundary
+  version: 0.1.0
+steps:
+  - id: instructions
+    type: shell
+    strict: true
+    output_format: json
+    timeout: 30
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" load-prompts phase --phase questions --require-approved goals.md --file skills/using-qrspi/SKILL.md --file skills/questions/SKILL.md
+  - id: questions
+    type: prompt
+    integration: pi
+    prompt: 'qrspi-file-prompt:phase'
+    capture: true
+    capture_max_bytes: 8192
+    timeout: 900
+  - id: checkpoint
+    type: shell
+    strict: true
+    output_format: json
+    timeout: 30
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" validate-phase

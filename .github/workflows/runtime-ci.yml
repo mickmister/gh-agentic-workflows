@@ -1,0 +1,18 @@
+name: Agent workflow runtime tests
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test .github/scripts/*.test.mjs .github/scripts/test_*.mjs
+      - run: for script in poc/scripts/*.sh; do bash -n "$script" || exit; done
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'

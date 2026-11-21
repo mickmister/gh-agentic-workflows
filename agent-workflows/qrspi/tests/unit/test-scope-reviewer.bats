@@ -1,0 +1,228 @@
+#!/usr/bin/env bats
+bats_require_minimum_version 1.5.0
+
+# Task 17 — scope-reviewer per-{ARTIFACT_TYPE} dispatch (cross-cutting)
+#
+# This file asserts the contract that each consuming SKILL dispatches the
+# parameterized scope-reviewer template with its declared {ARTIFACT_TYPE}
+# value, and that for each of the seven values (goals/design/phasing/
+# structure/plan/parallelize/replan) a per-artifact-type seeded
+# out-of-scope fixture carries content that the scope-reviewer's
+# boundary-drift detection MUST flag with `change_type: scope` (or
+# `intent`).
+#
+# T14 added `replan` as the 7th `{ARTIFACT_TYPE}` value; this test file
+# enforces that addition (and acts as a regression net — a checkin that
+# removes `replan` from the template's allowed-values list, the gated
+# sections, or the Replan SKILL's dispatch wiring will fail this test).
+#
+# These are prompt-content / fixture-shape invariant tests — the actual
+# subagent dispatch is exercised by the acceptance-tier test
+# (test-skill-output-quality.bats); this unit-tier test asserts the
+# dispatch contract is wired and the fixtures carry the seeded violations.
+#
+# All assertions extract a target heading's section text first (until the
+# next `^## ` heading) and assert on the extracted slice — never on the
+# whole file — so a string appearing under a different heading cannot
+# vacuously satisfy a different section's check.
+
+setup() {
+  ROOT="$BATS_TEST_DIRNAME/../.."
+  GOALS_FILE="$ROOT/skills/goals/SKILL.md"
+  DESIGN_FILE="$ROOT/skills/design/SKILL.md"
+  PHASING_FILE="$ROOT/skills/phasing/SKILL.md"
+  STRUCTURE_FILE="$ROOT/skills/structure/SKILL.md"
+  PLAN_FILE="$ROOT/skills/plan/SKILL.md"
+  PARALLELIZE_FILE="$ROOT/skills/parallelize/SKILL.md"
+  REPLAN_FILE="$ROOT/skills/replan/SKILL.md"
+  AGENTS_DIR="$ROOT/agents"
+  REVIEWER_PROTOCOL="$ROOT/skills/reviewer-protocol/SKILL.md"
+  FIXTURES="$ROOT/tests/fixtures"
+  export ROOT GOALS_FILE DESIGN_FILE PHASING_FILE STRUCTURE_FILE PLAN_FILE PARALLELIZE_FILE REPLAN_FILE
+  export AGENTS_DIR REVIEWER_PROTOCOL FIXTURES
+}
+
+# extract_h2_section <file> <h2-heading>
+extract_h2_section() {
+  local file="$1"
+  local heading="$2"
+  awk -v h="$heading" '
+    $0 == h { in_b = 1; print; next }
+    in_b && /^## / { exit }
+    in_b { print }
+  ' "$file"
+}
+
+# ── per-artifact scope-reviewer agents exist for all seven artifact types ──
+# Commit 19/22 migration: the legacy parameterized scope-reviewer template
+# (the legacy parameterized scope-reviewer template with a {ARTIFACT_TYPE} parameter)
+# is replaced by seven dedicated agent files under agents/.
+
+@test "per-artifact scope-reviewer agents exist for all seven artifact types" {
+  for name in goals design phasing structure plan parallelize replan; do
+    local agent="$AGENTS_DIR/qrspi-${name}-scope-reviewer.md"
+    [ -f "$agent" ] || { echo "FAIL: missing agent $agent" >&2; return 1; }
+  done
+}
+
+@test "reviewer-protocol SKILL.md ## Finding Schema declares change_type field used by scope-reviewer dispatches" {
+  [ -f "$REVIEWER_PROTOCOL" ]
+  local section
+  section="$(extract_h2_section "$REVIEWER_PROTOCOL" "## Finding Schema")"
+  [ -n "$section" ]
+  echo "$section" | grep -q "change_type"
+  echo "$section" | grep -Eqi "scope|intent"
+}
+
+# ── Per-{ARTIFACT_TYPE} dispatch: each consuming SKILL wires the template ──
+
+@test "{ARTIFACT_TYPE}=goals — goals SKILL dispatches scope-reviewer with parameter goals" {
+  # Commit 7/22 migration: scope-reviewer is now dispatched as a dedicated
+  # agent (qrspi-goals-scope-reviewer) rather than via the shared template.
+  # The old scope-reviewer.md + {ARTIFACT_TYPE}=goals pattern is retired.
+  grep -q "qrspi-goals-scope-reviewer" "$GOALS_FILE"
+}
+
+@test "{ARTIFACT_TYPE}=design — design SKILL dispatches scope-reviewer with parameter design" {
+  # Commit 10/22 migration: scope-reviewer is now dispatched as a dedicated
+  # agent (qrspi-design-scope-reviewer) rather than via the shared template.
+  # The old scope-reviewer.md + {ARTIFACT_TYPE}=design pattern is retired.
+  grep -q "qrspi-design-scope-reviewer" "$DESIGN_FILE"
+}
+
+@test "{ARTIFACT_TYPE}=phasing — phasing SKILL dispatches scope-reviewer with parameter phasing" {
+  # Commit 12/22 migration: scope-reviewer is now dispatched as a dedicated
+  # agent (qrspi-phasing-scope-reviewer) rather than via the shared template.
+  # The old scope-reviewer.md + {ARTIFACT_TYPE}=phasing pattern is retired.
+  grep -q "qrspi-phasing-scope-reviewer" "$PHASING_FILE"
+}
+
+@test "{ARTIFACT_TYPE}=structure — structure SKILL dispatches scope-reviewer with parameter structure" {
+  # Commit 11/22 migration: scope-reviewer is now dispatched as a dedicated
+  # agent (qrspi-structure-scope-reviewer) rather than via the shared template.
+  # The old scope-reviewer.md + {ARTIFACT_TYPE}=structure pattern is retired.
+  grep -q "qrspi-structure-scope-reviewer" "$STRUCTURE_FILE"
+}
+
+@test "{ARTIFACT_TYPE}=plan — plan SKILL dispatches scope-reviewer with parameter plan" {
+  # Commit 13/22 migration: scope-reviewer is now dispatched as a dedicated
+  # agent (qrspi-plan-scope-reviewer) rather than via the shared template.
+  # The old scope-reviewer.md + {ARTIFACT_TYPE}=plan pattern is retired.
+  grep -q "qrspi-plan-scope-reviewer" "$PLAN_FILE"
+}
+
+@test "{ARTIFACT_TYPE}=parallelize — parallelize SKILL dispatches scope-reviewer with parameter parallelize" {
+  # Commit 14/22 migration: scope-reviewer is now dispatched as a dedicated
+  # agent (qrspi-parallelize-scope-reviewer) rather than via the shared template.
+  # The old scope-reviewer.md + {ARTIFACT_TYPE}=parallelize pattern is retired.
+  grep -q "qrspi-parallelize-scope-reviewer" "$PARALLELIZE_FILE"
+}
+
+@test "{ARTIFACT_TYPE}=replan — replan SKILL dispatches scope-reviewer with parameter replan" {
+  # Commit 17/22 migration: scope-reviewer is now dispatched as a dedicated
+  # agent (qrspi-replan-scope-reviewer) rather than via the shared template.
+  # The old scope-reviewer.md + {ARTIFACT_TYPE}=replan pattern is retired.
+  [ -f "$REPLAN_FILE" ]
+  grep -q "qrspi-replan-scope-reviewer" "$REPLAN_FILE"
+}
+
+# ── Per-fixture seeding: each fixture carries content that fires change_type=scope
+
+@test "seeded-out-of-scope-goals.md fixture exists and seeds at least one DEFERS-list violation" {
+  local fixture="$FIXTURES/seeded-out-of-scope-goals.md"
+  [ -f "$fixture" ]
+  # Goals DEFERS: file maps, phasing, acceptance criteria, top-level
+  # Out-of-Scope. Fixture must seed at least one of these.
+  grep -Eqi "Acceptance Criteria|File Map|Phasing|^## Out of Scope" "$fixture"
+}
+
+@test "seeded-out-of-scope-design.md fixture exists and seeds at least one DEFERS-list violation" {
+  local fixture="$FIXTURES/seeded-out-of-scope-design.md"
+  [ -f "$fixture" ]
+  # Design DEFERS: full DDL, full function signatures, assertion text,
+  # phase splits, vertical slice authoring.
+  grep -Eqi "CREATE TABLE|expect\(|## Phasing|## Vertical Slices" "$fixture"
+}
+
+@test "seeded-out-of-scope-phasing.md fixture exists and seeds at least one DEFERS-list violation" {
+  local fixture="$FIXTURES/seeded-out-of-scope-phasing.md"
+  [ -f "$fixture" ]
+  # Phasing DEFERS: file paths, function signatures, task specs, LOC
+  # estimates, architecture re-litigation, skill-implementation jargon.
+  grep -Eqi "src/.*\.ts|function .*\(.*\)|LOC|Task [0-9]+:|subagent" "$fixture"
+}
+
+@test "seeded-out-of-scope-structure.md fixture exists and seeds at least one DEFERS-list violation" {
+  local fixture="$FIXTURES/seeded-out-of-scope-structure.md"
+  [ -f "$fixture" ]
+  # Structure DEFERS: implementation body, assertion text, per-task LOC,
+  # commit ranges, phase boundaries.
+  grep -Eqi "expect\(|LOC|Commit Range|## Phasing|## Phases" "$fixture"
+}
+
+@test "seeded-out-of-scope-plan.md fixture exists and seeds at least one DEFERS-list violation" {
+  local fixture="$FIXTURES/seeded-out-of-scope-plan.md"
+  [ -f "$fixture" ]
+  # Plan DEFERS: function signatures inline, expect/assert in test
+  # expectations, line-by-line logic, design-layer prose, phasing forward
+  # references.
+  grep -Eqi "function .*\(.*\)|expect\(|assert\.|Phase 2 will|future phases" "$fixture"
+}
+
+@test "seeded-out-of-scope-parallelize.md fixture exists and seeds at least one DEFERS-list violation" {
+  local fixture="$FIXTURES/seeded-out-of-scope-parallelize.md"
+  [ -f "$fixture" ]
+  # Parallelize DEFERS: task specs, implementation logic, architecture
+  # decisions, phasing, concrete commit hashes (vs symbolic bases).
+  grep -Eqi "Task [0-9]+:|Implementation Logic|Architecture Decision|## Phasing|[a-f0-9]{12}" "$fixture"
+}
+
+@test "seeded-out-of-scope-replan.md fixture exists and seeds at least one DEFERS-list violation" {
+  local fixture="$FIXTURES/seeded-out-of-scope-replan.md"
+  [ -f "$fixture" ]
+  # Replan DEFERS: phasing decisions / slice decomposition (Phasing-owned),
+  # roadmap.md authoring (Phasing-owned), future-*.md authoring
+  # (Phasing-owned), goal-text expansion (Goals-owned), architecture
+  # re-litigation (Design-owned), file maps (Structure-owned), full task
+  # spec authoring (Plan-owned). Fixture must seed at least one of these.
+  grep -Eqi "roadmap\.md|future-goals\.md|future-questions\.md|future-research|future-design\.md|goal-text expansion|polling to WebSockets|src/middleware/|vertical slice|phase boundaries|task spec from scratch" "$fixture"
+}
+
+@test "seeded-out-of-scope-replan.md fixture also includes in-scope (Replan-owned) examples (regression net)" {
+  # The fixture intentionally carries BOTH in-scope (OWNS) and
+  # out-of-scope (DEFERS) content. The in-scope block names operations
+  # Replan owns — severity classification, minor-path artifact updates,
+  # phase-transition execution. If a regression removes the replan
+  # parameterization from the scope-reviewer template, the rendered
+  # prompt for {ARTIFACT_TYPE}=replan will lose the locked rule set,
+  # which the acceptance test (test-skill-output-quality.bats) catches
+  # via the rendered-prompt content assertion. This unit-tier test
+  # asserts the in-scope content block exists in the fixture so the
+  # acceptance test has something stable to grep on.
+  local fixture="$FIXTURES/seeded-out-of-scope-replan.md"
+  [ -f "$fixture" ]
+  grep -Eqi "Severity classification|Minor-path artifact updates|five-step archive-and-populate|phase-transition execution" "$fixture"
+}
+
+# ── change_type tag presence in reviewer-protocol Finding Schema ────────────
+
+@test "reviewer-protocol SKILL.md ## Change-Type Classifier names change_type values scope and intent" {
+  local section
+  section="$(extract_h2_section "$REVIEWER_PROTOCOL" "## Change-Type Classifier")"
+  [ -n "$section" ]
+  # The classifier section names all five change_type values; scope and
+  # intent are the two that route to pause (the values scope-reviewer
+  # findings most commonly carry).
+  echo "$section" | grep -Eq "style.*clarity.*correctness.*scope.*intent|change_type.*scope.*intent|scope.*intent.*pause"
+}
+
+@test "per-artifact scope-reviewer agents read the corresponding skills/{name}/owns-defers.md rule file" {
+  for name in goals design phasing structure plan parallelize replan; do
+    local agent="$AGENTS_DIR/qrspi-${name}-scope-reviewer.md"
+    [ -f "$agent" ] || { echo "FAIL: missing agent $agent" >&2; return 1; }
+    grep -q "skills/${name}/owns-defers.md" "$agent" || {
+      echo "FAIL: $agent does not reference skills/${name}/owns-defers.md" >&2
+      return 1
+    }
+  done
+}

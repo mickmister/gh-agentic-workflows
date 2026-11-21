@@ -1,0 +1,95 @@
+name: QRSPI native Gas City checkpoint smoke test
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    outputs:
+      root_id: ${{ steps.checkpoint.outputs.root_id }}
+      checkpoint_attempt: ${{ steps.checkpoint.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq
+      - name: Install pinned Gas City, Beads, Dolt
+        run: bash poc/scripts/install-gascity.sh
+      - name: Create native checkpoint fixture
+        env:
+          WORKSPACE_ID: pr-smoke
+        run: bash poc/scripts/native-start.sh
+      - name: Package durable workspace handoff
+        id: checkpoint
+        run: |
+          set -euo pipefail
+          memory="$RUNNER_TEMP/qrspi-checkpoints"
+          test -s "$memory/pr-smoke/checkpoint.json"
+          test -s "$memory/pr-smoke/city.tar.gz"
+          snapshot_bytes="$(stat -c %s "$memory/pr-smoke/city.tar.gz")"
+          echo "Native Dolt archive: $snapshot_bytes bytes"
+          root_id="$(jq -r '.root_id' "$memory/pr-smoke/checkpoint.json")"
+          echo "root_id=$root_id" >> "$GITHUB_OUTPUT"
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          tar -czf /tmp/qrspi-handoff.tar.gz -C "$memory" pr-smoke
+      - uses: ./.github/actions/workflow-files
+        with:
+          name: native-gascity-checkpoint
+          path: /tmp/qrspi-handoff.tar.gz
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+  resume:
+    needs: start
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux jq
+      - name: Install pinned Gas City, Beads, Dolt
+        run: bash poc/scripts/install-gascity.sh
+      - uses: ./.github/actions/workflow-files
+        with:
+          operation: get
+          name: native-gascity-checkpoint
+          source-attempt: ${{ needs.start.outputs.checkpoint_attempt }}
+          directory: /tmp
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+      - name: Restore private S3 checkpoint bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qrspi-checkpoints"
+          tar -xzf /tmp/qrspi-handoff.tar.gz -C "$RUNNER_TEMP/qrspi-checkpoints"
+          test -s "$RUNNER_TEMP/qrspi-checkpoints/pr-smoke/checkpoint.json"
+      - name: Resume native checkpoint fixture
+        env:
+          WORKSPACE_ID: pr-smoke
+          REVISION: '1'
+          DECISION: approve
+          EXPECTED_ROOT_ID: ${{ needs.start.outputs.root_id }}
+        run: |
+          set -euo pipefail
+          checkpoint="$RUNNER_TEMP/qrspi-checkpoints/pr-smoke/checkpoint.json"
+          test "$(jq -r '.root_id' "$checkpoint")" = "$EXPECTED_ROOT_ID"
+          bash poc/scripts/native-resume.sh
+          test "$(jq -r '.status' "$checkpoint")" = implementation_ready
+          test "$(jq -r '.root_id' "$checkpoint")" = "$EXPECTED_ROOT_ID"
+          # Retry must not repeat an already-accepted approval.
+          bash poc/scripts/native-resume.sh

@@ -1,0 +1,36 @@
+name: QRSPI checkpoint notification only
+on:
+  workflow_dispatch:
+    inputs:
+      workspace: {description: Readable workspace handle, type: string, required: true}
+      process: {description: Process slug, type: string, required: true}
+      checkpoint-url: {description: Exact published pinned review URL, type: string, required: true}
+      request-version: {description: Published request blob SHA, type: string, required: true}
+      request-snapshot: {description: Published request snapshot SHA, type: string, required: true}
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  notify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: qrspi-${{ inputs.workspace }}-${{ inputs.process }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Publish the existing checkpoint without running process work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_WORKSPACE: ${{ inputs.workspace }}
+          QRSPI_PROCESS: ${{ inputs.process }}
+          REVIEW_APP_URL: ${{ vars.QRSPI_REVIEW_APP_URL }}
+          CHECKPOINT_URL: ${{ inputs.checkpoint-url }}
+          CHECKPOINT_VERSION: ${{ inputs.request-version }}
+          CHECKPOINT_SNAPSHOT: ${{ inputs.request-snapshot }}
+        run: node --experimental-strip-types .github/qrspi-hosted/checkpoint-comment.ts

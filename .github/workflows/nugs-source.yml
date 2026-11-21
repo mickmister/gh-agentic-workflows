@@ -1,0 +1,75 @@
+name: Source repository native persistence
+
+on:
+  workflow_call:
+    inputs:
+      worker_mode:
+        description: Bounded plumbing verification mode; ordinary callers omit it
+        type: string
+        default: success
+      expect_previous_run:
+        description: Optional development assertion; not required caller state
+        type: string
+        default: ''
+    secrets:
+      NUGS_STORAGE_URL:
+        required: true
+      AGENT_APP_ID:
+        required: true
+      AGENT_APP_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  persistence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: nugs-source-proof-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      # Repository variables resolve from the caller. This seed is configured
+      # once; native restore/sync resolves current history inside the workflow.
+      NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
+      NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+      NUGS_WORKER_MODE: ${{ inputs.worker_mode }}
+      NUGS_EXPECT_PREVIOUS_RUN: ${{ inputs.expect_previous_run }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: mickmister/gh-agentic-workflows
+          # Follow this workspace's implementation branch during iteration.
+          ref: vk/46e5-vd-multi-instanc
+          persist-credentials: false
+      - name: Create and verify scoped App installation tokens
+        id: app-auth
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - name: Fetch and verify pinned native tools
+        run: python3 .github/scripts/nugs-source.py bootstrap
+      - name: Restore configured seed and synchronize current native history
+        id: restore
+        run: python3 .github/scripts/nugs-source.py restore
+      - name: Bounded source-caller plumbing worker
+        id: worker
+        continue-on-error: true
+        run: python3 .github/scripts/nugs-source.py worker
+      - name: Synchronize and independently recover after success or ordinary failure
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        id: persistence
+        env:
+          NUGS_WORKER_OUTCOME: ${{ steps.worker.outcome }}
+        run: python3 .github/scripts/nugs-source.py finalize
+      - name: Preserve worker and persistence failures independently
+        if: always()
+        env:
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+          PERSISTENCE_OUTCOME: ${{ steps.persistence.outcome }}
+        run: |
+          test "$WORKER_OUTCOME" = success
+          test "$PERSISTENCE_OUTCOME" = success

@@ -1,0 +1,46 @@
+name: Scoped target repository App authentication
+description: Mint an independent installation token for one approved target repository
+inputs:
+  app-id:
+    required: true
+    description: Same automation App ID used for source and storage authentication
+  private-key:
+    required: true
+    description: Automation App private-key PEM
+  repository:
+    required: true
+    description: Approved owner/repository; selects the target installation
+  access:
+    default: read
+    description: read, comments, or write (including workflow file pushes)
+outputs:
+  token:
+    description: Verified short-lived token for exactly the target repository
+    value: ${{ steps.token.outputs.token }}
+runs:
+  using: composite
+  steps:
+    - id: target
+      shell: bash
+      env:
+        TARGET_REPOSITORY: ${{ inputs.repository }}
+        TARGET_ACCESS: ${{ inputs.access }}
+      run: python3 "$GITHUB_ACTION_PATH/../../scripts/target-app-auth.py" resolve
+    - id: token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: ${{ steps.target.outputs.owner }}
+        repositories: ${{ steps.target.outputs.repository }}
+        permission-contents: ${{ steps.target.outputs.contents }}
+        permission-pull-requests: ${{ steps.target.outputs.pull-requests }}
+        permission-issues: ${{ steps.target.outputs.issues }}
+        permission-workflows: ${{ steps.target.outputs.workflows }}
+    - shell: bash
+      env:
+        TARGET_REPOSITORY: ${{ inputs.repository }}
+        TARGET_ACCESS: ${{ inputs.access }}
+        TARGET_APP_TOKEN: ${{ steps.token.outputs.token }}
+        TARGET_APP_SLUG: ${{ steps.token.outputs.app-slug }}
+      run: python3 "$GITHUB_ACTION_PATH/../../scripts/target-app-auth.py" verify

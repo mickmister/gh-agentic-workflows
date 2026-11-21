@@ -1,0 +1,116 @@
+name: Observability action smoke
+on:
+  workflow_dispatch:
+    inputs:
+      workspace-context:
+        description: Native nugs workspace context JSON for this private storage acceptance run
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  off:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify observer-free runner has no observer pre-hooks
+        run: |
+          test -z "${OTEL_SERVICE_NAME:-}"
+          test -z "${TRACEPARENT:-}"
+          test ! -e /tmp/cargowall.log
+          test ! -e /tmp/cargowall-audit.json
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [light, full]
+    steps:
+      # Same-repository callers still use remote syntax to preserve pre-hooks.
+      - name: Observe smoke test
+        id: observe
+        uses: mickmister/gh-agentic-workflows/.github/actions/observability@vk/46e5-vd-multi-instanc
+        timeout-minutes: 2
+        with:
+          profile: ${{ matrix.profile }}
+          job-instance: smoke-${{ matrix.profile }}
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          service-name: agentic-observability-smoke-${{ matrix.profile }}
+          secrets-to-redact: >-
+            {"github_token":${{ toJSON(github.token) }},"canary":"observability-redaction-canary-20261113",
+             "S3_CACHE_URL":${{ toJSON(secrets.S3_CACHE_URL) }},
+             "S3_CACHE_REGION":${{ toJSON(secrets.S3_CACHE_REGION) }},
+             "S3_CACHE_BUCKET":${{ toJSON(secrets.S3_CACHE_BUCKET) }},
+             "S3_CACHE_PREFIX":${{ toJSON(secrets.S3_CACHE_PREFIX) }},
+             "S3_CACHE_PATH_STYLE":${{ toJSON(secrets.S3_CACHE_PATH_STYLE) }},
+             "S3_CACHE_ACCESS_KEY_ID":${{ toJSON(secrets.S3_CACHE_ACCESS_KEY_ID) }},
+             "S3_CACHE_SECRET_ACCESS_KEY":${{ toJSON(secrets.S3_CACHE_SECRET_ACCESS_KEY) }}}
+      - name: Verify profile survives into caller steps
+        env:
+          PROFILE: ${{ matrix.profile }}
+          NETWORK_SUPPORTED: ${{ steps.observe.outputs.network-supported }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$NETWORK_SUPPORTED" = true
+          test "$OTEL_SERVICE_NAME" = "agentic-observability-smoke-$PROFILE"
+          expected=FALSE
+          if [ "$PROFILE" = full ]; then expected=TRUE; fi
+          test "$OTEL_SHELL_CONFIG_INJECT_DEEP" = "$expected"
+          test "$OTEL_SHELL_CONFIG_OBSERVE_SUBPROCESSES" = "$expected"
+          test "$OTEL_SHELL_CONFIG_OBSERVE_SIGNALS" = "$expected"
+          test "$OTEL_SHELL_CONFIG_OBSERVE_STDERR" = FALSE
+          test "$OTEL_SHELL_CONFIG_OBSERVE_PIPES" = FALSE
+          test "$OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT" = no_content
+          curl --fail --silent --show-error --header "Authorization: Bearer $GH_TOKEN" https://api.github.com/zen
+          test ! -s /tmp/cargowall.log
+          test -s "$PRIVATE_OBSERVABILITY_DIR/firewall/cargowall.log"
+      - name: Exercise telemetry redaction with a non-secret canary
+        run: |
+          python3 -c 'import sys; print(sys.argv[1]); print(sys.argv[1], file=sys.stderr)' observability-redaction-canary-20261113
+      - name: Check private receiver signal metadata before finalization
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['PRIVATE_OBSERVABILITY_DIR'])
+          print(json.dumps({kind: len(list(root.glob('*.' + kind))) for kind in ('traces', 'metrics', 'logs')}))
+          PY
+  verify:
+    needs: [off, smoke]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - id: app-auth
+        uses: ./.github/actions/nugs-app-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          storage-url: ${{ secrets.NUGS_STORAGE_URL }}
+      - name: Restore nugs context for after-the-fact execution links
+        env:
+          NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: python3 .github/scripts/observability-smoke.py attach
+      - run: python3 -m pip install 'opentelemetry-proto==1.38.0'
+      - name: Verify private payloads and absence of public payload artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GC_OBSERVABILITY_TOKEN: ${{ steps.app-auth.outputs.storage-token }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: python3 .github/scripts/observability-smoke.py verify

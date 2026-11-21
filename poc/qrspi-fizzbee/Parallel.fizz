@@ -1,0 +1,237 @@
+---
+options:
+  max_actions: 60
+  max_concurrent_actions: 1
+  crash_on_yield: false
+deadlock_detection: false
+liveness: strict
+---
+# Explicit atomic protocol events, not atomic end-to-end operations. Two workers
+# may be in flight together. No implicit role state or crash semantics are used.
+POLICY = "boundary"
+MAX_CHANGES = 1
+WAKE = True
+QUERY = True
+AUTH = True
+SCOPE = True
+TARGET = 0
+FAILURES = True
+MUTATION = "none"
+WITNESS = "normal"
+UNCONDITIONAL = False
+
+atomic func admissible_batch():
+    complete = outcomes[0] == 1 and outcomes[1] == 1
+    if MUTATION == "early-batch":
+        complete = outcomes[0] == 1 or outcomes[1] == 1
+    current_inputs = pins[0] == occurrence and pins[1] == occurrence
+    if MUTATION == "stale-input":
+        current_inputs = pins[0] >= 0 and pins[1] >= 0
+    if MUTATION == "content-only":
+        current_inputs = pins[0] >= 0 and pins[1] >= 0 and pins[0] % 2 == occurrence % 2 and pins[1] % 2 == occurrence % 2
+    return complete and current_inputs and not paused and knowledge == "present"
+
+action Init:
+    occurrence = 0
+    # Occurrences 0,1,2 carry content A,B,A respectively, not the same authority.
+    pins = [-1, -1]
+    running = [False, False]
+    outcomes = [0, 0]
+    actual_outcomes = [0, 0]
+    cancelled = [False, False]
+    cancel_requested = [False, False]
+    response = ["absent", "absent"]
+    admission_occurrence = [-1, -1]
+    paused = False
+    pause_owner = -1
+    boundary_evidence = [False, False]
+    reviewed = -1
+    accepted = None
+    effect_phase = "idle"
+    effect_pin = -1
+    effects = 0  # Observer/sink state: recovery may read only through QuerySink.
+    knowledge = "unknown"
+    receipt = False
+    queried = False
+    recovered = False
+    blocked = False
+    crashed = False
+    lost_ack = False
+    late_effect = False
+    cancel_late_effect = False
+
+atomic action SubmitIntent:
+    r = oneof [i for i in range(MAX_CHANGES) if response[i] == "absent" and (i == 0 or occurrence == i)]
+    response[r] = "pending"
+
+# A fair reconciliation service is assumed only when WAKE is true. Submission
+# has no fairness: the human need not return. Duplicate wake-ups are no-ops once
+# the durable response has a disposition; they never create a new response ID.
+atomic fair action AdmitIntent:
+    require WAKE
+    r = oneof [i for i in range(MAX_CHANGES) if response[i] == "pending"]
+    if not AUTH or not SCOPE:
+        response[r] = "rejected"
+    elif (TARGET if r == 0 else r) != occurrence:
+        response[r] = "stale"
+    else:
+        admission_occurrence[r] = occurrence
+        if POLICY == "proposal":
+            response[r] = "recorded"
+        else:
+            paused = True
+            pause_owner = r
+            response[r] = "admitted"
+            if POLICY == "cancel":
+                cancel_requested = [running[i] for i in range(2)]
+
+atomic fair action ApplyPauseBoundary:
+    require WAKE
+    r = oneof [i for i in range(MAX_CHANGES) if response[i] == "admitted"]
+    # An abstract target boundary receipt; this does not stop sink commits.
+    boundary_evidence[r] = paused
+    response[r] = "applied"
+
+# This is a SEPARATE authenticated, applicable human approval/input event.
+# Neither prose nor submitting/admitting a control response grants approval.
+atomic action ApproveNextOccurrence:
+    require occurrence < MAX_CHANGES
+    require response[occurrence] in ["recorded", "applied"]
+    occurrence += 1
+
+atomic action ResumeApprovedWork:
+    require paused and occurrence > 0
+    require response[occurrence - 1] == "applied"
+    require MUTATION == "stale-resume" or pause_owner < occurrence
+    paused = False
+
+atomic action Dispatch:
+    require not paused
+    w = oneof [i for i in range(2) if pins[i] == -1]
+    pins[w] = occurrence
+    running[w] = True
+
+atomic action PrepareExternal:
+    require running[0] and effect_phase == "idle"
+    require not paused and pins[0] == occurrence
+    effect_pin = pins[0]
+    effect_phase = "prepared"
+
+# Ordinary external PUT. An earlier local check is not sink fencing. This event
+# remains enabled after input change, pause or observed cancellation.
+atomic action CommitExternal:
+    require effect_phase == "prepared"
+    late_effect = paused or effect_pin != occurrence
+    cancel_late_effect = cancelled[0]
+    effects += 1
+    effect_phase = "pending-ack"
+
+atomic action ReceiveAck:
+    require effect_phase == "pending-ack"
+    receipt = True
+    knowledge = "present"
+    effect_phase = "settled"
+
+atomic action LoseAck:
+    require effect_phase == "pending-ack"
+    lost_ack = True
+    knowledge = "unknown"
+    effect_phase = "uncertain"
+
+atomic action CrashWorker:
+    require not crashed and effect_phase in ["pending-ack", "settled"]
+    crashed = True
+    knowledge = "unknown"  # Lose ephemeral knowledge, retain actual sink/evidence.
+    effect_phase = "uncertain"
+
+atomic fair action QuerySink:
+    require WAKE and effect_phase == "uncertain"
+    if MUTATION == "blind-replay":
+        effects += 1
+        knowledge = "present"
+    elif QUERY:
+        # Explicit capability: exact identity query, not observer omniscience.
+        queried = effects == 1
+        knowledge = "present" if queried else "unknown"
+        recovered = queried
+    else:
+        blocked = True
+    effect_phase = "settled"
+
+atomic action FinishWorker:
+    w = oneof [i for i in range(2) if running[i] and (i == 1 or effect_phase == "settled")]
+    actual = oneof ([1, -1] if FAILURES else [1])
+    actual_outcomes[w] = actual
+    outcomes[w] = 1 if MUTATION == "failed-clean" else actual
+    running[w] = False
+
+atomic action ObserveCancellation:
+    w = oneof [i for i in range(2) if running[i] and cancel_requested[i]]
+    cancelled[w] = True
+    running[w] = False
+    actual_outcomes[w] = -1
+    outcomes[w] = -1
+
+atomic action ReviewBatch:
+    eligible = admissible_batch()
+    require eligible and reviewed == -1
+    reviewed = occurrence
+
+atomic action PromoteBatch:
+    eligible = admissible_batch()
+    require eligible and accepted == None
+    require reviewed == occurrence
+    # Snapshot event-time facts. Later revisions do not erase valid history.
+    accepted = record(occurrence=occurrence, pins=deepcopy(pins), outcomes=deepcopy(outcomes), actual=deepcopy(actual_outcomes), paused=paused, review=reviewed)
+
+always assertion ExactAuthority:
+    return all([response[r] not in ["admitted", "applied", "recorded"] or (AUTH and SCOPE and admission_occurrence[r] == (TARGET if r == 0 else r)) for r in range(MAX_CHANGES)])
+
+always assertion NoStaleAcceptance:
+    return accepted == None or accepted.pins == [accepted.occurrence, accepted.occurrence]
+
+always assertion NoPrematureFanIn:
+    return accepted == None or accepted.outcomes == [1, 1]
+
+always assertion NoFabricatedCleanResult:
+    return all([outcomes[i] != 1 or actual_outcomes[i] == 1 for i in range(2)])
+
+always assertion ReviewedAndUnpausedAcceptance:
+    return accepted == None or (not accepted.paused and accepted.review == accepted.occurrence)
+
+always assertion NoBlindEffectReplay:
+    return effects <= 1
+
+always assertion HonestKnowledge:
+    return knowledge != "present" or (effects == 1 and (receipt or queried))
+
+always assertion AppliedMeansDeclaredBoundary:
+    return all([response[r] != "applied" or (POLICY != "proposal" and boundary_evidence[r]) for r in range(MAX_CHANGES)])
+
+always assertion PendingPauseBoundaryHeld:
+    return "admitted" not in response or paused
+
+assertion SubmittedResponseAccountedFor:
+    return ((WAKE or UNCONDITIONAL) and response[0] in ["pending", "admitted"]) leadsto response[0] in ["recorded", "applied", "rejected", "stale", "blocked"]
+
+assertion SupportedEffectRecovered:
+    return (WAKE and QUERY and effect_phase == "uncertain") leadsto knowledge == "present"
+
+exists assertion ScenarioWitness:
+    if WITNESS == "normal":
+        return accepted != None and accepted.occurrence == 0
+    if WITNESS == "late":
+        return late_effect and occurrence == 1 and response[0] in ["applied", "recorded"]
+    if WITNESS == "cancel-late":
+        return cancel_late_effect and response[0] == "applied"
+    if WITNESS == "recovered":
+        return lost_ack and recovered and effects == 1 and knowledge == "present"
+    if WITNESS == "unknown":
+        return lost_ack and blocked and knowledge == "unknown" and effects == 1
+    if WITNESS == "aba":
+        return occurrence == 2 and pins == [0, 0] and outcomes == [1, 1] and accepted == None
+    if WITNESS == "before-dispatch":
+        return response[0] in ["applied", "recorded"] and pins == [-1, -1]
+    if WITNESS == "rejected":
+        return response[0] in ["rejected", "stale"]
+    return False

@@ -1,0 +1,236 @@
+name: QRSPI hosted process
+run-name: QRSPI ${{ inputs.process }} · ${{ inputs.response && fromJSON(inputs.response).version || 'start' }} · ${{ github.run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      workspace-context:
+        description: Native workspace handoff JSON (empty uses trusted repository seed)
+        type: string
+        default: ""
+      workspace:
+        description: Readable storage workspace handle
+        type: string
+        required: true
+      process:
+        description: Stable new process slug, or exact bound response process
+        type: string
+        required: true
+      goal:
+        description: Start intent (empty on response)
+        type: string
+        default: ""
+      route:
+        description: QRSPI route template
+        type: choice
+        options: [full, quick, full-plus-ux]
+        default: full
+      bead:
+        description: Owning Bead
+        type: string
+        default: task-3vt.50.51
+      prepare-project:
+        description: Designated orchestrator inspects/reuses/upserts setup before work
+        type: boolean
+        default: false
+      allow-source-effects:
+        description: Explicit source editing/testing/publication capability ceiling; methodology gates still apply
+        type: boolean
+        default: false
+      legacy-document-pilot:
+        description: Use the historical document-only adapter for a new compatibility fixture
+        type: boolean
+        default: false
+      execution-backend:
+        description: Auto preserves existing backends and uses source-referenced Spec Kit mini-workflows for new source-disabled processes
+        type: choice
+        options: [auto, spec-kit, acpx]
+        default: auto
+      recover-before-model:
+        description: Explicitly reconcile this failed pre-model initialization run; never model/setup replay
+        type: string
+        default: ""
+      recover-failed-resume:
+        description: Explicitly reconcile a terminal 502/503/504 resume failure with zero tool/output effects; inspect first
+        type: string
+        default: ""
+      recover-publication:
+        description: Finalize this completed source-disabled discussion after known membership validation failure, without model replay
+        type: string
+        default: ""
+      response:
+        description: Exact immutable submitted receipt JSON (never a comment or draft)
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      workspace-context: { type: string, default: "" }
+      workspace: { type: string, required: true }
+      process: { type: string, required: true }
+      goal: { type: string, default: "" }
+      route: { type: string, default: full }
+      bead: { type: string, default: task-3vt.50.51 }
+      prepare-project: { type: boolean, default: false }
+      allow-source-effects: { type: boolean, default: false }
+      legacy-document-pilot: { type: boolean, default: false }
+      execution-backend: { type: string, default: auto }
+      recover-before-model: { type: string, default: "" }
+      recover-failed-resume: { type: string, default: "" }
+      recover-publication: { type: string, default: "" }
+      response: { type: string, default: "" }
+    secrets:
+      AGENT_APP_ID: { required: true }
+      AGENT_APP_PRIVATE_KEY: { required: true }
+      NUGS_STORAGE_URL: { required: true }
+      INFERENCE_BASE_URL: { required: true }
+      INFERENCE_API_KEY: { required: true }
+      CF_ACCESS_CLIENT_ID: { required: true }
+      CF_ACCESS_CLIENT_SECRET: { required: true }
+      S3_CACHE_URL: { required: true }
+      S3_CACHE_REGION: { required: true }
+      S3_CACHE_BUCKET: { required: true }
+      S3_CACHE_PREFIX: { required: true }
+      S3_CACHE_PATH_STYLE: { required: true }
+      S3_CACHE_ACCESS_KEY_ID: { required: true }
+      S3_CACHE_SECRET_ACCESS_KEY: { required: true }
+permissions:
+  contents: read
+jobs:
+  process:
+    runs-on: ubuntu-24.04
+    outputs:
+      checkpoint_url: ${{ steps.work.outputs.checkpoint_url }}
+      request_version: ${{ steps.work.outputs.request_version }}
+      request_snapshot: ${{ steps.work.outputs.request_snapshot }}
+    timeout-minutes: 360
+    concurrency:
+      group: qrspi-${{ inputs.workspace }}-${{ inputs.process }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.23.4"
+      - name: Authenticate direct response dispatch before credentials or setup
+        env:
+          REVIEW_RESPONSE: ${{ inputs.response }}
+        run: node --experimental-strip-types .github/qrspi-hosted/identity.ts
+      - name: Install frozen published toolchain
+        working-directory: .github/qrspi-hosted
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - name: Install pinned third-party Spec Kit runtime
+        run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+      - name: Resolve trusted storage App target
+        id: storage-target
+        env:
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts storage-target
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: storage-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ steps.storage-target.outputs.owner }}
+          repositories: ${{ steps.storage-target.outputs.repository }}
+          permission-contents: write
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: source-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: github-ultimate
+          permission-contents: read
+      # Reviewed/pushed integrated optional-process GUI protocol (leaf db1fbaa3).
+      # Integrated dependency pin, not an unreviewed transitional placeholder.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mickmister/github-ultimate
+          ref: 2680accff9b70dfa425a72921f94e98ed29ac411
+          token: ${{ steps.source-auth.outputs.token }}
+          path: .qrspi-review-cli
+          persist-credentials: false
+      - name: Install frozen production review CLI dependencies
+        working-directory: .qrspi-review-cli
+        run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts
+      - name: Minimal auth and bound source readiness
+        run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts init
+      - name: Verify pins, admit once, restore artifacts and prepare project if requested
+        id: open
+        env: &host-env
+          NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context || vars.NUGS_WORKSPACE_SEED }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+          NUGS_STORAGE_TOKEN: ${{ steps.storage-auth.outputs.token }}
+          REVIEW_WORKSPACE: ${{ inputs.workspace }}
+          QRSPI_PROCESS: ${{ inputs.process }}
+          QRSPI_GOAL: ${{ inputs.goal }}
+          QRSPI_ROUTE: ${{ inputs.route }}
+          BEAD_ID: ${{ inputs.bead }}
+          PREPARE_PROJECT: ${{ inputs.prepare-project }}
+          ALLOW_SOURCE_EFFECTS: ${{ inputs.allow-source-effects }}
+          LEGACY_DOCUMENT_PILOT: ${{ inputs.legacy-document-pilot }}
+          QRSPI_EXECUTION_BACKEND: ${{ inputs.execution-backend }}
+          RECOVER_BEFORE_MODEL: ${{ inputs.recover-before-model }}
+          RECOVER_FAILED_RESUME: ${{ inputs.recover-failed-resume }}
+          RECOVER_PUBLICATION: ${{ inputs.recover-publication }}
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          REVIEW_RESPONSE: ${{ inputs.response }}
+          GITHUB_ULTIMATE_ROOT: ${{ github.workspace }}/.qrspi-review-cli
+          REVIEW_REPOSITORY: ${{ vars.QRSPI_REVIEW_REPOSITORY }}
+          REVIEW_APP_URL: ${{ vars.QRSPI_REVIEW_APP_URL }}
+          QRSPI_REVIEWERS: ${{ vars.QRSPI_REVIEWERS }}
+          QRSPI_MODEL: ${{ vars.QRSPI_MODEL || 'gpt-6.1-sol' }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: node --experimental-strip-types .github/qrspi-hosted/entry.ts open
+      - name: Execute selected project composite in the actual task job
+        id: setup
+        if: steps.open.outputs.admitted == 'true'
+        continue-on-error: true
+        # No host secrets or App tokens in this step's environment.
+        uses: ./.agentic/active-setup
+      - name: Bounded QRSPI work, pinned review publication, deferred exit interview
+        id: work
+        if: ${{ !cancelled() && steps.open.outputs.admitted == 'true' }}
+        env: *host-env
+        run: SETUP_OUTCOME='${{ steps.setup.outcome }}' node --experimental-strip-types .github/qrspi-hosted/entry.ts work
+  notify:
+    needs: process
+    if: ${{ !cancelled() && needs.process.outputs.checkpoint_url != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Publish checkpoint on the source pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_WORKSPACE: ${{ inputs.workspace }}
+          QRSPI_PROCESS: ${{ inputs.process }}
+          REVIEW_APP_URL: ${{ vars.QRSPI_REVIEW_APP_URL }}
+          CHECKPOINT_URL: ${{ needs.process.outputs.checkpoint_url }}
+          CHECKPOINT_VERSION: ${{ needs.process.outputs.request_version }}
+          CHECKPOINT_SNAPSHOT: ${{ needs.process.outputs.request_snapshot }}
+        run: node --experimental-strip-types .github/qrspi-hosted/checkpoint-comment.ts
