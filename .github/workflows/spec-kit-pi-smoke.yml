@@ -1,0 +1,54 @@
+name: Spec Kit live Pi multi-agent smoke
+run-name: Spec Kit Pi ${{ inputs.inspect-run && 'inspect' || 'live' }} · ${{ inputs.inspect-run || github.run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      inspect-run:
+        description: Read private evidence for this run without launching agents (empty starts a new smoke)
+        type: string
+        default: ''
+      inspect-attempt:
+        description: Attempt of the inspected run
+        type: string
+        default: '1'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Install frozen published Pi and host dependencies
+        working-directory: .github/qrspi-hosted
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        if: inputs.inspect-run == ''
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - name: Install frozen Spec Kit runtime
+        if: inputs.inspect-run == ''
+        run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+      - name: Execute YAML or inspect retained native evidence
+        env:
+          SMOKE_INSPECT_RUN: ${{ inputs.inspect-run }}
+          SMOKE_INSPECT_ATTEMPT: ${{ inputs.inspect-attempt }}
+          QRSPI_MODEL: ${{ vars.QRSPI_MODEL || 'gpt-6.1-sol' }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: node --experimental-strip-types .github/qrspi-hosted/spec-kit-smoke.ts
