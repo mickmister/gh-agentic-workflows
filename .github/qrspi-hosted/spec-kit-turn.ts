@@ -11,6 +11,7 @@ import { sessionSpan, type ExecutionEvidence } from "./execution.ts";
 import { nativeSessionIds } from "./session.ts";
 import type { SessionIdentity, SessionRecord } from "./session.ts";
 import { loadPromptFiles } from "./prompt-files.ts";
+import { observePi } from "./live-session.ts";
 
 export async function specKitTurn(home: string, prompt: string, d: ToolDependencies, session: SessionIdentity,
   archive: (id: string, value: unknown) => Promise<unknown>, record: (value: SessionRecord) => Promise<unknown>, evidence: ExecutionEvidence,
@@ -48,6 +49,7 @@ export async function specKitTurn(home: string, prompt: string, d: ToolDependenc
     await chmod(env.QRSPI_STEP_RUNNER!, 0o700);
   }
   const stopNative = observeNative(sessions, evidence, session);
+  const stopPi = observePi(dir, evidence, session, error => controller.abort(error));
   let child: ReturnType<typeof spawn> | undefined, failure: unknown, output = "", stderr = "", result: any;
   let finish: Awaited<ReturnType<ExecutionEvidence["begin"]>> | undefined;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -81,7 +83,7 @@ export async function specKitTurn(home: string, prompt: string, d: ToolDependenc
     const engine = JSON.parse(output);
     assert(engine.status === "completed", "Spec Kit workflow did not complete");
     result = JSON.parse(await readFile(join(dir, "result.json"), "utf8"));
-    await stopNative(); stopNative.capture.assertComplete();
+    await Promise.all([stopPi(), stopNative()]); stopNative.capture.assertComplete();
     assert(stopNative.capture.lastAssistant?.stopReason === "stop", "Direct Pi native settlement missing");
     return result;
   } catch (error) { failure = error; kill(); throw error; }
@@ -89,7 +91,7 @@ export async function specKitTurn(home: string, prompt: string, d: ToolDependenc
     clearTimeout(timer); clearTimeout(killTimer); options.signal?.removeEventListener("abort", cancel); controller.signal.removeEventListener("abort", kill);
     process.removeListener("SIGINT", interrupt); process.removeListener("SIGTERM", interrupt);
     try {
-      await stopNative(); await finish?.(failure);
+      await Promise.all([stopPi(), stopNative()]); await finish?.(failure);
       const final = { ...session, nativeSessionIds: nativeSessionIds(stopNative.capture.snapshot()), status: failure ? "failed" as const : "completed" as const };
       const promptSources = (await Promise.all(["resume", "phase", "worker"].map(slot => readFile(join(dir, `${slot}-sources.json`), "utf8").then(JSON.parse).then(value => ({ slot, ...value })).catch(() => null)))).filter(Boolean);
       await archive(session.id, { role: session.role, session: final, backend: "spec-kit", events: [], result: { status: final.status, miniWorkflow: result?.miniWorkflow }, promptSources, nativeRows: stopNative.capture.rows,

@@ -6,7 +6,7 @@ import type { SessionIdentity } from "./session.ts";
 
 export const operations = ["session", "worker", "qrspi_context", "qrspi_document", "qrspi_dispatch", "workspace_operation", "workspace_workers"] as const;
 export type Operation = typeof operations[number];
-export const eventKinds = ["stage", "started", "completed", "failed", "heartbeat", "acp", "native", "command", "progress"] as const;
+export const eventKinds = ["stage", "started", "completed", "failed", "heartbeat", "acp", "native", "pi", "command", "progress"] as const;
 type Kind = typeof eventKinds[number];
 type Scope = { sessionId?: string; parentId?: string | null; toolCallId?: string; role?: string; sourceSha?: string; operation?: Operation };
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -32,7 +32,7 @@ export class ExecutionEvidence {
   readonly budgets: { bytes: number; events: number; chunks: number };
   constructor(binding: { workspace: string; workspace_ref: string; process: string; bead: string }, executionId: string,
     privateWrite: (suffix: string, value: unknown) => Promise<unknown>,
-    budgets = { bytes: 256_000_000, events: 200000, chunks: 4096 }) {
+    budgets = { bytes: 256_000_000, events: 1000000, chunks: 16384 }) {
     assert(Object.values(budgets).every(n => Number.isSafeInteger(n) && n > 0), "Invalid execution evidence budgets");
     this.budgets = budgets;
     this.binding = binding; this.executionId = executionId;

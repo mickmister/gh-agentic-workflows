@@ -19,6 +19,7 @@ import { reportFailure, type Stage } from "./diagnostics.ts";
 import { reconcileInitialization } from "./workspace-recovery.ts";
 import { recoverPublication } from "./workspace-publication-recovery.ts";
 import { reviewDocuments } from "./workspace-publication.ts";
+import { announceLive } from "./live-session.ts";
 
 type State = Checkpoint & { schemaVersion: 2; executionBackend?: string; miniWorkflow?: string; members: Member[]; tasks: Task[]; manifest: { text: string; version: string; snapshot: string }; sourceAuthority: boolean };
 const env = process.env, home = env.QRSPI_HOME!;
@@ -222,7 +223,9 @@ async function work() {
   appendFileSync(env.GITHUB_STEP_SUMMARY!, `Workspace ${binding.workspace}; thread ${binding.bead}; process ${binding.process}\n\nSource: ${JSON.stringify(sources.members)}\n\nSetup: success\n\n[Next review](${publication.link})\n`);
   output("checkpoint_url", publication.link); output("request_version", publication.pin.version); output("request_snapshot", publication.pin.snapshot);
 }
+let settleLive: Awaited<ReturnType<typeof announceLive>> | undefined;
 try {
+  settleLive = await announceLive(store, evidence, env.WORKSPACE_COMMAND!, env);
   if (env.WORKSPACE_COMMAND === "open") await prepare();
   else if (env.WORKSPACE_COMMAND === "work") await work();
   else throw new Error("Unknown workspace command");
@@ -230,4 +233,7 @@ try {
   console.error(JSON.stringify(await reportFailure(stage, error, () => store.put(`${key}/private/error-${executionId}-${env.WORKSPACE_COMMAND}.json`,
     { message: error instanceof Error ? error.message : "Workspace failure" }, { create: true }))));
   process.exitCode = 1;
-} finally { await evidence.close(); }
+} finally {
+  if (settleLive) await settleLive(process.exitCode ? "failed" : "completed");
+  else await evidence.close();
+}

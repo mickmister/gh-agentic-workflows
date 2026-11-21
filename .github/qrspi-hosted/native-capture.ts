@@ -15,10 +15,11 @@ export class NativeCapture {
   rows = 0;
   truncated = false;
   private dir: string;
-  private emit: (row: unknown) => void;
+  private emit: (row: unknown, path: string) => void;
   private flush: () => Promise<void>;
-  constructor(dir: string, emit: (row: unknown) => void = () => {}, flush: () => Promise<void> = async () => {}) {
-    this.dir = dir; this.emit = emit; this.flush = flush;
+  private pattern: RegExp;
+  constructor(dir: string, emit: (row: unknown, path: string) => void = () => {}, flush: () => Promise<void> = async () => {}, pattern = /\.(jsonl|ndjson)$/) {
+    this.dir = dir; this.emit = emit; this.flush = flush; this.pattern = pattern;
   }
   snapshot() { return [...this.headers.values(), ...this.tail]; }
   async collect() {
@@ -29,7 +30,7 @@ export class NativeCapture {
       })) {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) { await visit(path, depth + 1); continue; }
-        if (!entry.isFile() || !/\.(jsonl|ndjson)$/.test(path)) continue;
+        if (!entry.isFile() || !this.pattern.test(entry.name)) continue;
         let cursor = this.files.get(path);
         if (!cursor) {
           assert(this.files.size < limits.files, "Bound exceeded: evidence files");
@@ -60,7 +61,7 @@ export class NativeCapture {
                 this.aborted ||= row.message.stopReason === "aborted";
                 if (row.message.stopReason === "error") this.recoveredAssistantErrors++;
               }
-              this.emit(row);
+              this.emit(row, path);
               this.tail.push(line); this.bytes += Buffer.byteLength(line);
               while (this.bytes > limits.evidence || this.tail.length > limits.events) {
                 this.bytes -= Buffer.byteLength(this.tail.shift()!); this.truncated = true;

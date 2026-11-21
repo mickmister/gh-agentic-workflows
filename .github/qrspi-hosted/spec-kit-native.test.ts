@@ -49,6 +49,10 @@ test("actual pinned Spec Kit YAML runs direct Pi with scoped tools, rejects inva
     assert(archives[0].native.some((line: string) => JSON.parse(line).message?.role === "assistant"));
     assert.equal(records.at(-1).status, "completed"); assert.equal(records.at(-1).nativeSessionIds.length, 1);
     assert(chunks.flatMap(c => c.events ?? []).some(e => e.kind === "native"));
+    const live = chunks.flatMap(c => c.events ?? []).filter(e => e.kind === "pi");
+    assert(live.some(e => e.data.event.type === "message_update"));
+    assert(live.some(e => e.data.event.type === "tool_execution_start"));
+    assert(live.every(e => e.sessionId === records[0].id && e.data.source === "pi-events.log"));
     assert(!chunks.flatMap(c => c.events ?? []).some(e => e.kind === "acp"));
     mode = "invalid"; round = 0;
     await assert.rejects(run(), /Spec Kit workflow failed/); assert.equal(round, 1, "invalid native final output must not be replayed");

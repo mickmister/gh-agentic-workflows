@@ -62,6 +62,36 @@ Spec Kit definition digest/pin, engine status, native session records, engine
 state and output. Only compact checkpoint references reach Documents/PR comments;
 no Actions artifacts are uploaded.
 
+### Live browser projection
+
+The trusted parent also tails complete LF-terminated Pi stdout records from the
+existing `pi-events.log`, `resume-events.log`, `phase-events.log` and
+`worker-events.log` spools once a second. It publishes scoped `kind: "pi"` events
+through the same ordered private evidence chunks. This includes text deltas and
+tool progress; native JSONL records remain separate final-validation evidence.
+No S3 credential or additional publication tool is given to Pi. Incomplete final
+stdout records or unavailable storage fail the turn rather than invent success.
+
+`workspace-main.ts` publishes an immutable locator before invocation processing at
+`<S3_CACHE_PREFIX>/qrspi-hosted/live/<REVIEW_REPOSITORY lowercase>/<workspace>/<run>-<attempt>/<open|work>.json`.
+The locator pins the workspace/process identity and exact evidence prefix. After
+final evidence flush, `terminal.json` declares the invocation outcome, final chunk
+count and event sequence. Hard runner/storage loss may leave no terminal; that is
+an unknown tail, not permission to replay work or claim phase approval.
+
+The hosted browser Agent screen can follow these objects using an approved
+read-only S3 connection and the matching selected workspace. Set its Actions
+storage root to `<S3_CACHE_PREFIX>/qrspi-hosted/` (default `qrspi/qrspi-hosted/`).
+It polls complete objects, supports late join/refresh without tool replay, and
+requires no websocket relay or B2 Live Read. Current private-store create checks
+remain best-effort preflights, not atomic CAS. Each run/attempt/command has one
+sequencer; independent parallel producers must not share its chunk prefix.
+
+Live export ceilings are 256 MB, 1,000,000 events and 16,384 chunks per evidence
+instance. Lower test/caller budgets remain supported. Frequent complete batches
+and preflight/readback requests cost storage operations; tune using actual live
+measurements, not a claimed fixed latency guarantee.
+
 Timeout/cancellation terminates the direct Pi process group and the engine;
 malformed/failed/truncated native final output is failure even if an engine step
 would otherwise finish. The existing uncertain-admission fence remains in force.
