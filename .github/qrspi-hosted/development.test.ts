@@ -63,6 +63,7 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       const baseCommit = localGit(app, ["rev-parse", "HEAD"]), saved = new Map<string, any>();
       const sources = new Sources(root, directory, [{ path: "app", repository: "owner/app", branch: "refs/heads/feature", commit: baseCommit }], {} as any, true, mode);
       const request = developmentRequest({ schemaVersion: 1, process: mode, bead: "task-fixture", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"],
+        setupCommands: [[process.execPath, "-e", "const fs=require('node:fs'),p=require('node:path').join(process.env.HOME,'.npm','cache','a','b','c','d','e','f','g','h','i');fs.mkdirSync(p,{recursive:true});fs.writeFileSync(require('node:path').join(p,'index.json'),'package-cache-not-native-evidence')"]],
         testCommands: [[process.execPath, "-e", mode === "failed-tests" ? "process.exit(1)" : "if(!require('node:fs').readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]], publishCandidate: false });
       const binding = { workspace: "fixture", workspace_ref: "ws-fixture", process: mode, bead: request.bead };
       const key = `development/${digest(binding)}`;
@@ -75,6 +76,7 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
         assert.equal(result.evaluations.length, 3); assert.equal(new Set(result.evaluations.map(e => e.sessionId)).size, 3);
         assert(result.history.every(h => h.evaluations.every(e => e.candidate === h.candidate) && h.testsPassed === (mode !== "failed-tests")));
         assert(saved.has(`cycles/${result.cycle}/candidate-bundle.json`));
+        assert.equal(JSON.stringify(saved.get(`cycles/${result.cycle}/native/implementer.json`).files).includes("package-cache-not-native-evidence"), false);
         assert.equal(saved.get("progress.json").nextStep, mode === "retry" ? "human-review-candidate" : "human-review-unresolved-findings");
         assert.equal(JSON.parse(saved.get("engine.json").output).status, "completed");
         assert.equal(localGit(app, ["rev-parse", "HEAD"]), baseCommit, "No integration into caller branch");
