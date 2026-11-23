@@ -233,7 +233,7 @@ The rules are derived from:
 - **OpenAI Codex harness engineering** (AGENTS.md guidance, "give Codex a map" post) — for ~100-line target, "imperative phrasing > prose," structural enforcement over instructional discipline
 - **2024-2025 prompt-engineering research** (Liu et al. 2024 "Lost in the Middle"; IFEval++; LIFBench; NoLiMa; the 2025 Few-Shot Dilemma paper) — for verbosity bias, instruction-following degradation, lexical anchoring, the example cap
 
-The load-bearing derivations for the rules are inlined in this file (each rule carries its source citation inline). For broader research context, the v0.7.2 release research summary at `docs/qrspi/2026-05-30-v072-release/research/summary.md` covers Q1-Q5 (prompt-prose detection, rules applicability across host platforms, model-era calibration, content-semantic vs. path heuristics, and vendor-neutrality findings). No external `general2/...` paths — those working documents predated this repo's self-contained structure and are not accessible at plugin install time. <!-- evergreen-exempt -->
+The load-bearing derivations for the rules are inlined in this file (each rule carries its source citation inline). For broader research context, the [pinned upstream v0.7.2 research summary](https://github.com/dfrysinger/qrspi-plus/blob/845c934d35afe504c9b7ab8d33185abd502aef3e/docs/qrspi/2026-05-30-v072-release/research/summary.md) covers Q1-Q5 (prompt-prose detection, rules applicability across host platforms, model-era calibration, content-semantic vs. path heuristics, and vendor-neutrality findings). This historical rationale is not a required runtime input. <!-- evergreen-exempt -->
 
 ---
 

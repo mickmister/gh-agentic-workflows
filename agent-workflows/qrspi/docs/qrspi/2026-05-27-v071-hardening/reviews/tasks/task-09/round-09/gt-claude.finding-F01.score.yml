@@ -1,2 +1,0 @@
-score: 25
-reason: Real documentation clarity issue (dual placement creates confusion), but low-severity traceability nitpick explicitly acknowledged as intentionally manual in spec; per Hotfix B clarity-floor guidance, low-severity clarity findings usually drop.

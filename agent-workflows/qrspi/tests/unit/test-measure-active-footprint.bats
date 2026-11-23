@@ -50,7 +50,7 @@ setup_file() {
   export REPO_ROOT
   SCRIPT="$REPO_ROOT/scripts/measure-active-footprint.sh"
   export SCRIPT
-  REPORT_PATH="$REPO_ROOT/docs/qrspi/2026-06-04-v073-release/g9-footprint-report.md"
+  REPORT_PATH="$REPO_ROOT/tests/fixtures/upstream-history/v073-footprint-report.md"
   export REPORT_PATH
 
   # Stable identifiers for this file's fixtures; chosen to be implausible as

@@ -1,2 +1,0 @@
-score: 85
-reason: The section-anchor-index directory-level entry (line 123) clearly violates the documented OWNS constraint requiring "concrete repo-relative paths for every file the project creates or modifies, with no directory placeholders." The deferred selection to Plan is explicit in the prose, and candidates are mentioned but not pinned as file-map rows, constituting a clear structural violation.

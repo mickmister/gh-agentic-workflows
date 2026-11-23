@@ -1,2 +1,0 @@
-score: 30
-reason: Real but minor stylistic concern; in practice a failed presence check still surfaces a problem, and there's no documented rule mandating one-assertion-per-test in BATS.

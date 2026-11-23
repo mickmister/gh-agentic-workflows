@@ -53,7 +53,7 @@ setup_file() {
   USING="$REPO_ROOT/skills/using-qrspi/references/config-runtime-contract.md"
   IMPLEMENT="$REPO_ROOT/skills/implement/SKILL.md"
   # G22 / T16 additions
-  CONFIG_MD="$REPO_ROOT/docs/qrspi/2026-05-30-v072-release/config.md"
+  CONFIG_MD="$REPO_ROOT/tests/fixtures/upstream-history/v072-config.md"
   RESOLVE_LIB="$REPO_ROOT/scripts/_resolve-lib.sh"
   VALIDATION_PROC="$REPO_ROOT/skills/_shared/config-validation-procedure.md"
   export USING IMPLEMENT CONFIG_MD RESOLVE_LIB VALIDATION_PROC

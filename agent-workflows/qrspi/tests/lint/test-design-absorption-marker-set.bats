@@ -45,7 +45,7 @@ bats_require_minimum_version 1.5.0
 #       → @test "lint passes silently against a design.md with zero absorption markers"
 
 setup() {
-  REPO_ROOT="$(git -C "${BATS_TEST_DIRNAME}" rev-parse --show-toplevel)"
+  REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd -P)"
   export REPO_ROOT
   LINT_SCRIPT="${REPO_ROOT}/scripts/structural-lints/check-design-absorption-marker-set.sh"
   export LINT_SCRIPT
@@ -62,7 +62,7 @@ teardown() {
 # Test expectation: "The lint 'passes against the v0.7.3 design.md (this very
 # document — meta-acceptance)' (G3 Acceptance bullet 2, first half)."
 @test "lint passes against the v0.7.3 design.md (meta-acceptance)" {
-  local design="${REPO_ROOT}/docs/qrspi/2026-06-04-v073-release/design.md"
+  local design="${REPO_ROOT}/tests/fixtures/upstream-history/v073-design.md"
   [[ -r "${design}" ]] || {
     echo "fixture-setup: v0.7.3 design.md not readable at ${design}" >&2
     return 1

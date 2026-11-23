@@ -1,2 +1,0 @@
-score: 75
-reason: Finding is highly confident; design.md explicitly defers test strategy to Plan (lines 652-655) violating the documented Design OWNS requirement for design-level test strategy naming test types and coverage boundaries.

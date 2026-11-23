@@ -517,7 +517,7 @@ _markdown_section() {
   # Test expectation: docs/qrspi/2026-05-27-v071-hardening/config.md contains
   # `claude-haiku-4.5` as the haiku-tier entry in the model_routing table for
   # both the `claude-code` and `copilot-cli` host columns.
-  local cfg="docs/qrspi/2026-05-27-v071-hardening/config.md"
+  local cfg="tests/fixtures/upstream-history/v071-config.md"
   [ -f "$cfg" ] || { echo "config.md not found at expected path: $cfg"; return 1; }
 
   local cc_block cli_block
@@ -549,7 +549,7 @@ _markdown_section() {
   # Test expectation: docs/qrspi/2026-05-27-v071-hardening/config.md contains
   # `claude-sonnet-4.6` as the sonnet-tier entry in the model_routing table
   # for both the `claude-code` and `copilot-cli` host columns.
-  local cfg="docs/qrspi/2026-05-27-v071-hardening/config.md"
+  local cfg="tests/fixtures/upstream-history/v071-config.md"
   [ -f "$cfg" ] || { echo "config.md not found at expected path: $cfg"; return 1; }
 
   local cc_block cli_block
@@ -581,7 +581,7 @@ _markdown_section() {
   # Test expectation: docs/qrspi/2026-05-27-v071-hardening/config.md contains
   # `claude-opus-4.7-high` as the opus-tier entry in the model_routing table
   # for both the `claude-code` and `copilot-cli` host columns.
-  local cfg="docs/qrspi/2026-05-27-v071-hardening/config.md"
+  local cfg="tests/fixtures/upstream-history/v071-config.md"
   [ -f "$cfg" ] || { echo "config.md not found at expected path: $cfg"; return 1; }
 
   local cc_block cli_block
@@ -615,7 +615,7 @@ _markdown_section() {
   # for both the `claude-code` and `copilot-cli` host columns. This matches
   # Claude's resolver default for custom agents that do not declare an
   # explicit `model:` (which T9 removed from all 41 agent files).
-  local cfg="docs/qrspi/2026-05-27-v071-hardening/config.md"
+  local cfg="tests/fixtures/upstream-history/v071-config.md"
   [ -f "$cfg" ] || { echo "config.md not found at expected path: $cfg"; return 1; }
 
   local cc_block cli_block
@@ -650,7 +650,7 @@ _markdown_section() {
   # "model not available" warning. The copilot-cli sub-block MUST exist
   # for this assertion to be meaningful — a missing sub-block fails this
   # test rather than vacuously passing.
-  local cfg="docs/qrspi/2026-05-27-v071-hardening/config.md"
+  local cfg="tests/fixtures/upstream-history/v071-config.md"
   [ -f "$cfg" ] || { echo "config.md not found at expected path: $cfg"; return 1; }
 
   local cli_block
