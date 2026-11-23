@@ -13,6 +13,7 @@ TARGET = 0
 CURRENT = 0
 CONDITIONS = True
 SOURCE_CAPABILITY = False
+CODE_PERMISSION = False
 QUERY = True
 ENFORCEMENT_AVAILABLE = False
 EXPORTS_COMPLETE = False
@@ -44,6 +45,7 @@ action Init:
     native_readable = True
     verified_exports = [True, EXPORTS_COMPLETE]
     complete_evidence_claimed = False
+    assessment = "absent"
     history = None
 
 atomic action PublishCheckpoint:
@@ -122,8 +124,16 @@ atomic action SelectMiniWorkflow:
 
 atomic action WriteProductSource:
     require processed and not code_written
-    require (phase_approved and SOURCE_CAPABILITY) or MUTATION == "discussion-code"
+    require (phase_approved and SOURCE_CAPABILITY and CODE_PERMISSION) or MUTATION == "discussion-code" or (MUTATION == "ignore-code-permission" and phase_approved and SOURCE_CAPABILITY)
     code_written = True
+
+atomic action AssessCheckpoint:
+    require useful_result and assessment == "absent"
+    assessment = "verified" if publication_known and all(verified_exports) else "incomplete"
+    if MUTATION == "assessment-overclaim":
+        assessment = "verified"
+    if MUTATION == "assessment-approval":
+        phase_approved = True
 
 atomic action EnforceRuntimePreference:
     require configuration_recorded and ENFORCEMENT_AVAILABLE and not runtime_enforced
@@ -146,7 +156,10 @@ always assertion HintDoesNotAuthorize:
     return history == None or history.selected != "questions" or (history.kind == "approve" and history.auth and history.target == history.current and history.conditions)
 
 always assertion SourcePermissionIsSeparate:
-    return not code_written or (phase_approved and SOURCE_CAPABILITY)
+    return not code_written or (phase_approved and SOURCE_CAPABILITY and CODE_PERMISSION)
+
+always assertion AssessmentNeedsEvidence:
+    return assessment != "verified" or (publication_known and all(verified_exports))
 
 always assertion RecordedIsNotEnforced:
     return not enforcement_claimed or runtime_enforced
@@ -186,4 +199,8 @@ exists assertion MiniWorkflowWitness:
         return code_written and selected == "questions"
     if WITNESS == "duplicate":
         return duplicate_seen and selected == "goals" and response_effects == 1
+    if WITNESS == "assessment-partial":
+        return assessment == "incomplete" and useful_result and not phase_approved
+    if WITNESS == "assessment-complete":
+        return assessment == "verified" and useful_result and not phase_approved
     return False

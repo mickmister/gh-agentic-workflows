@@ -39,7 +39,7 @@ artifacts need explicit requalification and reviewed digest updates; never silen
 accept an arbitrary executable. The parser-launcher digest alone is not a digest
 of its complete runfiles tree; source/dependency pins supply that provenance.
 
-The harness runs 68 BFS checking cases and three guided replays, with a 60-second
+The harness runs 75 BFS checking cases and three guided replays, with a 60-second
 timeout per invocation. Pass requires the completed checker banner. An expected
 counterexample requires a failure banner and its intended named property. Upstream
 can exit zero on failed assertions, so exit status alone is not acceptance.
@@ -109,7 +109,8 @@ They supplement `Parallel.fizz`; they do not compose all families into one model
 
 `MiniWorkflow.fizz` models one retained checkpoint, one response and one fresh
 Actions invocation. A draft is not a submission. Configuration decisions,
-applicable phase approval and a product-source capability ceiling are separate.
+applicable phase approval, human submission code permission and a product-source
+capability ceiling are separate. Code permission is not a form-author restriction.
 Full feedback conditions and exact occurrence authority are required before the
 retained next-workflow hint can select Questions. An applicable phase approval
 can be represented without enabling product-source writes. A duplicate delivery
@@ -120,6 +121,9 @@ read reconciliation are distinct events. Unqueryable publication stays unknown;
 the replay mutation is rejected. Recorded model/reasoning preference is distinct
 from runtime enforcement evidence. Native session readability is distinct from
 complete verified exports. A retained useful result survives partial evidence.
+Automatic checkpoint assessment can record incomplete/verified evidence, but
+does not confer phase approval or source authority. Verified assessment requires
+exact checkpoint observation and verified exports, not a green run alone.
 The model abstracts those boundaries; it does not assess the real provider,
 enforce reasoning effort or diagnose the live execution/OTel reader failure.
 
@@ -134,8 +138,8 @@ plus three retries permits success on cycle four or a retained unapproved result
 at exhaustion; it never grants automatic acceptance. The role approvals are
 candidate judgments, not QRSPI human-phase approval capability.
 
-New cases: 32 BFS configurations, comprising 20 positive cases with required
-reachability witnesses and 12 deliberate mutation counterexamples. They use
+New cases: 39 BFS configurations, comprising 24 positive cases with required
+reachability witnesses and 15 deliberate mutation counterexamples. They use
 24-action (mini-workflow) and 60-action (evaluator) bounds, explicit atomic
 protocol events and no implicit crashes or liveness promises. Evaluator outcomes
 follow named finite plans (success, fourth-cycle success, exhaustion, no marks,
@@ -163,6 +167,10 @@ execution-evidence findings are owned by `task-8a7.6`/`.6.3` and
 `task-3vt.34.8.2`. They inform the abstraction; no raw hosted trace is replayed
 through these models here. General causal trace conformance remains
 `task-3vt.34.15.7`; full lifecycle inventory remains `.9`.
+The concurrent submission/automatic-assessment change integrated at `31b8866`
+was additionally inspected in `.github/qrspi-hosted/assess-run.ts` and current
+review guidance; the submission-permission and assessment cases capture those
+new boundaries. They are reference checks, not a test of that implementation.
 
 ## Implementation linkage and limits (original parallel family)
 
