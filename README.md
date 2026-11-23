@@ -19,8 +19,10 @@ Private S3 holds execution state, native sessions and telemetry.
 It has one execution path: Spec Kit. The current production QRSPI entry supports
 source-disabled conversation and canonical intake phases. The disposable
 [multi-agent smoke](.github/qrspi-spec-kit/MULTI-AGENT-SMOKE.md) demonstrates source
-editing but is not a general coding service. The bounded implementer plus parallel
-reviewers/tester workflow is tracked in `task-cx3`.
+editing but is not a general coding service. The separate
+[callable development workflow](.github/development/README.md) implements the bounded
+implementer plus parallel two-reviewers/tester method. Its current hosted acceptance
+is recorded under `task-cx3`; it is independent of full QRSPI.
 
 ## Retired execution paths
 

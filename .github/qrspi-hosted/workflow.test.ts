@@ -100,7 +100,22 @@ test("workspace setup authorship is a separate registered workflow, not parent Y
   const validation = steps.find((s: any) => s.id === "validate");
   assert.equal(validation.uses, "./.agentic/active-setup"); assert.equal(validation.env, undefined);
   assert(steps.some((s: any) => s.run?.includes("SETUP_COMMAND=finish")));
-  assert.doesNotMatch(text, /upload-artifact|\bpython[23]?\b/);
+  assert(steps.some((s: any) => s.run === "uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev"), "Separate Spec Kit setup job must install its engine");
+  assert.doesNotMatch(text, /upload-artifact|\bpython[23]?\s+[\w./-]+\.py/);
+});
+test("callable development workflow uses the sole pinned engine and authenticates before credentials", () => {
+  const text = readFileSync("../workflows/development-process.yml", "utf8"), workflow = parse(text);
+  assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs).sort(), Object.keys(workflow.on.workflow_call.inputs).sort());
+  const steps = workflow.jobs.development.steps;
+  assert(steps.findIndex((s: any) => s.name?.startsWith("Authenticate operator")) < steps.findIndex((s: any) => s.id === "storage-auth"));
+  assert.equal(workflow.jobs.development.concurrency["cancel-in-progress"], false);
+  assert.equal(workflow.on.workflow_dispatch.inputs["allow-source-effects"].default, false);
+  assert.doesNotMatch(text, /execution-backend|upload-artifact|acpx/);
+  const graph = parse(readFileSync("../qrspi-spec-kit/development.yml", "utf8"));
+  const loop = graph.steps[0]; assert.equal(loop.type, "do-while"); assert.equal(loop.max_iterations, 4);
+  const fan = loop.steps.find((s: any) => s.type === "fan-out");
+  assert.equal(fan.max_concurrency, 3); assert.deepEqual(fan.items, ["reviewer-1", "reviewer-2", "tester"]);
+  assert.equal(fan.step.integration, "pi");
 });
 test("TS Git credential helper gives storage token only to its exact trusted HTTPS host/path", () => {
   const entry = resolve("bootstrap.ts");

@@ -23,6 +23,11 @@ jobs:
           node-version: '22.23.4'
       - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: .github/qrspi-hosted
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
       - id: storage-target
         env:
           NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
