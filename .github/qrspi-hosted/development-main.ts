@@ -61,6 +61,16 @@ async function main() {
     console.log(JSON.stringify({ status: state.status, cycle: state.cycle, candidate: state.candidate, reportUrl: url.href }));
     assert(state.status === "accepted", "Development retry budget exhausted; candidate/findings retained for human review");
   } catch (error) {
+    // Inspect failed work after evidence flush, as part of this invocation. A
+    // failed workflow must not depend on a separate monitoring agent for diagnosis.
+    try {
+      if (!closed) { await evidence.close(); closed = true; }
+      const assessment = await inspectDevelopment(store, key, binding);
+      await save("failure-assessment.json", assessment);
+      console.log(JSON.stringify({ diagnosticOnly: true, assessment }));
+    } catch (assessmentError) {
+      console.error(JSON.stringify(await reportFailure("orchestrator", assessmentError, () => save("assessment-error.json", { message: assessmentError instanceof Error ? assessmentError.message : "Assessment unavailable" }))));
+    }
     console.error(JSON.stringify(await reportFailure("orchestrator", error, () => store.put(`${key}/errors/${executionId}.json`, { message: error instanceof Error ? error.message : "Development failure" }, { create: true }))));
     throw new Error("Development did not deliver an accepted candidate; inspect bound private evidence and durable results");
   } finally { if (!closed) await evidence.close(); }

@@ -98,7 +98,9 @@ export class Development {
       const finish = await this.evidence.begin("command", this.evidence.scope(session));
       let failure: unknown;
       try {
-        const result = await command(cwd, join(dir, category), argv, seconds, { signal: this.signal,
+        // Command HOME can contain large package-manager caches. Keep it outside
+        // the bounded native-session archive; command output is streamed separately.
+        const result = await command(cwd, join(this.home, "commands", `c${this.state.cycle}-${role}`, category), argv, seconds, { signal: this.signal,
           log: async data => { this.evidence.event("command", this.evidence.scope(session), data); await this.evidence.flush(); } });
         if (result.outcome !== "completed" || result.exitCode !== 0) failure = new Error("Command did not complete successfully");
         return result;
