@@ -1,0 +1,124 @@
+---
+options:
+  max_actions: 60
+  max_concurrent_actions: 1
+  crash_on_yield: false
+deadlock_detection: false
+---
+# User-selected methodology, not a new QRSPI human-phase approval policy.
+# Slots are reviewer A, reviewer B, tester. All may be in flight together.
+PLAN = "success"
+SPOOF = False
+CRASH = False
+MUTATION = "none"
+WITNESS = "accepted"
+
+action Init:
+    cycle = 0
+    stage = "implement"
+    candidate = -1
+    running = [False, False, False]
+    outcomes = [0, 0, 0]
+    # Retained marks are actual Bead/artifact effects. Reads are separate.
+    marks = [-1, -1, -1]
+    authors = [-1, -1, -1]
+    observed = [-1, -1, -1]
+    observed_authors = [-1, -1, -1]
+    accepted = None
+    exhausted = False
+    overlapped = False
+    observer_crashed = False
+
+atomic action ImplementCandidate:
+    require stage == "implement"
+    cycle += 1
+    candidate = cycle
+    outcomes = [0, 0, 0]
+    running = [True, True, True]
+    overlapped = True
+    stage = "evaluate"
+
+atomic action FinishEvaluation:
+    require stage == "evaluate"
+    i = oneof [j for j in range(3) if running[j]]
+    # 1: approves; -1: rejects; 2: clean test/review, no explicit approval.
+    outcome = 1
+    if PLAN == "exhaust" or (PLAN == "retry" and cycle < 4):
+        outcome = -1 if i == 2 else 1
+    elif PLAN == "no-marks":
+        outcome = 2
+    elif PLAN == "stale":
+        outcome = (-1 if i == 0 else 1) if cycle == 1 else (1 if i == 0 else 2)
+    outcomes[i] = outcome
+    running[i] = False
+
+atomic action RecordApproval:
+    require stage == "evaluate"
+    i = oneof [j for j in range(3) if outcomes[j] == 1 and marks[j] != candidate]
+    marks[i] = candidate
+    authors[i] = 0 if SPOOF else i
+
+atomic action ReadApproval:
+    require stage == "evaluate"
+    i = oneof [j for j in range(3) if marks[j] >= 0 and (observed[j] != marks[j] or observed_authors[j] != authors[j])]
+    observed[i] = marks[i]
+    observed_authors[i] = authors[i]
+
+atomic action LoseObserverKnowledge:
+    require CRASH and not observer_crashed and stage == "evaluate"
+    require any([j >= 0 for j in observed])
+    observed = [-1, -1, -1]
+    observed_authors = [-1, -1, -1]
+    observer_crashed = True
+
+atomic action AcceptCandidate:
+    require stage == "evaluate" and not any(running)
+    eligible = all([observed[i] == candidate and observed_authors[i] == i for i in range(3)])
+    if MUTATION == "test-pass-is-approval":
+        eligible = all([outcomes[i] in [1, 2] for i in range(3)])
+    elif MUTATION == "old-marks":
+        eligible = all([observed[i] >= 0 and observed_authors[i] == i for i in range(3)])
+    elif MUTATION == "ignore-author":
+        eligible = observed == [candidate, candidate, candidate]
+    require eligible
+    accepted = record(candidate=candidate, cycle=cycle, marks=deepcopy(marks), authors=deepcopy(authors), outcomes=deepcopy(outcomes))
+    stage = "accepted"
+
+atomic action FinishUnapprovedRound:
+    require stage == "evaluate" and not any(running)
+    # Settle promised approval effects/reads before deciding a round is unapproved.
+    require all([outcomes[i] != 1 or (marks[i] == candidate and observed[i] == candidate) for i in range(3)])
+    require not all([observed[i] == candidate and observed_authors[i] == i for i in range(3)])
+    if cycle < (5 if MUTATION == "four-retries" else 4):
+        stage = "implement"
+    else:
+        exhausted = True
+        stage = "exhausted"
+
+always assertion ThreeExplicitCurrentApprovals:
+    return accepted == None or accepted.marks == [accepted.candidate, accepted.candidate, accepted.candidate]
+
+always assertion EachEvaluatorOwnsApproval:
+    return accepted == None or accepted.authors == [0, 1, 2]
+
+always assertion ApprovalHasActualVerdict:
+    return accepted == None or accepted.outcomes == [1, 1, 1]
+
+always assertion InitialPlusThreeRetries:
+    return cycle <= 4
+
+always assertion ExhaustionIsNotAcceptance:
+    return not exhausted or (accepted == None and candidate == 4)
+
+exists assertion EvaluatorLoopWitness:
+    if WITNESS == "accepted":
+        return accepted != None and accepted.cycle == 1 and overlapped
+    if WITNESS == "fourth":
+        return accepted != None and accepted.cycle == 4
+    if WITNESS == "exhausted":
+        return exhausted and cycle == 4 and accepted == None and candidate == 4
+    if WITNESS == "unread":
+        return marks == [1, 1, 1] and observed == [-1, -1, -1] and accepted == None
+    if WITNESS == "recovered":
+        return observer_crashed and accepted != None
+    return False

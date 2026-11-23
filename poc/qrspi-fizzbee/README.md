@@ -39,7 +39,7 @@ artifacts need explicit requalification and reviewed digest updates; never silen
 accept an arbitrary executable. The parser-launcher digest alone is not a digest
 of its complete runfiles tree; source/dependency pins supply that provenance.
 
-The harness runs 36 BFS checking cases and three guided replays, with a 60-second
+The harness runs 68 BFS checking cases and three guided replays, with a 60-second
 timeout per invocation. Pass requires the completed checker banner. An expected
 counterexample requires a failure banner and its intended named property. Upstream
 can exit zero on failed assertions, so exit status alone is not acceptance.
@@ -101,7 +101,70 @@ CAS or global exclusion is introduced, and this mechanism is not composed with
 multiple copies of the protocol model. Core no-replay is not a global exactly-once
 guarantee across competing runners.
 
-## Implementation linkage and limits
+## Added lifecycle and methodology families
+
+Owner: `task-3vt.34.15.10`. These reference models follow the actual canonical
+Spec Kit mini-workflow design and the user's separately specified methodology.
+They supplement `Parallel.fizz`; they do not compose all families into one model.
+
+`MiniWorkflow.fizz` models one retained checkpoint, one response and one fresh
+Actions invocation. A draft is not a submission. Configuration decisions,
+applicable phase approval and a product-source capability ceiling are separate.
+Full feedback conditions and exact occurrence authority are required before the
+retained next-workflow hint can select Questions. An applicable phase approval
+can be represented without enabling product-source writes. A duplicate delivery
+reuses the retained response disposition in this single-admission model.
+
+Checkpoint publication, lost acknowledgement, run exit, fresh restore and exact
+read reconciliation are distinct events. Unqueryable publication stays unknown;
+the replay mutation is rejected. Recorded model/reasoning preference is distinct
+from runtime enforcement evidence. Native session readability is distinct from
+complete verified exports. A retained useful result survives partial evidence.
+The model abstracts those boundaries; it does not assess the real provider,
+enforce reasoning effort or diagnose the live execution/OTel reader failure.
+
+`EvaluatorLoop.fizz` implements the user-selected abstract protocol: one
+implementer candidate, then two reviewers and one tester in flight concurrently.
+All three need explicit candidate-bound Bead/artifact approval records attributed
+to the appropriate evaluator. Clean output without a mark, old-candidate marks
+and wrong-author marks cannot accept. Durable mark creation and the parent's
+read are separate. One explicit loss of observer knowledge can be reconciled by
+reading existing marks, without another implementation pass. The initial cycle
+plus three retries permits success on cycle four or a retained unapproved result
+at exhaustion; it never grants automatic acceptance. The role approvals are
+candidate judgments, not QRSPI human-phase approval capability.
+
+New cases: 32 BFS configurations, comprising 20 positive cases with required
+reachability witnesses and 12 deliberate mutation counterexamples. They use
+24-action (mini-workflow) and 60-action (evaluator) bounds, explicit atomic
+protocol events and no implicit crashes or liveness promises. Evaluator outcomes
+follow named finite plans (success, fourth-cycle success, exhaustion, no marks,
+stale marks); these cover interleavings within those plans, not arbitrary
+unbounded outcome sequences. Role slots are distinct, not a majority vote.
+
+The three in-flight evaluator flags are an abstract overlap witness, not native
+Pi concurrency proof. Approval records assume a supported trusted scoped store;
+this is not an implementation of Beads writes or an adversarial signature model.
+No cross-object transaction, global writer exclusion or fencing is introduced.
+Partial-export flags do not yet model producer-set closure/shutdown ordering.
+Browser/SPA ownership, multi-repo S3 restore, native background support and plugin
+trust are newer design topics, not implemented capabilities or verification
+claims in these new families. Documents/Beads backend selection remains a nugs
+per-kind concern; the model does not require an all-S3 migration.
+
+### Actual source boundaries inspected
+
+At engine `0e899d2ffa39c38fd3281e160724c552e7fd4fb6`, inspect
+`.github/qrspi-spec-kit/{workspace,goals,questions,research}.yml`,
+`.github/qrspi-spec-kit/MINI-WORKFLOWS.md` and the canonical prompt adapter.
+They supply the checkpoint/resume, prompt-file provenance and predecessor
+authority requirements. Recorded actual configuration continuation and partial
+execution-evidence findings are owned by `task-8a7.6`/`.6.3` and
+`task-3vt.34.8.2`. They inform the abstraction; no raw hosted trace is replayed
+through these models here. General causal trace conformance remains
+`task-3vt.34.15.7`; full lifecycle inventory remains `.9`.
+
+## Implementation linkage and limits (original parallel family)
 
 These are integration-neutral reference contracts, not generated Spec Kit YAML or
 production conformance tests. `ReviewBatch`/`PromoteBatch` represent required QRSPI
