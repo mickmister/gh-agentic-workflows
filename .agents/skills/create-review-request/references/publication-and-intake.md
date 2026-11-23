@@ -47,7 +47,7 @@ the first page, so absence there proves neither a name nor a response absent.
 Prepare a manifest and, if needed, standard form against the pinned production
 `src/protocol.ts` and `src/review-protocol.ts`. Form `id` and `task_id` must match
 member `form_id` and `bead_id`; reject invalidated forms. Use
-`allowCodeFileChanges:false` for discussion-only forms. Document-only packets need
+no authored code-permission field; the human chooses permission at submission. Document-only packets need
 no form. For prepared `FORM_FILE` and `REQUEST_FILE`, validate with:
 
 ```bash
@@ -132,9 +132,9 @@ relevant source, review and authority context. Preserve every choice and optiona
 note, not merely top-level intent.
 
 Form intent may be `discussion` or scoped `approved-next-steps`. Discussion is
-not automatically code approval. `allowCodeFileChanges:false` permits only
-discussion intent and forbids code authorization; design choices may still be
-recorded in answers. Notes do not select or approve options.
+not automatically code approval. Every form offers an explicit code-permission
+submission choice; the retired DSL field cannot hide it. Design choices can be
+recorded in either submission mode. Notes do not select or approve options.
 
 The existing command validates records and attaches Bead pointers:
 

@@ -249,7 +249,7 @@ const mutations: Record<string, (f: ReturnType<typeof fixture>) => void> = {
     f.cp.awaiting.approvalOffered = false;
   },
   "wrong intent": (f) => {
-    f.response.forms[0].intent = "approved-next-steps";
+    f.response.forms[0].intent = "invalid-intent";
   },
   "draft response": (f) => {
     f.response.kind = "review-draft";
@@ -278,6 +278,14 @@ test("comment/progress-only submitted content is discussion; exact unverified ch
   assert.throws(() => checkScope(f.cp, binding, f.request, f.response, f.receipt, ["github:123"]), /not offered/);
   (f.response.forms[0].answers as any).decision = { "approve-unverified": true };
   assert.equal(checkScope(f.cp, binding, f.request, f.response, f.receipt, ["github:123"]).approval, true);
+});
+test("submission code permission is preserved without inventing phase approval", () => {
+  const f = fixture();
+  f.response.forms[0].intent = "approved-next-steps";
+  delete (f.response.forms[0].answers as any).decision;
+  const result = checkScope(f.cp, binding, f.request, f.response, f.receipt, ["github:123"]);
+  assert.equal(result.approval, false);
+  assert.equal(result.response.forms[0].intent, "approved-next-steps");
 });
 test("intake can ask a grounded first question without fabricating locked Goals or approval", () => {
   const artifacts = {

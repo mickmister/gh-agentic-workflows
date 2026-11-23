@@ -49,6 +49,15 @@ Use read-only inspection for existing runs rather than replaying model work.
 Raw transcripts and telemetry stay private; publish compact findings and exact
 references, never payloads or credentials in Documents or Actions artifacts.
 
+Normal QRSPI continuation must work through review submissions and GitHub Actions
+without an external monitoring agent. The process workflow owns automatic pinned
+checkpoint verification and native/execution evidence assessment (`assess-run.ts`),
+including compact remote findings and the next-review notification. Reuse those
+reports; do not create a per-run monitoring/publication script. Shared design docs
+need reconciliation when implementation or guidance changes, not a new manual
+publication ceremony for each routine user answer. Assessment is evidence only,
+never methodology approval or authority to replay uncertain effects.
+
 Prefer Zero Framework Cognition for discussion: let the designated agent choose
 useful document names, document/form structure, questions and next conversational
 work within QRSPI's authority. Keep the host focused on mechanical I/O, immutable

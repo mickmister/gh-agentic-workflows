@@ -38,7 +38,15 @@ export async function publishCheckpoint(env: Environment, send: Transport = fetc
   const number = matches[0].number;
   if (!Number.isSafeInteger(number) || number < 1) throw Error('Invalid source PR number');
   const marker = `<!-- qrspi-checkpoint:${workspace}:${process}:${version} -->`;
-  const body = `${marker}\n## QRSPI checkpoint — awaiting your response\n\nProcess: \`${process}\` · Workspace: \`${workspace}\`\n\n[Open the checkpoint and submit your response](${checkpoint.href})\n\n[Workflow run](https://github.com/${repository}/actions/runs/${runId}) · Request \`${version}\` · Snapshot \`${snapshot}\`\n\nThe bounded workflow turn has ended and is waiting for feedback. Submit through the linked review form to continue. PR comments alone do not submit a review, authorize code changes, or approve a QRSPI phase.\n`;
+  let assessment = '';
+  if (env.ASSESSMENT_URL) {
+    const url = new URL(env.ASSESSMENT_URL);
+    const query = new URLSearchParams(url.hash.split('?')[1]);
+    if (url.origin !== base.origin || url.pathname !== base.pathname || !url.hash.startsWith('#/documents/') ||
+        url.username || url.password || query.get('workspace') !== workspace) throw Error('Assessment URL is not the bound workspace document');
+    assessment = `\n[Automatic execution assessment](${url.href})\n`;
+  }
+  const body = `${marker}\n## QRSPI checkpoint — awaiting your response\n\nProcess: \`${process}\` · Workspace: \`${workspace}\`\n\n[Open the checkpoint and submit your response](${checkpoint.href})\n\n[Workflow run](https://github.com/${repository}/actions/runs/${runId}) · Request \`${version}\` · Snapshot \`${snapshot}\`\n${assessment}\nThe bounded workflow turn has ended and is waiting for feedback. Submit through the linked review form to continue. PR comments alone do not submit a review, authorize code changes, or approve a QRSPI phase.\n`;
   // One comment per immutable checkpoint. Retries reuse its marker; do not overwrite another author's comment.
   for (let page = 1; ; page++) {
     const comments = await api(`issues/${number}/comments?per_page=100&page=${page}`);

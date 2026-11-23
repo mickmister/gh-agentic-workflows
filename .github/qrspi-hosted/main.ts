@@ -523,7 +523,6 @@ async function work() {
     task_id: binding.bead,
     title: output.title,
     description: `Exact artifact: ${prefix + target}. ${discussion ? "Answer to continue discussion; no phase approval." : "Content approval only; no code authorization."} ${reviewStatus}`,
-    allowCodeFileChanges: false,
     questions: discussion ? dialogueQuestions(output.question, output.questions) : [
       {
         id: "decision",

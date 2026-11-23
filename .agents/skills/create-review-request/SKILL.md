@@ -50,8 +50,9 @@ decision-relevant content.
 - Reviewers can annotate each choice, selected or not, including Other. Do not add
   duplicate explanation questions. Keep `additional_notes` as the master notes
   field; preserve per-choice and question-wide notes on intake.
-- Use `allowCodeFileChanges:false` for discussion-only forms. A design choice or
-  note is not code authorization. Prefer inspectable JSON files for substantial drafts.
+- Code-change permission is always a human submission option, not a form DSL field.
+  Do not author `allowCodeFileChanges`. A design answer or note alone does not select
+  that permission or approve a QRSPI phase. Prefer inspectable JSON files for drafts.
 - Forms and documents must follow ASD-STE100 conventions.
 
 ### Complete discussion-form example
@@ -63,7 +64,6 @@ decision-relevant content.
   "task_id": "task-example",
   "title": "Choose a phone layout approach",
   "goal": "Decide the layout direction before implementation planning.",
-  "allowCodeFileChanges": false,
   "questions": [
     {
       "type": "choices",
@@ -141,7 +141,7 @@ pins; validate with `parseReviewArtifact`/`validateReviewArtifact` and check cur
 authority. Preserve all choices, `<question>_<choice>_more_info`,
 `<question>_more_info`, `additional_notes` and `next_instruction`, not just intent.
 Notes do not select or approve choices. Discussion is not implementation approval;
-`allowCodeFileChanges:false` forbids code authorization. Reconcile prior effects
+Code-change permission is an explicit submission choice, not an authored DSL restriction. Reconcile prior effects
 before dispatch; never blindly replay. New decisions need an amendment or follow-up.
 
 For adapter limitations and historical runtime context, see
