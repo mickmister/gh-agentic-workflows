@@ -322,7 +322,7 @@ work for the parent; local synthetic tests are not human approval evidence.
   all rounds, including comments, quotes, selections, progress and form answers;
   it never receives Goals dialogue.
 - An exact offered form approval choice is **content approval only** (form intent
-  is `discussion`, `allowCodeFileChanges:false`). Before any frontmatter promotion,
+  is separate from the human submission's code-change permission). Before any frontmatter promotion,
   a designated orchestrator turn assesses the complete response for unconditional
   consistency with these exact bytes. Conditional/contradictory notes veto the
   promotion and reach the discussion/revision turn; benign notes are valid, not
@@ -459,3 +459,24 @@ are32 objects,32MB each and128MB total. A missing archive or missing usage is no
 proof of success or zero cost. Parent/child links are not currently recorded, and
 the pilot has no native OTel exporter; these gaps remain explicit. This optional
 mode never replays process work, runs setup, writes S3, or uploads Actions artifacts.
+# Automatic post-run assessment
+
+The normal loop is review submission → authenticated Actions continuation → next
+pinned human checkpoint. It does not require a separate monitoring agent or a
+per-run `.workflow-evidence` publication script. Every admitted process run now
+executes `assess-run.ts` after work, including failed work when the job survives.
+It reads back the exact published request/form/config/artifact pins and all packet
+members, validates their protocol identities, and independently inspects retained
+native archives and execution/OTLP evidence. It reports failed tools and unknown
+completion explicitly; missing diagnostics produce `verification-incomplete`.
+
+Compact findings are published and read back under the owning process's
+`assessments/<run>-<attempt>.md`, linked in the Actions summary and PR notification.
+Private structured assessment and raw execution payloads remain S3. The report
+never authorizes replay, source changes or phase approval. Shared project guidance
+changes when the implementation/design changes, not on every configuration answer.
+
+Form authors no longer set `allowCodeFileChanges`. The UI always offers submission
+permission, default off. Both submission intents reach the methodology agent;
+explicit offered artifact approval and runner source-capability limits remain
+separate. Historical pinned form bytes are read without rewriting their history.

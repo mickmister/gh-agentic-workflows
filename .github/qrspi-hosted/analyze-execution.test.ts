@@ -18,6 +18,7 @@ test("read-only inspector decodes private event/native/OTLP evidence without emi
     await end(new Error("PRIVATE-ERROR https://secret.invalid"));
     await evidence.begin("qrspi_dispatch", { sessionId: "PRIVATE-SESSION", toolCallId: "PRIVATE-CALL" });
     await evidence.close();
+    objects.set(prefix + "work/terminal.json", { kind: "pi-live-terminal", schemaVersion: 1, binding, executionId: "123-1", command: "work", status: "completed" });
     const calls: string[] = [];
     const result = await analyzeExecution(env, async command => {
       calls.push(command.constructor.name);

@@ -34,7 +34,11 @@ test("workflow matches the shared input contract and runs selected setup in the 
   const nodeVersion = job.steps.find((step: any) => step.uses?.startsWith("actions/setup-node@")).with["node-version"];
   const [major, minor] = nodeVersion.split(".").map(Number);
   assert.ok(major > 22 || major === 22 && minor >= 19, "Pi 1.5.2 requires Node >=22.19.0");
-  assert.equal(job.steps.find((s: any) => s.with?.repository === "mickmister/github-ultimate").with.ref, "2680accff9b70dfa425a72921f94e98ed29ac411");
+  assert.equal(job.steps.find((s: any) => s.with?.repository === "mickmister/github-ultimate").with.ref, "0943aa424737b236fe8b0c536eb92b846e2e6378");
+  const assessment = job.steps.find((s: any) => s.id === "assessment");
+  assert.match(assessment.run, /assess-run\.ts$/);
+  assert.equal(assessment.env.EXPECTED_REQUEST_VERSION, "${{ steps.work.outputs.request_version }}");
+  assert.equal(job.outputs.assessment_url, "${{ steps.assessment.outputs.assessment_url }}");
   const authIndex = job.steps.findIndex((s: any) => s.run?.includes("identity.ts"));
   const installIndex = job.steps.findIndex((s: any) => s.name === "Install frozen published toolchain");
   assert.ok(authIndex > 0 && authIndex < installIndex, "trusted actor check precedes install/credentials/setup");

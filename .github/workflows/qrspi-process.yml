@@ -101,6 +101,7 @@ jobs:
       checkpoint_url: ${{ steps.work.outputs.checkpoint_url }}
       request_version: ${{ steps.work.outputs.request_version }}
       request_snapshot: ${{ steps.work.outputs.request_snapshot }}
+      assessment_url: ${{ steps.assessment.outputs.assessment_url }}
     timeout-minutes: 360
     concurrency:
       group: qrspi-${{ inputs.workspace }}-${{ inputs.process }}
@@ -151,7 +152,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mickmister/github-ultimate
-          ref: 2680accff9b70dfa425a72921f94e98ed29ac411
+          ref: 0943aa424737b236fe8b0c536eb92b846e2e6378
           token: ${{ steps.source-auth.outputs.token }}
           path: .qrspi-review-cli
           persist-credentials: false
@@ -163,6 +164,9 @@ jobs:
       - name: Verify pins, admit once, restore artifacts and prepare project if requested
         id: open
         env: &host-env
+          PROCESS_OUTCOME: ${{ steps.work.outcome }}
+          EXPECTED_REQUEST_VERSION: ${{ steps.work.outputs.request_version }}
+          CHECKPOINT_URL: ${{ steps.work.outputs.checkpoint_url }}
           NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context || vars.NUGS_WORKSPACE_SEED }}
           NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
           NUGS_STORAGE_TOKEN: ${{ steps.storage-auth.outputs.token }}
@@ -209,6 +213,11 @@ jobs:
         if: ${{ !cancelled() && steps.open.outputs.admitted == 'true' }}
         env: *host-env
         run: SETUP_OUTCOME='${{ steps.setup.outcome }}' node --experimental-strip-types .github/qrspi-hosted/entry.ts work
+      - name: Verify published checkpoint and assess retained execution evidence
+        id: assessment
+        if: ${{ !cancelled() && steps.open.outputs.admitted == 'true' }}
+        env: *host-env
+        run: node --experimental-strip-types .github/qrspi-hosted/assess-run.ts
   notify:
     needs: process
     if: ${{ !cancelled() && needs.process.outputs.checkpoint_url != '' }}
@@ -233,4 +242,5 @@ jobs:
           CHECKPOINT_URL: ${{ needs.process.outputs.checkpoint_url }}
           CHECKPOINT_VERSION: ${{ needs.process.outputs.request_version }}
           CHECKPOINT_SNAPSHOT: ${{ needs.process.outputs.request_snapshot }}
+          ASSESSMENT_URL: ${{ needs.process.outputs.assessment_url }}
         run: node --experimental-strip-types .github/qrspi-hosted/checkpoint-comment.ts

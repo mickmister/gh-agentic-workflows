@@ -250,8 +250,8 @@ export function checkScope(
     return { approval: false, response };
   }
   assert(
-    form && response.forms.length === 1 && form.intent === "discussion",
-    "Wrong content decision form or excessive authority",
+    form && response.forms.length === 1 && ["discussion", "approved-next-steps"].includes(form.intent),
+    "Wrong content decision form or intent",
   );
   const decision = form.answers.decision;
   // Notes/progress submitted without a decision are discussion, not lost feedback.

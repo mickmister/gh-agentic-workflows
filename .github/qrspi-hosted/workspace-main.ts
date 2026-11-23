@@ -196,7 +196,7 @@ async function work() {
   const names = reviewDocuments(result, artifacts, sources.members.map(m => m.path));
   const requestId = `${binding.process}-${randomUUID()}`, formId = "workflow-decision";
   const form = { format: "standard", id: formId, task_id: binding.bead, title: result.title,
-    description: "Pinned methodology content. Discussion and content approval do not authorize source changes.", allowCodeFileChanges: false,
+    description: "Pinned methodology content. Submission permission does not approve a QRSPI phase or bypass the runner's source capability limits.",
     questions: result.approvalOffered ? [{ id: "decision", type: "choices", required: true, title: result.question,
       choices: [{ id: "approve", label: "Approve these exact artifact bytes" }, { id: "revise", label: "Request revisions" }, { id: "discuss", label: "Continue discussion" }],
       choiceGroups: [{ id: "one", mode: "exactlyOne", choiceIds: ["approve", "revise", "discuss"] }] },

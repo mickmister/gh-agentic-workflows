@@ -30,7 +30,8 @@ export async function analyzeExecution(env: NodeJS.ProcessEnv, send?: (command: 
       const list = await read(new ListObjectsV2Command({ Bucket: env.S3_CACHE_BUCKET, Prefix: prefix, MaxKeys: 1000, ...(token ? { ContinuationToken: token } : {}) }));
       for (const item of list.Contents ?? []) {
         assert(typeof item.Key === "string" && item.Key.startsWith(prefix), "Execution evidence escaped target");
-        assert(/^(?:open|work)\/(?:chunks\/[0-9]{6}|spans\/[a-f0-9]{16})\.json$/.test(item.Key.slice(prefix.length)), "Invalid execution evidence name");
+        const name = item.Key.slice(prefix.length);
+        assert(/^(?:open|work)\/(?:chunks\/[0-9]{6}|spans\/[a-f0-9]{16}|terminal)\.json$/.test(name), "Invalid execution evidence name");
         assert(++objects <= 2048, "Execution evidence object bound exceeded");
         const response = await read(new GetObjectCommand({ Bucket: env.S3_CACHE_BUCKET, Key: item.Key }));
         const chunks: Buffer[] = []; let size = 0;
@@ -40,6 +41,12 @@ export async function analyzeExecution(env: NodeJS.ProcessEnv, send?: (command: 
           chunks.push(Buffer.from(chunk));
         }
         const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        if (name.endsWith("/terminal.json")) {
+          assert(value.kind === "pi-live-terminal" && value.schemaVersion === 1 &&
+            digest(value.binding) === digest(binding) && value.executionId === `${env.TARGET_RUN_ID}-${env.TARGET_RUN_ATTEMPT ?? "1"}` &&
+            value.command === name.split("/")[0] && ["completed", "failed"].includes(value.status), "Invalid terminal evidence");
+          continue; // Live publication metadata is neither an event chunk nor OTLP.
+        }
         if (Array.isArray(value.events)) {
           assert(digest(value.binding) === digest(binding) && value.executionId === `${env.TARGET_RUN_ID}-${env.TARGET_RUN_ATTEMPT ?? "1"}`, "Execution evidence binding mismatch");
           for (const event of value.events) {

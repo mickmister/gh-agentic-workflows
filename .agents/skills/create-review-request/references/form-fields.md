@@ -22,11 +22,11 @@ validate with its production parsers. Newer dashboard types may not be supported
 | `goal`, `description` | Optional text; author a concise goal |
 | `task_id`, `session_id`, `parent_task_id` | Optional runtime references; hosted form `task_id` must match the member's Bead |
 | `invalidatedAt`, `invalidatedReason` | Optional invalidation metadata; do not publish invalidated forms |
-| `allowCodeFileChanges` | `false` or an object with optional `allowLabel`, `avoidLabel`, `label`, `description`, `defaultChecked` |
 | `nextInstructionPresets` | Up to 8 `{label, value}` objects |
 
-Use explicit `false` for discussion-only forms. Permission controls do not replace
-methodology authority or make recommendations into human answers.
+Every form offers code-change permission at submission, defaulting to discussion.
+Do not author the retired `allowCodeFileChanges` field. Permission controls do not
+replace methodology authority or make recommendations into human answers.
 
 ## Questions and choices
 
