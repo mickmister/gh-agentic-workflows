@@ -16,7 +16,7 @@ setup_file() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")"/../../.. && pwd)"
   export REPO_ROOT
   export MEASURE="$REPO_ROOT/scripts/measure-active-footprint.sh"
-  export REPORT="$REPO_ROOT/docs/qrspi/2026-06-04-v073-release/g9-footprint-report.md"
+  export REPORT="$REPO_ROOT/tests/fixtures/upstream-history/v073-footprint-report.md"
   export SHARED="$REPO_ROOT/skills/_shared"
 }
 

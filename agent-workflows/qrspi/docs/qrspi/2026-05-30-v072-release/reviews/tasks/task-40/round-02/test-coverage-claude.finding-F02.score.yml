@@ -1,2 +1,0 @@
-score: 30
-reason: Real observation — scan loop passes vacuously if no scripts/.husky/.githooks/lefthook files exist — but reviewer marked low and the absence of those dirs would itself signal a structural change; minor robustness nit.

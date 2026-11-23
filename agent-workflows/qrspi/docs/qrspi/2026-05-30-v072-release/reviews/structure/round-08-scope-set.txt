@@ -1,5 +1,0 @@
-# scope-set for round 8
-# generated_by: qrspi-scope-tagger
-# total_findings_kept: 4
-## Hook-Point Locations
-## File Map

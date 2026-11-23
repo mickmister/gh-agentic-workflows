@@ -1,3 +1,0 @@
-# scope-set for round 09
-# generated_by: qrspi-scope-tagger
-# total_findings_kept: 0
