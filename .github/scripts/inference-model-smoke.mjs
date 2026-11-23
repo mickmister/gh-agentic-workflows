@@ -134,7 +134,7 @@ export async function runModelSmoke(env = process.env, fetcher = fetch) {
     max_completion_tokens_per_request: profile.max_completion_tokens,
     authenticated_catalog_match: true, completion_tool_call: 'passed', tool_result_round_trip: 'passed',
     streaming: 'passed', stream_events: final.events, usage_initial: safeUsage(initial.usage), usage_final: final.usage,
-    opencode_executed: false, gas_city_executed: false};
+    agent_executed: false};
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

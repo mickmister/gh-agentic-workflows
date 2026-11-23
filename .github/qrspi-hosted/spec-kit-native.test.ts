@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { specKitTurn } from "./spec-kit-turn.ts";
+import { workspaceTurn } from "./workspace-turn.ts";
 import { ExecutionEvidence } from "./execution.ts";
 
 test("actual pinned Spec Kit YAML runs direct Pi with scoped tools, rejects invalid final output and cancels quiet inference", { timeout: 180000 }, async () => {
@@ -25,7 +26,8 @@ test("actual pinned Spec Kit YAML runs direct Pi with scoped tools, rejects inva
       finish = "tool_calls";
       const args = turn === 0 ? { area: "help" } : { area: "artifact", operation: "write", args: { name: "intake.md", content: "# Actual scoped fixture write\n" } };
       delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `call-${turn}`, type: "function", function: { name: "workspace_operation", arguments: JSON.stringify(args) } }] };
-    } else delta = { role: "assistant", content: mode === "valid" ? JSON.stringify({ title: "Fixture", question: "What next?", reviewArtifact: "intake.md", approvalOffered: false }) : '{"done":true}' };
+    } else delta = { role: "assistant", content: mode === "valid" ? JSON.stringify({ title: "Fixture", question: "What next?", reviewArtifact: "intake.md", approvalOffered: false })
+      : mode === "setup" ? JSON.stringify({ action: "name: fixture\nruns:\n  using: composite\n  steps: []\n", reason: "Scoped setup fixture" }) : '{"done":true}' };
     res.writeHead(200, { "content-type": "text/event-stream" });
     for (const chunk of [{ choices: [{ index: 0, delta, finish_reason: null }] }, { choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }]) {
       res.write(`data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "test-model", ...chunk })}\n\n`);
@@ -54,6 +56,15 @@ test("actual pinned Spec Kit YAML runs direct Pi with scoped tools, rejects inva
     assert(live.some(e => e.data.event.type === "tool_execution_start"));
     assert(live.every(e => e.sessionId === records[0].id && e.data.source === "pi-events.log"));
     assert(!chunks.flatMap(c => c.events ?? []).some(e => e.kind === "acp"));
+    mode = "setup"; round = 0;
+    const setup = await workspaceTurn(home, "Return the assigned setup action and reason.",
+      { docs: {} as any, prefix: "", root, home, artifacts, pins: {}, methodology: root, sources: { writable: false } as any,
+        worker: { id: "recipe", role: "setup-author", task: "recipe", access: "read", prompt: "Fixture setup" } },
+      { id: randomUUID(), parentId: null, executionId: "1-1", role: "setup-author", sourceSha: "a".repeat(40) },
+      async (_id, value) => { archives.push(value); }, async value => { records.push(value); }, evidence, { timeoutMs: 60000 });
+    assert.equal(setup.reason, "Scoped setup fixture");
+    assert.equal(round, 1); assert.equal(archives.at(-1).backend, "spec-kit");
+    assert.equal(JSON.parse(archives.at(-1).engineOutput).workflow_id, "workspace-setup-author");
     mode = "invalid"; round = 0;
     await assert.rejects(run(), /Spec Kit workflow failed/); assert.equal(round, 1, "invalid native final output must not be replayed");
     assert.equal(records.at(-1).status, "failed");

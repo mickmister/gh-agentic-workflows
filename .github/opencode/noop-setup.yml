@@ -1,7 +1,0 @@
-name: No additional project setup
-description: Default native slot; the agent reuses or replaces it based on actual task needs.
-runs:
-  using: composite
-  steps:
-    - shell: bash
-      run: ':'

@@ -2,7 +2,7 @@ name: Agent workflow runtime tests
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [vk/46e5-vd-multi-instanc]
 permissions:
   contents: read
 jobs:
@@ -14,5 +14,4 @@ jobs:
         with:
           node-version: '22'
       - run: node --test .github/scripts/*.test.mjs .github/scripts/test_*.mjs
-      - run: for script in poc/scripts/*.sh; do bash -n "$script" || exit; done
       - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'

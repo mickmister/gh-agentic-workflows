@@ -4,6 +4,7 @@ import { assert, type Binding } from "./core.ts";
 import { digest, type PrivateStore } from "./storage.ts";
 import type { GitHub } from "./github.ts";
 import { completedDrafts } from "./workspace-publication.ts";
+import { assertSpecKitCheckpoint } from "./workspace-host.ts";
 
 export async function recoverPublication(env: NodeJS.ProcessEnv, store: PrivateStore, github: GitHub, binding: Binding, key: string, home: string) {
   const target = env.RECOVER_PUBLICATION!;
@@ -12,7 +13,9 @@ export async function recoverPublication(env: NodeJS.ProcessEnv, store: PrivateS
   const active = await store.read(`${key}/active-invocation.json`), checkpoint = await store.read(`${key}/checkpoint.json`);
   assert(active?.value.run === target && active.value.outcome === "admitted-uncertain" && digest(active.value.binding) === digest(binding), "Publication recovery active invocation mismatch");
   const prior = checkpoint?.value;
-  assert(prior?.schemaVersion === 2 && digest(prior.binding) === digest(binding) && prior.sourceAuthority === false && !prior.tasks.length, "Publication recovery only supports source-disabled discussion with an existing checkpoint");
+   assert(prior, "Publication recovery requires an existing checkpoint");
+   assertSpecKitCheckpoint(prior);
+   assert(digest(prior.binding) === digest(binding) && prior.sourceAuthority === false && !prior.tasks.length, "Publication recovery only supports source-disabled Spec Kit discussion with an existing checkpoint");
   const run = await github.api(`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${target}`, await github.token(env.GITHUB_REPOSITORY!, "inspect"));
   assert(run.status === "completed" && run.conclusion === "failure" && run.run_attempt === 1 && run.path === ".github/workflows/qrspi-process.yml", "Publication recovery requires the exact failed first attempt");
   const error = await store.read(`${key}/private/error-${target}-1-work.json`);

@@ -103,6 +103,7 @@ Actual hosted execution and the first real human boundary are recorded in the
 owning Bead and focused delivery review. Runtime/native payloads remain private
 S3; authored artifacts and compact findings use nugs. No Actions artifacts.
 
-The older source-enabled ACPX path and setup-specialist migration remain separate.
+The retired source-enabled transport is removed. The scoped setup specialist now
+runs `setup.yml`; supported general source-development dispatch remains separate.
 The earlier live smoke remains execution-only evidence with handwritten prompts;
 it is not retroactively described as canonical QRSPI execution.

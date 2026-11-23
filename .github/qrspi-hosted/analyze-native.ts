@@ -65,7 +65,7 @@ export function nativeSummary(value:any) {
    if(value.backend==='spec-kit') {
      let state:any;try{state=JSON.parse(value.engineOutput);}catch{}
      specKit={engineStatus:['completed','failed','paused','aborted'].includes(state?.status)?state.status:'unknown',
-        workflowId:['qrspi-goals-intake','qrspi-workspace-mini','qrspi-canonical-worker'].includes(state?.workflow_id)?state.workflow_id:'unknown',
+         workflowId:['qrspi-goals-intake','qrspi-workspace-mini','qrspi-canonical-worker','workspace-setup-author'].includes(state?.workflow_id)?state.workflow_id:'unknown',
        commit:typeof value.specKitCommit==='string'&&/^[a-f0-9]{40}$/.test(value.specKitCommit)?value.specKitCommit:null,
         definitionSha256:typeof value.workflowSha256==='string'&&/^[a-f0-9]{64}$/.test(value.workflowSha256)?value.workflowSha256:null,
         ...(Array.isArray(value.promptSources)&&value.promptSources.length ? {promptSources:value.promptSources.slice(0,3).map((p:any)=>({

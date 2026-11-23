@@ -51,16 +51,5 @@ jobs:
           repository: mickmister/gh-agentic-workflows
           ref: vk/46e5-vd-multi-instanc
           persist-credentials: false
-      - id: dispatch-auth
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.AGENT_APP_ID }}
-          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
-          owner: mickmister
-          repositories: gh-agentic-workflows
-          permission-actions: write
-      - name: Dispatch canonical comment reference to the configured Gas City runner
-        env:
-          GITHUB_DISPATCH_TOKEN: ${{ steps.dispatch-auth.outputs.token }}
-          GC_COMMENT_REFERENCE: ${{ needs.route.outputs.comment_reference }}
-        run: python3 .github/scripts/dispatch-pr-comment.py
+      - name: Explain retired comment dispatcher
+        run: node -e 'throw new Error("PR-comment coding dispatch is retired. Use qrspi-process.yml and immutable review submissions.")'

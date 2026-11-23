@@ -2,7 +2,7 @@
 
 This slice prepares and executes native setup composites. It does not implement
 coding agents, setup proposal/merge automation, human-gate dispatch, or native
-multi-repo Gas City acceptance. See the versioned design/decisions in nugs for
+multi-repo agent execution acceptance. See the versioned design/decisions in nugs for
 those milestones. No project definition is automatically authored/promoted here.
 
 ## Configuration and source contract
@@ -218,10 +218,10 @@ or external OTel backend is introduced by this proof.
 
 ## Next boundaries
 
-Gas City should own native task/session/idle scheduling; bounded Hermes turns
-reason at milestones. Thin host code owns Actions lifecycle, checkpoints,
-credentials, feedback and unknown external-effect reconciliation. There is no
-Pi dependency. UI submission belongs in the existing TanStack `github-ultimate`
+Spec Kit owns workflow execution through its pinned Pi integration. Thin host code
+owns Actions lifecycle, checkpoints, credentials, feedback and unknown external-effect
+reconciliation. This environment-only proof does not launch an agent. UI submission
+belongs in the existing TanStack `github-ultimate`
 interaction-batch flow, with workflow dispatch as transport; not a competing
 comment-native UI or an additional application backend.
 

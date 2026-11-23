@@ -6,6 +6,10 @@ import { GitHub, gitEnvironment } from "./github.ts";
 import { manifestMembers, materialize, type Manifest, type Member } from "./workspace.ts";
 import type { Documents } from "./documents.ts";
 
+export function assertSpecKitCheckpoint(value: { schemaVersion?: unknown; executionBackend?: unknown }) {
+  assert(value.schemaVersion === 2 && value.executionBackend === "spec-kit", "Unsupported checkpoint: only Spec Kit workspace processes can resume; historical executions require explicit migration");
+}
+
 export async function checkoutWorkspace(home: string, docs: Documents, github: GitHub, workspace: string, prior?: Member[], pinnedManifest?: { text: string; version: string; snapshot: string }) {
   const doc = pinnedManifest ? pinnedManifest : docs.read("workspace/manifest.json");
   const declared = manifestMembers(JSON.parse(doc.text) as Manifest, workspace);

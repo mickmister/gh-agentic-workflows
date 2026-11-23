@@ -133,10 +133,12 @@ review submissions have no event subscriptions at all.
 Currently manual dispatch selects model-free persistence. A newly created comment
 whose entire body is `/agentic plumbing` selects that same route only after the
 author's current repository permission is verified as write/maintain/admin.
-Ordinary comments and real coding-agent commands select no work. This is plumbing
-routing, not approval to execute a PR-comment coding agent. The scoped PR is to be
+Ordinary comments select no work. Coding-agent commands receive an explicit retired-
+dispatcher failure directing callers to `qrspi-process.yml` and immutable review
+submissions. This is plumbing routing, not approval to execute a PR-comment coding
+agent. The scoped PR is to be
 reviewed/merged separately; creating it does not authorize a default-branch push.
 
-Next is invoking this reusable workflow from an actual source repository and
-then layering the PR-comment execution flow on the same setup. Source checkout,
-PR-head authorization and inference are separate from this bounded storage proof.
+Source checkout, PR-head authorization and inference are separate from this bounded
+storage proof. Agent execution uses the shared Spec Kit hosted process; the retired
+PR-comment runtime is not an alternative backend.

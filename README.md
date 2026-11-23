@@ -1,39 +1,48 @@
 # gh-agentic-workflows
 
-GitHub-native agent workflows using Gas City for orchestration and nugs for
-durable workspace, execution-graph and conversation state.
+GitHub-native agent workflows built on **Spec Kit**, its pinned **Pi** integration,
+and **nugs** for durable workspace context and authored review resources.
+Private S3 holds execution state, native sessions and telemetry.
 
-## Shared observability action
+## Start here
 
-The [observability action](.github/actions/observability/README.md) combines
-CargoWall network auditing with configurable Thoth OpenTelemetry tracing.
-Use it from workflows in this repository or other repositories via
-`mickmister/gh-agentic-workflows/.github/actions/observability@<ref>`.
-The action documents workflow inputs, light/full profiles, required permissions,
-pre/post-hook ordering, and the same-repository/cross-repository adoption path.
+- [Hosted workspace process](.github/qrspi-hosted/README.md): authenticated inputs,
+  workspace restoration, setup, scoped capabilities and immutable human feedback.
+- [Spec Kit runtime](.github/qrspi-spec-kit/README.md): frozen installation,
+  canonical mini-workflows, evidence and current qualification limits.
+- [QRSPI methodology](agent-workflows/README.md): vendored prompts, generated
+  runtime files and upstream provenance.
+- [Shared observability action](.github/actions/observability/README.md): reusable
+  network auditing and private OpenTelemetry capture.
 
-## PR comment workflow
+`.github/workflows/qrspi-process.yml` supports manual and reusable workflow calls.
+It has one execution path: Spec Kit. The current production QRSPI entry supports
+source-disabled conversation and canonical intake phases. The disposable
+[multi-agent smoke](.github/qrspi-spec-kit/MULTI-AGENT-SMOKE.md) demonstrates source
+editing but is not a general coding service. The bounded implementer plus parallel
+reviewers/tester workflow is tracked in `task-cx3`.
 
-A source repository's thin default-branch caller invokes the shared entrypoint.
-Post `/agentic <request>` in a PR conversation, or submit a GitHub Ultimate form
-using its generated `/github-ultimate discuss` / `/github-ultimate approve`
-response. The trusted handler verifies the request, launches a Gas City-managed
-orchestrator, applies its validated formula decision, and updates one App-owned
-status comment on the originating PR. Ordinary comments and marked form/status
-output do not launch agents.
+## Retired execution paths
 
-Installed formulas currently perform **read-only investigation and change
-planning**. Follow-ups restore native conversation history and execution state;
-approval does not add source-editing tools to those profiles.
+Gas City and ACPX runtimes, formulas, packs, launchers, the Gas City-backed
+self-hosting pilot, and backend selectors have
+been removed. Historical code and evidence remain available at their exact Git
+revisions; they are not alternate supported implementations. Existing historical
+checkpoints are not silently migrated or replayed. Only Spec Kit workspace
+checkpoints can resume through the current process entry.
 
-- [PR comment setup, authorization and reporting](docs/pr-comment-workflow.md)
-- [PR comment and agent workflow sequence diagram](docs/pr-comment-sequence.md)
-- [Gas City runtime and dispatch development harness](docs/gascity-event-orchestrator.md)
-- [Stable source-repository persistence setup](docs/source-repo-persistence.md)
-- [Multi-organization App installation and target authentication](docs/multi-org-authentication.md)
-- [Broader caller configuration proposal](docs/caller-configuration-proposal.md)
+Old PR-comment coding dispatch is retired. Use the hosted process and immutable
+review submissions; the `agentic-entry.yml` persistence caller remains available
+for its workspace-persistence purpose.
 
-Workflows use ordinary GitHub Actions and native Gas City packs/formulas.
-The [`poc/` checkpoint test](poc/README.md) exercises native graph recovery across
-two runners using an Actions artifact. Production run persistence and human
-gates are documented separately in [the Goals workflow](docs/qrspi-goals.md).
+## Checks
+
+```sh
+npm ci --prefix .github/qrspi-hosted --ignore-scripts --no-audit --no-fund
+uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+npm run check --prefix .github/qrspi-hosted
+npm test --prefix .github/qrspi-hosted
+```
+
+Native engine tests use the pinned runtime and synthetic inference. Hosted live
+execution and methodology acceptance require their own retained evidence.

@@ -1,6 +1,5 @@
 #!/usr/bin/env -S node --experimental-strip-types
-// pi-acp invokes this executable instead of ambient `pi`. Only an explicit
-// orchestrator capability can load our tool bridge; workers have no tools.
+// Spec Kit adapters invoke the pinned Pi executable with a scoped tool bridge.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const env: NodeJS.ProcessEnv = {};
@@ -28,7 +27,7 @@ const child = spawn(
     ),
     ...process.argv.slice(2),
     ...(env.QRSPI_TOOL_SOCKET && env.QRSPI_TOOL_TOKEN
-      ? ["--no-builtin-tools", "--extension", fileURLToPath(new URL(env.WORKSPACE_AGENT_ROLE ? "workspace-extension.ts" : "pi-tools.ts", import.meta.url))]
+      ? ["--no-builtin-tools", "--extension", fileURLToPath(new URL("workspace-extension.ts", import.meta.url))]
       : ["--no-tools"]),
     "--no-mcp",
     "--no-extensions",

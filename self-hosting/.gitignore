@@ -1,5 +1,0 @@
-.env
-secrets/
-runtime/
-backups/
-*.receipt.json

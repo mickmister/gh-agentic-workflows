@@ -30,13 +30,10 @@ The installation must approve all requested permissions; token creation fails if
 they are unavailable. Target credentials do not replace runtime-source or workspace
 storage credentials, which remain scoped by `nugs-app-auth`.
 
-`repo-ops.yml` uses the read profile for its target, unless the caller explicitly
-supplies the existing `TARGET_READ_TOKEN` override. That override remains caller-
-managed and does not receive this action's App/scope verification. Inventory mode
-does not create a target token. `gascity-event.yml` uses the comments profile for
-the canonical PR comment repository. Its existing formulas remain investigation
-and planning operations; adding write authentication does not itself implement a
-coding/push agent. A coding workflow can consume the target action's write profile.
+The shared target action remains available independently of the retired coding
+launchers. Adding write authentication does not implement a coding/push agent or
+grant methodology approval. A supported coding workflow can consume the write
+profile only within its explicit source authority.
 
 ## Verification
 

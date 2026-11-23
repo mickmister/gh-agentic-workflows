@@ -15,11 +15,10 @@ preparation turn. Its first hosted delivery evidence retains that historical sco
 Owner: `task-8a7.3`. First hosted execution slice; parallel-integration/FizzBee
 conformance is separately owned by `task-3vt.34.15.4`.
 
-`qrspi-process.yml` accepts `execution-backend: auto|spec-kit|acpx`. `auto` selects
-Spec Kit for a **new source-disabled workspace process**, preserves the backend
-of an existing process, and retains ACPX for historical/source-enabled paths.
-Checkpoint metadata persists the selection. An explicit conflicting selection on
-an existing process fails before admission; this is not an implicit migration.
+`qrspi-process.yml` always uses Spec Kit. There is no backend input or fallback.
+Existing Spec Kit workspace checkpoints retain their engine identity. Historical
+checkpoints from retired runtimes require an explicit migration and are rejected
+before admission; they are never silently restarted under another engine.
 
 The native Beads handoff must include the owning task. Publish current native
 context with the released `nugs beads sync`, then use its verified `handoff` as
@@ -42,7 +41,7 @@ hashes in the lock. All new first-party orchestration/adapters remain TypeScript
 
 `goals-intake.yml` uses public shell steps to invoke the thin TypeScript direct-Pi
 launcher, followed by structural validation. Spec Kit owns the step sequence; no
-ACPX transport or custom loop scheduler executes this turn. Pi is the existing
+alternate transport or custom loop scheduler executes this turn. Pi is the existing
 npm-integrity-pinned `@earendil-works/pi-coding-agent@1.5.2` CLI, with explicit
 model configuration and capability extension, no ambient tools/context discovery.
 The preparation turn uses the same execution path and existing setup contract.
@@ -99,8 +98,9 @@ Human-boundary continuation uses the persisted QRSPI checkpoint, not an orphaned
 Spec Kit `running` state. This does not provide generic mid-run crash recovery.
 
 The existing source/workspace tools are a cooperative capability boundary, not
-an OS sandbox. General setup-specialist/source-worker execution is not migrated
-by this slice. No new direction-change policy is selected; the FizzBee work
+an OS sandbox. The scoped setup specialist now uses `setup.yml` with the same
+direct-Pi adapter and a separate action/reason output contract. General source-worker
+execution is not provided by this slice. No new direction-change policy is selected; the FizzBee work
 continues to qualify those contracts independently.
 
 ## Verification
@@ -113,7 +113,7 @@ From `.github/qrspi-hosted`, after frozen npm installation:
 
 ```sh
 npm run check
-node --experimental-strip-types --test spec-kit-native.test.ts execution-backend.test.ts workflow.test.ts
+node --experimental-strip-types --test spec-kit-native.test.ts workflow.test.ts
 ```
 
 The real pinned engine/direct-Pi test uses synthetic inference, checks actual

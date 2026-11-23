@@ -329,14 +329,6 @@ export function samePin(a: any, b: Pin) {
     a?.snapshot === b.snapshot
   );
 }
-export function settled(result: any, text: string) {
-  assert(result?.status === "completed", "Pi turn did not complete");
-  assert(
-    result.stopReason !== "cancelled" && text.trim(),
-    "Pi produced no successful output",
-  );
-  return text;
-}
 export function validateSetupAction(text: string) {
   assert(
     typeof text === "string" && text.length < 64000,

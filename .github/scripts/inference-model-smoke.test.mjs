@@ -33,7 +33,7 @@ test('uses the exact model/medium profile and authenticated tool-result stream w
   const result = await runModelSmoke(env, h.fetcher);
   assert.equal(result.streaming, 'passed');
   assert.equal(result.tool_result_round_trip, 'passed');
-  assert.equal(result.opencode_executed, false);
+  assert.equal(result.agent_executed, false);
   assert.deepEqual(result.usage_initial, {prompt_tokens: 10, completion_tokens: 20, total_tokens: 30});
   assert.equal(h.calls[1].url, 'https://private.invalid/gateway/v1/chat/completions');
   for (const call of h.calls) {

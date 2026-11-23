@@ -1,7 +1,0 @@
-.git
-**/__pycache__
-self-hosting/.env
-self-hosting/secrets
-self-hosting/runtime
-self-hosting/backups
-self-hosting/*.receipt.json
