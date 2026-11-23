@@ -1,0 +1,48 @@
+schema_version: '1.0'
+workflow:
+  id: implement-review-test
+  name: Implement then two reviewers and tester
+  version: 0.1.0
+steps:
+  - id: cycles
+    type: do-while
+    condition: "{{ steps.assess.output.data.retry }}"
+    max_iterations: 4
+    steps:
+      - id: begin
+        type: shell
+        strict: true
+        output_format: json
+        run: node --experimental-strip-types "$DEVELOPMENT_STEP" begin
+      - id: implement
+        type: prompt
+        prompt: development:implementer
+        integration: pi
+        capture: true
+        capture_max_bytes: 16384
+        timeout: 1800
+      - id: freeze
+        type: shell
+        strict: true
+        output_format: json
+        run: node --experimental-strip-types "$DEVELOPMENT_STEP" freeze
+      - id: evaluators
+        type: fan-out
+        items: [reviewer-1, reviewer-2, tester]
+        max_concurrency: 3
+        step:
+          id: evaluate
+          type: prompt
+          prompt: "development:{{ item }}"
+          integration: pi
+          capture: true
+          capture_max_bytes: 16384
+          timeout: 1800
+      - id: collect
+        type: fan-in
+        wait_for: [evaluators]
+      - id: assess
+        type: shell
+        strict: true
+        output_format: json
+        run: node --experimental-strip-types "$DEVELOPMENT_STEP" assess

@@ -1,9 +1,9 @@
 name: QRSPI runtime checks
 on:
   pull_request:
-    paths: ['.github/qrspi-hosted/**', '.github/qrspi-spec-kit/**', '.github/workflows/qrspi-*.yml', '.github/workflows/workspace-setup.yml']
+    paths: ['.github/qrspi-hosted/**', '.github/qrspi-spec-kit/**', '.github/development/**', '.github/workflows/qrspi-*.yml', '.github/workflows/development-*.yml', '.github/workflows/workspace-setup.yml']
   push:
-    paths: ['.github/qrspi-hosted/**', '.github/qrspi-spec-kit/**', '.github/workflows/qrspi-*.yml', '.github/workflows/workspace-setup.yml']
+    paths: ['.github/qrspi-hosted/**', '.github/qrspi-spec-kit/**', '.github/development/**', '.github/workflows/qrspi-*.yml', '.github/workflows/development-*.yml', '.github/workflows/workspace-setup.yml']
 permissions:
   contents: read
 jobs:
