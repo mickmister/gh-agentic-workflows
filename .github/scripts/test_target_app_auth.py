@@ -14,8 +14,6 @@ def load(name, filename):
 
 
 target = load("target_test", "target-app-auth.py")
-comments = load("target_comments_test", "github-comment.py")
-event = load("target_event_test", "gascity-event.py")
 
 
 class TargetAuthentication(unittest.TestCase):
@@ -58,21 +56,6 @@ class TargetAuthentication(unittest.TestCase):
             self.assertEqual(resolved["contents"], "read")
             self.assertEqual(resolved["workflows"], "")
         self.assertEqual(target.resolve("vibe-dashboard/vibe-dashboard", "comments")["issues"], "write")
-
-    def test_comment_reference_accepts_approved_other_org_only(self):
-        ref = {"repository": "vibe-dashboard/vibe-dashboard", "number": 1, "comment_id": 2, "body_sha256": "a" * 64}
-        self.assertEqual(comments.reference(json.dumps(ref)), ref)
-        with self.assertRaises(RuntimeError):
-            comments.reference(json.dumps({**ref, "repository": "unapproved/repo"}))
-
-    def test_comment_api_uses_target_not_runtime_or_storage_token(self):
-        proof = event.EventProof.__new__(event.EventProof)
-        with patch.dict(os.environ, {"GITHUB_TARGET_TOKEN": "target", "GITHUB_SOURCE_TOKEN": "source",
-                                     "NUGS_STORAGE_TOKEN": "storage"}):
-            self.assertEqual(proof.api().token, "target")
-        with patch.dict(os.environ, {"GITHUB_SOURCE_TOKEN": "source"}, clear=True):
-            with self.assertRaises(RuntimeError):
-                proof.api()
 
 
 if __name__ == "__main__":

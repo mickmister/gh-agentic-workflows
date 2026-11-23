@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { command } from "./source.ts";
 import { NativeCapture } from "./native-capture.ts";
 import { ExecutionEvidence } from "./execution.ts";
-import { turnTimeout } from "./turn-policy.ts";
 
 test("commands stream more than128KB, retain full logs and bounded tails, and preserve exit failures", async () => {
   const home = await mkdtemp(join(tmpdir(), "command-stream-"));
@@ -49,8 +48,6 @@ test("command cancellation kills descendants, explicit limits stop work, and unl
     await assert.rejects(command(home, home, [process.execPath], 0), /policy/);
     const bounded = await command(home, home, [process.execPath, "-e", "process.stdout.write('x'.repeat(1000000))"], undefined, { outputBytes: 64000 });
     assert.equal(bounded.outcome, "output-limit");
-    assert.equal(turnTimeout(), 0); assert.equal(turnTimeout(3_600_000), 3_600_000);
-    assert.throws(() => turnTimeout(-1));
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 

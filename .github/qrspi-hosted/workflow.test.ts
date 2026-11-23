@@ -18,8 +18,6 @@ test("workflow matches the shared input contract and runs selected setup in the 
     "prepare-project",
     "response",
     "allow-source-effects",
-    "legacy-document-pilot",
-    "execution-backend",
     "recover-before-model",
     "recover-failed-resume",
     "recover-publication",
@@ -60,7 +58,7 @@ test("workflow matches the shared input contract and runs selected setup in the 
   assert.equal(notification.env.GH_TOKEN, '${{ github.token }}');
   assert.equal(notification.env.INFERENCE_API_KEY, undefined);
   assert.doesNotMatch(text, /upload-artifact|\bpython[23]?\s+[\w./-]+\.py/);
-  assert.equal(workflow.on.workflow_dispatch.inputs["execution-backend"].default, "auto");
+  assert.doesNotMatch(text, /execution-backend|LEGACY_DOCUMENT_PILOT|QRSPI_EXECUTION_BACKEND/);
   assert(job.steps.some((s: any) => s.run === "uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev"), "third-party Python engine is explicit and locked; first-party orchestration remains TS");
   assert.ok(
     job.steps.some((s: any) =>
@@ -84,8 +82,6 @@ test("published package pins and nugs registry integrity match the existing sour
   );
   for (const [name, version] of Object.entries({
     "@mickmister/nugs": "0.1.6",
-    acpx: "0.22.0",
-    "pi-acp": "0.0.33",
     "@earendil-works/pi-coding-agent": "1.5.2",
   })) {
     assert.equal(pkg.dependencies[name], version);

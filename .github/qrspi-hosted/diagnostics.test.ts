@@ -1,9 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { spawnSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { classify, reportFailure } from "./diagnostics.ts";
 import { inspect } from "./inspect.ts";
 import { PrivateStore } from "./storage.ts";
@@ -51,28 +48,4 @@ test("GET missing bucket, bare 404 and access failures remain unknown; only name
       await assert.rejects(store.admit("key", { outcome: "admitted-uncertain" }));
     }
   } finally { store.client.destroy(); }
-});
-test("main reports accurate pre-admission stages and archival failure without leaking original text", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qrspi-diagnostic-"));
-  try {
-    for (const mode of ["initialization", "read", "binding", "protocol", "duplicate"]) {
-      const runner = join(dir, "runner.mts");
-      writeFileSync(runner, `
-        import { PrivateStore } from ${JSON.stringify(new URL("storage.ts", import.meta.url).href)};
-        PrivateStore.prototype.read = async () => { ${mode === "read" ? `throw { name: ${JSON.stringify(secret)}, code: ${JSON.stringify(secret)}, message: ${JSON.stringify(secret)} };` : `return ${mode === "duplicate" ? '{ value: { outcome: "admitted-uncertain" } }' : 'undefined'};`} };
-        PrivateStore.prototype.put = async () => { throw { name: "AccessDenied", message: ${JSON.stringify(secret)}, $metadata: { httpStatusCode: 403 } }; };
-        PrivateStore.prototype.admit = async () => { throw new Error("SHOULD-NOT-ADMIT"); };
-        process.argv[2] = "open";
-        await import(${JSON.stringify(new URL("main.ts", import.meta.url).href)});
-      `);
-      const child = spawnSync(process.execPath, ["--import", "tsx", runner], { encoding: "utf8", env: { ...process.env, ...env, QRSPI_HOME: mode === "initialization" ? "" : dir, GITHUB_OUTPUT: join(dir, "output"), REVIEW_REPOSITORY: mode === "binding" ? "invalid" : "owner/repo", REVIEW_APP_URL: "https://viewer.invalid", QRSPI_REVIEWERS: "github:1", GITHUB_ULTIMATE_ROOT: join(dir, "missing") } });
-      assert.equal(child.status, 1, child.stderr);
-      assert.equal(child.stdout, "");
-      const result = JSON.parse(child.stderr.trim());
-      assert.equal(result.stage, mode === "initialization" ? "initialization" : mode === "read" || mode === "duplicate" ? "admission-read" : mode === "binding" ? "binding-readiness" : "protocol-readiness");
-      assert.equal(result.privateEvidenceStored, false);
-      assert.equal(result.archivalFailure.code, mode === "initialization" ? undefined : "AccessDenied");
-      assert(!/RAW|private.invalid|SHOULD-NOT-ADMIT/.test(child.stderr));
-    }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

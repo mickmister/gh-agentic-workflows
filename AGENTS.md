@@ -1,7 +1,8 @@
 # Review requests
 
-For designated-orchestrator helper work through the ACPX workspace wrapper, read
-[run-acpx-helpers](.agents/skills/run-acpx-helpers/SKILL.md).
+Spec Kit is the only supported execution engine. Use its pinned Pi integration
+and shared workspace capabilities. Do not add backend selectors, transport
+fallbacks or parallel legacy execution implementations.
 
 Read and follow [create-review-request](.agents/skills/create-review-request/SKILL.md)
 when creating, publishing, reading or updating a review request, or whenever a
@@ -42,7 +43,7 @@ legacy Python is not yet migrated; native published tools retain their ownership
 
 When analyzing a workflow run's success, download and inspect available native
 orchestrator/worker transcripts, session records, performance/usage counters and
-OTel payloads. A green Actions result or settled ACP turn alone is insufficient.
+OTel payloads. A green Actions result or settled engine step alone is insufficient.
 Report missing/inaccessible evidence explicitly, including absent parent/child
 links or instrumentation; do not invent sessions, spans, costs or clean reviews.
 Use read-only inspection for existing runs rather than replaying model work.

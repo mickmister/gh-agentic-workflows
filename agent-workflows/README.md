@@ -18,14 +18,13 @@ Four historical test inputs are retained under `tests/fixtures/upstream-history/
 - Original attribution: [`qrspi/PROVENANCE.md`](qrspi/PROVENANCE.md).
 
 The initial import preserved the upstream snapshot unchanged. It did not wire
-QRSPI+ into the existing Actions workflows or install acpx. The planned direction
-is to adapt the vendored host/dispatch interfaces in place, keeping QRSPI+ skills
-as the methodology authority and using ACP-compatible agents through acpx.
+QRSPI+ into the existing Actions workflows. Current execution uses Spec Kit and
+its Pi integration, keeping QRSPI+ skills as the methodology authority.
 
 Keep downstream adaptations in separate commits from this pristine import. For
 an upstream update, compare the pinned old and new upstream trees, reconcile
 downstream edits, retain license/provenance, regenerate the plugin build and run
-the relevant upstream and ACP integration checks. Do not overwrite local
+the relevant upstream and Spec Kit integration checks. Do not overwrite local
 adaptations with an unreviewed directory copy. Nested `.github/workflows/` files
 are upstream reference material; GitHub does not discover them as this
 repository's workflows.
@@ -51,10 +50,9 @@ The pristine import remains `b12c501`. Baseline follow-up `630af02` repairs the
 config-contract test target and no-gh fixture, and regenerates upstream's stale
 install tree. This is not a new upstream release.
 
-The ACP transport foundation consumes prompt files from the existing dispatch
-seam and supports explicitly fresh or continued role sessions with replay and
-uncertain-outcome guards. See
-[`../.github/qrspi-runtime/README.md`](../.github/qrspi-runtime/README.md) for the
-pinned package installation, request contract, real-client tests and integration
-limits. Runner/round wiring, durable S3 admission and the hosted response bridge
-are still required for the approved artifact loop.
+The retired ACP transport and its generated copy, fixture and tests are removed.
+Spec Kit consumes canonical prompt files through thin TypeScript adapters; see
+[`../.github/qrspi-spec-kit/README.md`](../.github/qrspi-spec-kit/README.md).
+The hosted process retains durable admission, exact review pins and private S3
+evidence. Source-enabled development and complete methodology reviewer fan-in
+remain separately tracked work, not an implicit fallback to another runtime.

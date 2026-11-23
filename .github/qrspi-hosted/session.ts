@@ -9,7 +9,6 @@ export type SessionIdentity = {
 export type SessionRecord = SessionIdentity & {
   status: "allocated" | "completed" | "failed";
   nativeSessionIds?: string[];
-  acpxRecordId?: string;
 };
 export function nativeSessionIds(native: string[]) {
   return [...new Set(native.flatMap(line => {

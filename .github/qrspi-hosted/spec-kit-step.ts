@@ -12,7 +12,9 @@ const resultFile = join(dir, "result.json"), nativeFile = join(dir, "sessions", 
 export function validateIntake(value: any) {
   assert(value && typeof value === "object" && !Array.isArray(value), "Invalid intake output");
   // Preparation has its own existing structural contract, consumed by the host.
-  if (process.env.QRSPI_PREPARATION === "true") {
+  if (process.env.QRSPI_SETUP_AUTHOR === "true") {
+    assert(typeof value.action === "string" && typeof value.reason === "string", "Invalid setup author result");
+  } else if (process.env.QRSPI_PREPARATION === "true") {
     assert(typeof value.reason === "string" && (value.setup === null || value.setup && typeof value.setup === "object" || value.pendingSetup), "Invalid preparation result");
   } else {
     assert(typeof value.title === "string" && typeof value.question === "string" && typeof value.reviewArtifact === "string" && typeof value.approvalOffered === "boolean", "Invalid Goals intake result");

@@ -1,7 +1,0 @@
-{
-  "name": "qrspi-acp-runtime",
-  "private": true,
-  "type": "module",
-  "engines": { "node": ">=22.13.0" },
-  "dependencies": { "acpx": "0.22.0" }
-}
