@@ -26,7 +26,10 @@ test("read-only inspection accounts for interrupted native sessions and redacts 
     assert.equal(command.input.Prefix, `fixture/${key}/evidence/`);
     return { Contents: [{ Key: `fixture/${key}/evidence/chunks/000001.json` }] };
   } } };
-  const result = await inspectDevelopment(store as any, key, binding);
+  let observed: readonly any[] = [];
+  const result = await inspectDevelopment(store as any, key, binding, events => { observed = events; });
+  assert.equal(observed.length, 2);
+  assert.match(observed[1].data.privateError.message, /private-provider-and-shell-output/);
   const agent = result.agents[0] as any;
   assert.equal(agent.evidence, "interrupted-archive");
   assert.equal(agent.assistantMessages, 1);
@@ -36,4 +39,9 @@ test("read-only inspection accounts for interrupted native sessions and redacts 
   assert(reads.some(name => name.includes("/interrupted/implementer.json")));
   assert.equal(JSON.stringify(result).includes(secret), false);
   assert.equal(developmentFailure(secret), "unknown");
+  const chunk = saved.get("evidence/chunks/000001.json") as any;
+  chunk.events[1].sequence = 3;
+  let invalidObserved = false;
+  await assert.rejects(inspectDevelopment(store as any, key, binding, () => { invalidObserved = true; }), /sequence missing/);
+  assert.equal(invalidObserved, false, "Invalid evidence must not reach the proof observer");
 });

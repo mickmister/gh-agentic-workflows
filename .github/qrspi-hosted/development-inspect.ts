@@ -29,7 +29,8 @@ export function developmentFailure(message: unknown) {
 }
 
 /** Bound GET/list-only inspection, also used for automatic post-work assessment. */
-export async function inspectDevelopment(store: PrivateStore, key: string, binding: Binding) {
+export async function inspectDevelopment(store: PrivateStore, key: string, binding: Binding,
+  observeEvents?: (events: readonly any[]) => void) {
   assert(key === `development/${digest(binding)}`, "Inspection binding mismatch");
   const identity = (await store.read(`${key}/identity.json`))?.value;
   assert(identity && digest(identity.binding) === digest(binding) && /^\d+-\d+$/.test(identity.executionId), "Development execution identity missing");
@@ -80,6 +81,9 @@ export async function inspectDevelopment(store: PrivateStore, key: string, bindi
       }
     }
   }
+  // In-memory consumers can verify a bounded proof from the already downloaded,
+  // binding/sequence-validated events without printing native payloads or relisting S3.
+  observeEvents?.(events);
   const engine = (await store.read(`${key}/engine.json`))?.value;
   let engineStatus = "missing"; try { engineStatus = JSON.parse(engine.output).status; } catch {}
   return { binding, status: state.status, cycle: state.cycle, currentStep: state.currentStep, nextStep: state.nextStep, candidate: state.candidate ?? null,

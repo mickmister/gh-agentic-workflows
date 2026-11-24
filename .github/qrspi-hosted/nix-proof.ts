@@ -194,7 +194,19 @@ async function inspect() {
       readOnlyCredentialDenialTested: v.readOnlyCredentialDenialTested, exactCandidate: v.exactCandidate };
   }
   const reference = await store.read(`${base}/development-reference.json`);
-  if (reference) summaries.nativeAssessment = await inspectDevelopment(store, reference.value.developmentKey, reference.value.binding);
+  if (reference) {
+    let events: readonly any[] = [];
+    const assessment = await inspectDevelopment(store, reference.value.developmentKey, reference.value.binding, observed => { events = observed; });
+    summaries.nativeAssessment = assessment;
+    const loops: unknown[] = [];
+    for (let cycle = 1; cycle <= assessment.cycle; cycle++) {
+      const native = (await store.read(`${reference.value.developmentKey}/cycles/${cycle}/native/implementer.json`))?.value;
+      if (!native) { loops.push({ cycle, completedImplementer: false }); continue; }
+      try { loops.push({ cycle, ...assessNixLoop(events, native.session.id), verified: true }); }
+      catch { loops.push({ cycle, completedImplementer: true, verified: false }); }
+    }
+    summaries.implementerLoops = loops;
+  }
   console.log(JSON.stringify({ base, summaries, billingVerified: false, androidTested: false }));
 }
 
@@ -206,7 +218,7 @@ try {
     console.log(JSON.stringify({ phase, run, attempt, privateEvidence: `${base}/`, completed: true }));
   }
 } catch (error) {
-  await store.put(`${base}/private/${phase}-failure.json`, { message: error instanceof Error ? error.message : "Unknown failure", metrics });
+  if (phase !== "inspect") await store.put(`${base}/private/${phase}-failure.json`, { message: error instanceof Error ? error.message : "Unknown failure", metrics });
   console.error(`Nix proof ${phase} failed. Inspect private evidence; do not blindly replay agent work.`);
   process.exitCode = 1;
 } finally { await rm(home, { recursive: true, force: true }); }

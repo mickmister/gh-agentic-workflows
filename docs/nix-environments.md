@@ -75,6 +75,8 @@ private S3. Private evidence keys start with
 `nix-proof/<repository>/<run>-<attempt>/`; the canonical development evidence is
 linked by `development-reference.json`. No GitHub workflow artifacts are uploaded.
 The inspection path uses `inspect-run` and `inspect-attempt` inputs.
+It verifies completed implementer command loops even when a later evaluator fails.
+An inspection error does not write into the inspected run's private evidence.
 
 Each native cache proof generates a **temporary signing key** in the fixed
 publisher job. Only the public key crosses to the fresh consumer. Secret outputs

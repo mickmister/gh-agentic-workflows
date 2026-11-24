@@ -39,7 +39,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 /** Accept actual command observations in one implementer session, not final prose.
  * Exact commands deliberately make the bounded proof inspectable and repeatable.
  */
-export function assessNixLoop(events: Event[], sessionId: string) {
+export function assessNixLoop(events: readonly Event[], sessionId: string) {
   const commands = new Map<string, { argv: string[]; start: number; end?: number; exit?: number; state?: string; stdout: string; stderr: string }>();
   for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
     if (event.sessionId !== sessionId || event.role !== "implementer" || event.kind !== "command") continue;
