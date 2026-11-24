@@ -63,6 +63,13 @@ test("failed-loop diagnostics expose fixed classifications, not argv or raw outp
   assert(!JSON.stringify(result).includes("private-"));
 });
 
+test("tester diagnostics stay role-scoped without relaxing implementer loop evidence", () => {
+  const events = observations().map(e => ({ ...e, role: "tester" }));
+  assert.equal(inspectNixCommands(events, "native-implementer", "tester").length, 3);
+  assert.equal(inspectNixCommands(events, "native-implementer").length, 0);
+  assert.throws(() => assessNixLoop(events, "native-implementer"));
+});
+
 test("missing-tool evidence names the probe execution failure, never a Git object or unrelated file", () => {
   for (const stderr of [
     "error: getting Git object 'abc': object not found - no match for id (abc)",

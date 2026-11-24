@@ -202,6 +202,7 @@ async function inspect() {
     summaries.nativeAssessment = assessment;
     const loops: unknown[] = [];
     const evaluations: unknown[] = [];
+    const testers: unknown[] = [];
     for (let cycle = 1; cycle <= assessment.cycle; cycle++) {
       for (const role of ["reviewer-1", "reviewer-2", "tester"]) {
         const evaluation = (await store.read(`${reference.value.developmentKey}/cycles/${cycle}/evaluations/${role}.json`))?.value;
@@ -209,6 +210,8 @@ async function inspect() {
           diagnosticTerms: ["session", "evidence", "transcript", "Git", "object", "file", "Node", "probe", "lock", "signature", "read-only", "unchanged", "no change", "not found", "same-session", "missing", "test", "fail", "flake", "sandbox", "sudo", "permission"]
             .filter(term => new RegExp(`\\b${term}\\b`, "i").test([evaluation.summary, ...evaluation.findings].join("\n"))) });
       }
+      const tester = (await store.read(`${reference.value.developmentKey}/cycles/${cycle}/native/tester.json`))?.value;
+      if (tester) testers.push({ cycle, commands: inspectNixCommands(events, tester.session.id, "tester") });
       const native = (await store.read(`${reference.value.developmentKey}/cycles/${cycle}/native/implementer.json`))?.value;
       if (!native) { loops.push({ cycle, completedImplementer: false }); continue; }
       try { loops.push({ cycle, ...assessNixLoop(events, native.session.id), verified: true }); }
@@ -216,6 +219,7 @@ async function inspect() {
     }
     summaries.implementerLoops = loops;
     summaries.evaluations = evaluations;
+    summaries.testerCommands = testers;
   }
   console.log(JSON.stringify({ base, summaries, billingVerified: false, androidTested: false }));
 }

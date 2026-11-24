@@ -13,23 +13,24 @@ test("real pinned Nix provisions and immediately uses a tool, then replays its s
   skip: process.env.NIX_INTEGRATION !== "true", timeout: 240000,
 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "nix-integration-"));
-  const checkout = join(dir, "checkout"), source = join(dir, "source"), worktree = join(dir, "worktree");
+  const checkout = join(dir, "checkout"), source = join(dir, "source"), worktree = join(dir, "worktree"), tester = join(dir, "tester");
+  let cwd = worktree;
   const execute = promisify(execFile);
   const nix = (...args: string[]) => {
     const child = execute(process.env.NIX_EXECUTABLE ?? "nix", [
       "--extra-experimental-features", "nix-command flakes",
       ...(process.env.NIX_SINGLE_USER === "true" ? ["--option", "build-users-group", ""] : []), ...args,
-    ], { cwd: worktree, timeout: 60000, maxBuffer: 4_000_000 });
+    ], { cwd, timeout: 60000, maxBuffer: 4_000_000 });
     child.child.stdin?.end();
     return child;
   };
   try {
     const root = fileURLToPath(new URL("../../", import.meta.url));
-    // Match Actions' depth-one checkout, then the proof's independent clone
-    // plus linked role worktree. --shared fails Nix Git-object resolution here.
-    localGit(root, ["clone", "--quiet", "--depth", "1", "--no-local", root, checkout]);
+    // Named role worktrees need complete history for Nix's Git reader, including
+    // after the host freezes a new candidate. Shared objects are also avoided.
+    localGit(root, ["clone", "--quiet", "--no-local", root, checkout]);
     localGit(checkout, ["clone", "--quiet", "--no-hardlinks", checkout, source]);
-    localGit(source, ["worktree", "add", "--quiet", "--detach", worktree, "HEAD"]);
+    localGit(source, ["worktree", "add", "--quiet", "-b", "agentic/fixture/implementer", worktree, "HEAD"]);
     const flake = await readFile(join(root, "flake.nix"), "utf8");
     const lock = await readFile(join(root, "flake.lock"), "utf8");
     await writeFile(join(worktree, "flake.nix"), flake); await writeFile(join(worktree, "flake.lock"), lock);
@@ -38,7 +39,15 @@ test("real pinned Nix provisions and immediately uses a tool, then replays its s
     assert.equal((await nix("shell", ".#probe", "--no-update-lock-file", "--command", "agentic-nix-probe")).stdout.trim(), probeMarker);
     await writeFile(join(worktree, "flake.nix"), flake.replace("packages = [ pkgs.nodejs_22 ];", "packages = [ pkgs.nodejs_22 probe ];"));
     assert.equal((await nix("develop", ".#web", "--no-update-lock-file", "--profile", join(dir, "web-profile"), "--command", "agentic-nix-probe")).stdout.trim(), probeMarker);
-    assert.match((await nix("--offline", "develop", join(dir, "web-profile"), "--command", "node", "--version")).stdout, /^v22\./);
+    assert.match((await nix("--offline", "develop", "--inputs-from", worktree, join(dir, "web-profile"), "--command", "node", "--version")).stdout, /^v22\./);
     assert.equal(await readFile(join(worktree, "flake.lock"), "utf8"), lock);
+    localGit(worktree, ["add", "flake.nix"]);
+    localGit(worktree, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "Declare probe"]);
+    const candidate = localGit(worktree, ["rev-parse", "HEAD"]);
+    localGit(source, ["worktree", "add", "--quiet", "-b", "agentic/fixture/tester", tester, candidate]);
+    cwd = tester;
+    assert.equal((await nix("develop", ".#web", "--no-update-lock-file", "--command", "agentic-nix-probe")).stdout.trim(), probeMarker);
+    assert.match((await nix("develop", ".#web", "--no-update-lock-file", "--command", "node", "--version")).stdout, /^v22\./);
+    assert.equal(localGit(tester, ["status", "--porcelain"]), "");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

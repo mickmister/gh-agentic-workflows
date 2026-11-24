@@ -39,10 +39,10 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 /** Accept actual command observations in one implementer session, not final prose.
  * Exact commands deliberately make the bounded proof inspectable and repeatable.
  */
-function observedCommands(events: readonly Event[], sessionId: string) {
+function observedCommands(events: readonly Event[], sessionId: string, role = "implementer") {
   const commands = new Map<string, { argv: string[]; start: number; end?: number; exit?: number; state?: string; stdout: string; stderr: string }>();
   for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
-    if (event.sessionId !== sessionId || event.role !== "implementer" || event.kind !== "command") continue;
+    if (event.sessionId !== sessionId || event.role !== role || event.kind !== "command") continue;
     const d = event.data;
     if (d?.state === "started") {
       assert(!commands.has(d.commandId), "Duplicate command identity");
@@ -57,14 +57,14 @@ function observedCommands(events: readonly Event[], sessionId: string) {
   return [...commands.values()];
 }
 
-export function inspectNixCommands(events: readonly Event[], sessionId: string) {
+export function inspectNixCommands(events: readonly Event[], sessionId: string, role: "implementer" | "tester" = "implementer") {
   // A fixed vocabulary reveals diagnostic concepts, never raw paths, URLs,
   // command arguments, provider prose or arbitrary words from private output.
   const vocabulary = ["experimental", "disabled", "feature", "Git", "git", "shallow", "repository", "revision", "object", "parent", "worktree",
     "certificate", "SSL", "CA", "curl", "download", "fetch", "HTTP", "resolve", "network", "connect", "daemon", "socket",
     "file", "directory", "lock", "lockfile", "flake", "config", "attribute", "undefined", "syntax", "Permission", "denied", "trusted",
     "unrecognized", "flag", "option", "HOME", "NIX_SSL_CERT_FILE", "NIX_CONFIG", "USER", "LOGNAME", "passwd", "user", "determine", "environment"];
-  return observedCommands(events, sessionId).map(c => ({
+  return observedCommands(events, sessionId, role).map(c => ({
     sequence: c.start,
     command: same(c.argv, loopCommands.missing) ? "declared-probe" : same(c.argv, loopCommands.adhoc) ? "adhoc-probe" : "other",
     exit: c.exit, state: c.state,
