@@ -4,6 +4,13 @@ The first issue-18 slice installs Nix **before** the Spec Kit/Pi development
 workflow. The host's Node/Pi/Spec Kit bootstrap is independent of project flakes.
 An invalid project environment does not prevent the agent from editing it.
 
+The reusable development-cache integration is described in
+[development-nix-cache.md](development-nix-cache.md). Its fixed publisher and
+host-managed prefetch use a persistent signing identity and separate scoped B2
+keys. Prefetch is enabled through `DEVELOPMENT_NIX_CACHE_ENABLED` after credential
+setup and hosted validation. The per-run proof below remains an independent
+feasibility test, not the reusable cache's rollout switch.
+
 ## Pinned toolchain
 
 The Actions installer is `cachix/install-nix-action` v31, commit
