@@ -63,6 +63,24 @@ test("failed-loop diagnostics expose fixed classifications, not argv or raw outp
   assert(!JSON.stringify(result).includes("private-"));
 });
 
+test("missing-tool evidence names the probe execution failure, never a Git object or unrelated file", () => {
+  for (const stderr of [
+    "error: getting Git object 'abc': object not found - no match for id (abc)",
+    "error: opening file 'agentic-nix-probe': No such file or directory",
+    "error: unable to execute 'unrelated': No such file or directory",
+  ]) {
+    const events = observations(); events[2].data.text = stderr;
+    assert.throws(() => assessNixLoop(events, "native-implementer"), /Missing-tool observation absent/);
+  }
+  for (const stderr of [
+    "/tmp/nix-shell.example: line 2133: exec: agentic-nix-probe: not found\n",
+    "error: unable to execute 'agentic-nix-probe': No such file or directory\n",
+  ]) {
+    const events = observations(); events[2].data.text = stderr;
+    assert.equal(assessNixLoop(events, "native-implementer").missingSequence, 1);
+  }
+});
+
 test("proof workflow separates publisher, live agent and fresh replay and never uploads Actions artifacts", async () => {
   const text = await readFile(new URL("../workflows/nix-environment-proof.yml", import.meta.url), "utf8");
   const workflow = parse(text);

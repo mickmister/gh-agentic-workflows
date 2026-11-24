@@ -117,7 +117,9 @@ async function agent() {
   assert(await store.admit(`${base}/agent-admission.json`, { sourceSha: env.GITHUB_SHA, run, attempt }), "Agent proof already started; inspect, do not replay");
   await nix(["--version"]); // Repair/bootstrap is independent of the project flake.
   const workspace = join(home, "workspace"), app = join(workspace, "engine"); await mkdir(workspace);
-  localGit(root, ["clone", "--quiet", "--shared", root, app]);
+  // Nix's Git reader must resolve objects from linked role worktrees without
+  // depending on the Actions checkout through Git alternates.
+  localGit(root, ["clone", "--quiet", "--no-hardlinks", root, app]);
   const sourceSha = localGit(app, ["rev-parse", "HEAD"]); assert.equal(sourceSha, env.GITHUB_SHA);
   const process = `nix-${run}-${attempt}`;
   const binding = { workspace: "vk-46e5-vd-multi-instanc", workspace_ref: "ws-112ddba5d5a701238022cf9d6319f65d", process, bead: "task-3vt.34.16.2" };
@@ -199,13 +201,21 @@ async function inspect() {
     const assessment = await inspectDevelopment(store, reference.value.developmentKey, reference.value.binding, observed => { events = observed; });
     summaries.nativeAssessment = assessment;
     const loops: unknown[] = [];
+    const evaluations: unknown[] = [];
     for (let cycle = 1; cycle <= assessment.cycle; cycle++) {
+      for (const role of ["reviewer-1", "reviewer-2", "tester"]) {
+        const evaluation = (await store.read(`${reference.value.developmentKey}/cycles/${cycle}/evaluations/${role}.json`))?.value;
+        if (evaluation) evaluations.push({ cycle, role, approval: evaluation.approval, findings: evaluation.findings.length,
+          diagnosticTerms: ["session", "evidence", "transcript", "Git", "object", "file", "Node", "probe", "lock", "signature", "read-only", "unchanged", "no change", "not found", "same-session", "missing", "test", "fail", "flake", "sandbox", "sudo", "permission"]
+            .filter(term => new RegExp(`\\b${term}\\b`, "i").test([evaluation.summary, ...evaluation.findings].join("\n"))) });
+      }
       const native = (await store.read(`${reference.value.developmentKey}/cycles/${cycle}/native/implementer.json`))?.value;
       if (!native) { loops.push({ cycle, completedImplementer: false }); continue; }
       try { loops.push({ cycle, ...assessNixLoop(events, native.session.id), verified: true }); }
       catch { loops.push({ cycle, completedImplementer: true, verified: false, commands: inspectNixCommands(events, native.session.id) }); }
     }
     summaries.implementerLoops = loops;
+    summaries.evaluations = evaluations;
   }
   console.log(JSON.stringify({ base, summaries, billingVerified: false, androidTested: false }));
 }

@@ -78,7 +78,8 @@ export function inspectNixCommands(events: readonly Event[], sessionId: string) 
 
 export function assessNixLoop(events: readonly Event[], sessionId: string) {
   const all = observedCommands(events, sessionId);
-  const missing = all.find(c => same(c.argv, loopCommands.missing) && c.state === "failed" && c.exit !== 0 && /not found|No such file/i.test(c.stderr));
+  const missing = all.find(c => same(c.argv, loopCommands.missing) && c.state === "failed" && c.exit !== 0 &&
+    /(?:exec:\s*agentic-nix-probe:\s*(?:command )?not found|unable to execute ['"]agentic-nix-probe['"]:\s*No such file or directory|(?:^|\n)agentic-nix-probe:\s*(?:command )?not found)(?:\r?\n|$)/i.test(c.stderr));
   assert(missing?.end, "Missing-tool observation absent");
   const adhoc = all.find(c => same(c.argv, loopCommands.adhoc) && c.start > missing.end! && c.state === "completed" && c.exit === 0 && c.stdout.trim() === probeMarker);
   assert(adhoc?.end, "Successful same-session ad-hoc provision/use absent");
