@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "repository": "mickmister/gh-agentic-workflows",
+  "sourceCommit": "a0d446cbacfdc8e97b47e2f2378c840edaf0c22b",
+  "environment": "web",
+  "system": "x86_64-linux",
+  "nixVersion": "2.34.9",
+  "flakeSha256": "5d8cf9651f1f4a773876add8dd48882146cfbf9e9aff3f10aa940a6f3cbf5686",
+  "lockSha256": "26cda77d56ef88df54e8918e07f9e5fe6da8b149a4bbf520a1245cdc8bfa87e1",
+  "publicKey": "agentic-development-cache-v1:EemmIz1RxukZhIqcPKeBuwyljsApMZ5qHAHDCNWnSlY="
+}

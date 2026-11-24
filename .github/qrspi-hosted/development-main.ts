@@ -14,6 +14,7 @@ import { installNativeTools } from "./native-tools.ts";
 import { readBeads } from "./beads-context.ts";
 import { ExecutionEvidence } from "./execution.ts";
 import { reportFailure } from "./diagnostics.ts";
+import { prefetchDevelopmentCache } from "./nix-cache-runtime.ts";
 
 async function main() {
   const env = process.env;
@@ -44,6 +45,14 @@ async function main() {
     await github.git(directory, ["fetch", "--quiet", "origin", request.baseCommit], member.repository);
     localGit(directory, ["merge-base", "--is-ancestor", request.baseCommit, member.commit]);
     member.commit = request.baseCommit;
+    // Cache prefetch reads only signed reviewed-recipe metadata; it does not
+    // evaluate a candidate flake with AWS credentials or enter the agent HOME.
+    if (env.DEVELOPMENT_NIX_CACHE_ENABLED === "true") {
+      const cacheTask = join(home, "cache-source");
+      localGit(directory, ["worktree", "add", "--quiet", "--detach", cacheTask, request.baseCommit]);
+      try { await save("nix-cache.json", await prefetchDevelopmentCache(cacheTask, member.repository, home)); }
+      finally { localGit(directory, ["worktree", "remove", "--force", cacheTask]); }
+    } else await save("nix-cache.json", { status: "disabled" });
     const sources = new Sources(workspace.root, home, workspace.members, github, true, request.process);
     await save("source-vector.json", { members: workspace.members, manifest: workspace.manifest });
     state = await runDevelopment(home, request, sources, binding, executionId, evidence, save);

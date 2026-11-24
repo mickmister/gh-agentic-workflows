@@ -13,6 +13,11 @@ export const loopCommands = {
 export function nixCache(env: NodeJS.ProcessEnv, run: string, attempt: string, variant = "signed") {
   assert(/^\d+$/.test(run) && /^\d+$/.test(attempt));
   assert(["signed", "untrusted", "unsigned"].includes(variant));
+  return nixCacheLocation(env, ["nix-proof", `${run}-${attempt}`, variant]);
+}
+
+export function nixCacheLocation(env: NodeJS.ProcessEnv, suffix: string[]) {
+  assert(suffix.length > 0 && suffix.every(p => /^[A-Za-z0-9_.-]+$/.test(p) && p !== "." && p !== ".."));
   const endpoint = new URL(env.S3_CACHE_URL!);
   assert(endpoint.protocol === "https:" && !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash && endpoint.pathname === "/", "Expected an HTTPS S3 service endpoint");
   const bucket = env.S3_CACHE_BUCKET!, prefix = env.S3_CACHE_PREFIX?.replace(/^\/+|\/+$/g, "");
@@ -20,7 +25,7 @@ export function nixCache(env: NodeJS.ProcessEnv, run: string, attempt: string, v
     prefix.split("/").every(p => /^[A-Za-z0-9_.-]+$/.test(p) && p !== "." && p !== ".."), "Explicit cache bucket and safe nonempty prefix required");
   assert(env.S3_CACHE_REGION && /^[a-z0-9-]+$/.test(env.S3_CACHE_REGION));
   assert(["true", "false"].includes(env.S3_CACHE_PATH_STYLE!));
-  const uri = new URL(`s3://${bucket}/${prefix}/nix-proof/${run}-${attempt}/${variant}`);
+  const uri = new URL(`s3://${bucket}/${prefix}/${suffix.join("/")}`);
   uri.search = new URLSearchParams({ endpoint: endpoint.host, scheme: "https", region: env.S3_CACHE_REGION,
     "addressing-style": env.S3_CACHE_PATH_STYLE === "true" ? "path" : "virtual", "compression": "zstd" }).toString();
   return uri.href;

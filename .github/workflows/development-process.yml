@@ -39,6 +39,8 @@ on:
       S3_CACHE_PATH_STYLE: { required: true }
       S3_CACHE_ACCESS_KEY_ID: { required: true }
       S3_CACHE_SECRET_ACCESS_KEY: { required: true }
+      NIX_CACHE_READER_ACCESS_KEY_ID: { required: false }
+      NIX_CACHE_READER_SECRET_ACCESS_KEY: { required: false }
 permissions:
   contents: read
 jobs:
@@ -75,6 +77,7 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = false
             require-sigs = true
+            extra-trusted-public-keys = agentic-development-cache-v1:EemmIz1RxukZhIqcPKeBuwyljsApMZ5qHAHDCNWnSlY=
       - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: .github/qrspi-hosted
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
@@ -104,6 +107,9 @@ jobs:
         id: work
         env:
           DEVELOPMENT_OPERATION: ${{ inputs.operation }}
+          DEVELOPMENT_NIX_CACHE_ENABLED: ${{ vars.DEVELOPMENT_NIX_CACHE_ENABLED || 'false' }}
+          NIX_CACHE_READER_ACCESS_KEY_ID: ${{ secrets.NIX_CACHE_READER_ACCESS_KEY_ID }}
+          NIX_CACHE_READER_SECRET_ACCESS_KEY: ${{ secrets.NIX_CACHE_READER_SECRET_ACCESS_KEY }}
           DEVELOPMENT_REQUEST: ${{ inputs.request }}
           DEVELOPMENT_OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
           ALLOW_SOURCE_EFFECTS: ${{ inputs.allow-source-effects }}
