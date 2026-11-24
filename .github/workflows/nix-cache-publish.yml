@@ -43,14 +43,12 @@ jobs:
             require-sigs = true
       - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: .github/qrspi-hosted
-      - name: Deny reader writes and publish only the pinned reviewed closure
+      - name: Publish only the pinned reviewed closure under the dedicated Nix prefix
         env:
           NIX_CACHE_RECIPE_DIR: ${{ github.workspace }}/_nix-cache-recipe
           NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
-          NIX_CACHE_PUBLISHER_ACCESS_KEY_ID: ${{ secrets.NIX_CACHE_PUBLISHER_ACCESS_KEY_ID }}
-          NIX_CACHE_PUBLISHER_SECRET_ACCESS_KEY: ${{ secrets.NIX_CACHE_PUBLISHER_SECRET_ACCESS_KEY }}
-          NIX_CACHE_READER_ACCESS_KEY_ID: ${{ secrets.NIX_CACHE_READER_ACCESS_KEY_ID }}
-          NIX_CACHE_READER_SECRET_ACCESS_KEY: ${{ secrets.NIX_CACHE_READER_SECRET_ACCESS_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
           S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
           S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
           S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
@@ -87,8 +85,8 @@ jobs:
       - name: Import on a fresh runner and run the imported profile offline
         env:
           NIX_CACHE_RECIPE_DIR: ${{ github.workspace }}/_nix-cache-recipe
-          NIX_CACHE_READER_ACCESS_KEY_ID: ${{ secrets.NIX_CACHE_READER_ACCESS_KEY_ID }}
-          NIX_CACHE_READER_SECRET_ACCESS_KEY: ${{ secrets.NIX_CACHE_READER_SECRET_ACCESS_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
           S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
           S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
           S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}

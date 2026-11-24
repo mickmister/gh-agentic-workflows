@@ -6,9 +6,9 @@ An invalid project environment does not prevent the agent from editing it.
 
 The reusable development-cache integration is described in
 [development-nix-cache.md](development-nix-cache.md). Its fixed publisher and
-host-managed prefetch use a persistent signing identity and separate scoped B2
-keys. Prefetch is enabled through `DEVELOPMENT_NIX_CACHE_ENABLED` after credential
-setup and hosted validation. The per-run proof below remains an independent
+host-managed prefetch use a persistent signing identity and the existing S3 cache
+credentials under a dedicated Nix path. Prefetch is enabled through
+`DEVELOPMENT_NIX_CACHE_ENABLED` after hosted validation. The per-run proof remains an independent
 feasibility test, not the reusable cache's rollout switch.
 
 ## Pinned toolchain

@@ -5,7 +5,6 @@ import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { PrivateStore } from "./storage.ts";
 import { localGit } from "./workspace.ts";
 import { nixCacheEnvironment, nixCacheLocation } from "./nix-environment.ts";
@@ -13,10 +12,9 @@ import { cacheRecipe, matchingRecipe, prefetchCache, receiptKey, recipeId, signR
 
 const exec = promisify(execFile);
 export const loadCacheRecipe = async () => cacheRecipe(JSON.parse(await readFile(new URL("../nix-cache.json", import.meta.url), "utf8")));
-function credentials(env: NodeJS.ProcessEnv, role: "READER" | "PUBLISHER") {
-  const id = env[`NIX_CACHE_${role}_ACCESS_KEY_ID`], secret = env[`NIX_CACHE_${role}_SECRET_ACCESS_KEY`];
-  assert(id && secret, `Missing scoped Nix cache ${role.toLowerCase()} credentials`);
-  return { ...env, S3_CACHE_ACCESS_KEY_ID: id, S3_CACHE_SECRET_ACCESS_KEY: secret };
+function credentials(env: NodeJS.ProcessEnv) {
+  assert(env.S3_CACHE_ACCESS_KEY_ID && env.S3_CACHE_SECRET_ACCESS_KEY, "Missing existing S3 cache credentials");
+  return env;
 }
 function cacheStore(env: NodeJS.ProcessEnv) {
   const store = new PrivateStore(env);
@@ -43,7 +41,7 @@ export async function prefetchDevelopmentCache(directory: string, repository: st
   if (env.DEVELOPMENT_NIX_CACHE_ENABLED !== "true") return { status: "disabled" };
   const recipe = await loadCacheRecipe();
   if (repository !== recipe.repository || !await matchingRecipe(recipe, directory)) return { status: "not-applicable", recipeId: recipeId(recipe) };
-  const reader = credentials(env, "READER"), store = cacheStore(reader);
+  const reader = credentials(env), store = cacheStore(reader);
   const cacheHome = join(home, "nix-prefetch"); await mkdir(cacheHome, { recursive: true, mode: 0o700 });
   await assertNix(cacheHome, recipe);
   return prefetchCache(recipe, {
@@ -54,26 +52,14 @@ export async function prefetchDevelopmentCache(directory: string, repository: st
   });
 }
 
-async function readerWriteDenial(reader: PrivateStore, recipe: CacheRecipe) {
-  try {
-    await reader.client.send(new PutObjectCommand({ Bucket: reader.bucket,
-      Key: `${reader.prefix}reader-write-denial/${recipeId(recipe)}.txt`, Body: "reader must not write", ContentType: "text/plain" }));
-  } catch (error: any) {
-    assert(error?.$metadata?.httpStatusCode === 403 && ["AccessDenied", "Forbidden"].includes(error.name), "Reader write test did not return an authorization denial");
-    return;
-  }
-  throw new Error("Reader write unexpectedly succeeded; refuse publication and correct the provider key scope");
-}
 async function publish() {
   const env = process.env, recipe = await loadCacheRecipe();
-  const publisher = credentials(env, "PUBLISHER"), reader = credentials(env, "READER");
-  assert(publisher.S3_CACHE_ACCESS_KEY_ID !== reader.S3_CACHE_ACCESS_KEY_ID, "Reader and publisher identities must differ");
+  const publisher = credentials(env);
   assert(env.NIX_CACHE_SIGNING_KEY, "Persistent publisher signing key missing");
   const directory = resolve(env.NIX_CACHE_RECIPE_DIR!);
   assert.equal(localGit(directory, ["rev-parse", "HEAD"]), recipe.sourceCommit, "Publisher recipe source mismatch");
   assert.equal(localGit(directory, ["status", "--porcelain"]), "", "Publisher recipe must be clean");
   assert(await matchingRecipe(recipe, directory), "Publisher recipe bytes mismatch");
-  await readerWriteDenial(cacheStore(reader), recipe);
   const home = await mkdtemp(join(tmpdir(), "nix-cache-publisher-"));
   try {
     await assertNix(home, recipe);
@@ -96,16 +82,16 @@ async function publish() {
     const store = cacheStore(publisher), existing = await store.read(receiptKey(recipe));
     if (existing) assert.deepEqual(existing.value, envelope, "Recipe already has a different signed profile; investigate before replacing it");
     else await store.put(receiptKey(recipe), envelope, { create: true });
-    // Verify reader GET as well as the real denied PUT. Fresh import is verified
-    // on a different job/runner, not against the producer's populated store.
-    assert.deepEqual((await cacheStore(reader).read(receiptKey(recipe)))?.value, envelope, "Reader receipt GET failed");
-    console.log(JSON.stringify({ status: "published", recipeId: recipeId(recipe), sourceCommit: recipe.sourceCommit, profile: path, readerWriteDenied: true }));
+    // The shared existing object key has read/write access. Fresh import is
+    // verified on a different runner; namespace separation is not key isolation.
+    console.log(JSON.stringify({ status: "published", recipeId: recipeId(recipe), sourceCommit: recipe.sourceCommit, profile: path,
+      credentialScope: "existing-shared-s3-cache-key", readerWriteDenial: "not-enforced" }));
   } finally { await rm(home, { recursive: true, force: true }); }
 }
 async function smoke() {
   const env = process.env, recipe = await loadCacheRecipe(), home = await mkdtemp(join(tmpdir(), "nix-cache-consumer-"));
   try {
-    const reader = credentials(env, "READER"), store = cacheStore(reader);
+    const reader = credentials(env), store = cacheStore(reader);
     const envelope = (await store.read(receiptKey(recipe)))?.value;
     const { verifyReceipt } = await import("./nix-development-cache.ts");
     const receipt = verifyReceipt(recipe, envelope);
@@ -139,13 +125,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     .catch(async (error: any) => {
       let privateDiagnosticSaved = false;
       if (mode === "publish" && /^\d+$/.test(process.env.GITHUB_RUN_ID ?? "") && /^\d+$/.test(process.env.GITHUB_RUN_ATTEMPT ?? "")) try {
-        await cacheStore(credentials(process.env, "PUBLISHER")).put(`diagnostics/${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}.json`, {
+        await cacheStore(credentials(process.env)).put(`diagnostics/${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}.json`, {
           message: String(error.message).slice(0, 100000), stdout: String(error.stdout ?? "").slice(-100000), stderr: String(error.stderr ?? "").slice(-100000),
         }, { create: true });
         privateDiagnosticSaved = true;
       } catch {}
       const message = String(error.message ?? "");
-      const reason = message.startsWith("Missing scoped Nix cache ") ? "missing-scoped-cache-credentials" :
+      const reason = message === "Missing existing S3 cache credentials" ? "missing-s3-cache-credentials" :
         message === "Persistent publisher signing key missing" ? "missing-signing-key" : "cache-validation-or-provider-error";
       console.error(JSON.stringify({ status: "failed", operation: mode, reason, privateDiagnosticSaved, modelWorkLaunched: false }));
       process.exitCode = 1;

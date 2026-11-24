@@ -58,12 +58,15 @@ async function main() {
     member.commit = request.baseCommit;
     // Cache prefetch reads only signed reviewed-recipe metadata; it does not
     // evaluate a candidate flake with AWS credentials or enter the agent HOME.
+    let cacheReceipt: Awaited<ReturnType<typeof prefetchDevelopmentCache>> = { status: "disabled" };
     if (env.DEVELOPMENT_NIX_CACHE_ENABLED === "true") {
       const cacheTask = join(home, "cache-source");
       localGit(directory, ["worktree", "add", "--quiet", "--detach", cacheTask, request.baseCommit]);
-      try { await save("nix-cache.json", await prefetchDevelopmentCache(cacheTask, member.repository, home)); }
+      try { cacheReceipt = await prefetchDevelopmentCache(cacheTask, member.repository, home); }
       finally { localGit(directory, ["worktree", "remove", "--force", cacheTask]); }
-    } else await save("nix-cache.json", { status: "disabled" });
+    }
+    await save("nix-cache.json", cacheReceipt);
+    console.log(JSON.stringify({ environmentCache: cacheReceipt }));
     const sources = new Sources(workspace.root, home, workspace.members, github, true, request.process);
     await save("source-vector.json", { members: workspace.members, manifest: workspace.manifest });
     state = await runDevelopment(home, request, sources, binding, executionId, evidence, save);
@@ -74,7 +77,7 @@ async function main() {
     const report = `# Development candidate: ${state.status}\n\nMethodology: implement-review-test. Process: ${request.process}. Thread: ${thread}.\n\nCurrent step: ${state.currentStep}. Next step: ${state.nextStep}.\n\nCycles: ${state.cycle}/4. Candidate: ${state.candidate}.\n\n${state.evaluations.map(e => `## ${e.role}: ${e.approval}\n\n${e.summary}\n\n${e.findings.slice(0,20).map(f => `- ${f.slice(0,1000)}`).join("\n")}`).join("\n\n")}\n\n## Evidence and boundary\n\nAll three explicit decisions bind the candidate above. Mandatory test outcomes and every cycle's complete findings are retained privately under ${key}. Native sessions and host OTLP spans were decoded by the automatic assessment: ${assessment.evidence.spans} spans, ${assessment.evidence.failedSpans} failed, ${assessment.evidence.unresolvedOperations} unresolved operations. Host durations overlap; no provider-native request spans or verified billing are claimed.\n\nCandidate publication: ${request.publishCandidate ? "authorized per-cycle candidate branches" : "private incremental Git bundles only"}. No source branch integration, PR creation, human approval or QRSPI phase approval is performed. A new request requires a new process identity; rerunning this process cannot replay model work. UI continue/new-thread controls remain separate delivery work (task-clh).\n`;
     const resultContract = { schemaVersion: 1, workspace: binding.workspace, thread, process: request.process, executionId,
       status: state.status, currentStep: state.currentStep, nextStep: state.nextStep, cycle: state.cycle, candidate: state.candidate,
-      testsPassed: state.history.at(-1)?.testsPassed === true,
+      testsPassed: state.history.at(-1)?.testsPassed === true, environmentCache: cacheReceipt,
       evaluations: state.evaluations.map(({ role, candidate, approval }) => ({ role, candidate, approval })) };
     const pin = docs.save(name, `${report}\n## Result contract\n\n\`\`\`json\n${JSON.stringify(resultContract)}\n\`\`\`\n`);
     const url = new URL(env.REVIEW_APP_URL!);

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { cacheRecipe, recipeId, signReceipt, verifyReceipt, prefetchCache, matchingRecipe, sha256 } from "./nix-development-cache.ts";
 import { prefetchDevelopmentCache } from "./nix-cache-runtime.ts";
+import { nixCacheLocation } from "./nix-environment.ts";
 
 const original = cacheRecipe(JSON.parse(await readFile(new URL("../nix-cache.json", import.meta.url), "utf8")));
 function fixture() {
@@ -79,10 +80,11 @@ test("prefetch applies only to exact reviewed environment bytes, not arbitrary c
 test("publisher and consumer workflow trust/credential boundaries match the pinned recipe", async () => {
   const workflow = parse(await readFile(new URL("../workflows/nix-cache-publish.yml", import.meta.url), "utf8"));
   const publisher = workflow.jobs.publish.steps.find((s: any) => s.env?.NIX_CACHE_SIGNING_KEY);
-  assert(publisher.env.NIX_CACHE_PUBLISHER_ACCESS_KEY_ID);
+  assert(publisher.env.S3_CACHE_ACCESS_KEY_ID);
   const reader = workflow.jobs["fresh-reader"];
   assert.equal(reader.needs, "publish");
-  assert(!reader.steps.some((s: any) => s.env?.NIX_CACHE_SIGNING_KEY || s.env?.NIX_CACHE_PUBLISHER_SECRET_ACCESS_KEY));
+  assert(!reader.steps.some((s: any) => s.env?.NIX_CACHE_SIGNING_KEY));
+  assert(reader.steps.some((s: any) => s.env?.S3_CACHE_SECRET_ACCESS_KEY));
   assert(reader.steps.find((s: any) => s.uses?.startsWith("cachix/install-nix-action@"))
     .with.extra_nix_config.includes(original.publicKey));
   for (const role of [workflow.jobs.publish, reader]) {
@@ -91,6 +93,15 @@ test("publisher and consumer workflow trust/credential boundaries match the pinn
   }
   const development = parse(await readFile(new URL("../workflows/development-process.yml", import.meta.url), "utf8"));
   const step = development.jobs.development.steps.find((s: any) => s.id === "work");
-  assert(step.env.NIX_CACHE_READER_SECRET_ACCESS_KEY);
+  assert(step.env.S3_CACHE_SECRET_ACCESS_KEY);
   assert(!Object.keys(step.env).some(k => /NIX_CACHE_(SIGNING|PUBLISHER)/.test(k)));
+  assert(!JSON.stringify(workflow).includes("NIX_CACHE_READER_") && !JSON.stringify(workflow).includes("NIX_CACHE_PUBLISHER_"));
+});
+
+test("reused S3 binding keeps native objects and receipts under the dedicated development prefix", () => {
+  const env = { S3_CACHE_URL: "https://s3.example.invalid", S3_CACHE_BUCKET: "private-cache", S3_CACHE_PREFIX: "existing/prefix/",
+    S3_CACHE_REGION: "us-west-004", S3_CACHE_PATH_STYLE: "true" };
+  const path = new URL(nixCacheLocation(env, ["nix-development", "v1", "store"])).pathname;
+  assert.equal(path, "/existing/prefix/nix-development/v1/store");
+  assert(!path.includes("nix-proof") && !path.includes("qrspi-hosted"));
 });

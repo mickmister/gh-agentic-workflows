@@ -15,29 +15,25 @@ provider. Native objects live under `<S3_CACHE_PREFIX>/nix-development/v1/store/
 signed recipe receipts live under the sibling `receipts/` prefix. This does not
 reuse or overwrite the proof's per-run cache namespaces.
 
-Create two B2 application keys restricted to the configured bucket and the full
-`<S3_CACHE_PREFIX>/nix-development/v1/` prefix:
-
-- Reader: `readFiles` (and `listFiles` if required by the provider's native client).
-- Publisher: `readFiles`, `writeFiles`, `listFiles`. No key-management capability
-  is needed during cache operations.
-
-Configure GitHub Actions secrets:
+Reuse the existing `S3_CACHE_ACCESS_KEY_ID` and `S3_CACHE_SECRET_ACCESS_KEY`
+for both trusted publication and host prefetch. No new B2 application keys or
+account key-management capability are required. Configure GitHub Actions secrets:
 
 | Secret | Where used |
 |---|---|
 | `NIX_CACHE_SIGNING_KEY` | Fixed publisher only; persistent Nix Ed25519 secret matching the committed public key |
-| `NIX_CACHE_PUBLISHER_ACCESS_KEY_ID` / `NIX_CACHE_PUBLISHER_SECRET_ACCESS_KEY` | Fixed publisher only |
-| `NIX_CACHE_READER_ACCESS_KEY_ID` / `NIX_CACHE_READER_SECRET_ACCESS_KEY` | Host prefetch and fresh-reader smoke |
+| `S3_CACHE_ACCESS_KEY_ID` / `S3_CACHE_SECRET_ACCESS_KEY` | Existing shared object key, used by publisher, host prefetch and fresh-reader smoke |
 
-The original `S3_CACHE_*` object keys remain the private execution-evidence
-credentials. They are not aliases for a proven read-only reader key.
+The same credentials continue serving private execution evidence. The dedicated
+path separates native cache objects from evidence and archive/proof namespaces;
+it does not restrict the key's permissions. The consumer key still has read/write
+access. Provider-enforced reader write denial is not claimed or tested.
 
 ## Publish and enable
 
 Dispatch `nix-cache-publish.yml` with `operation=publish`. The fixed publisher
-requires a real HTTP403 authorization denial for a reader PUT, builds the reviewed
-profile without passing credentials to build subprocesses, signs its closure, and
+builds the reviewed profile without passing credentials to build subprocesses,
+signs its closure, and
 copies native NAR/narinfo objects to B2. It signs a recipe/profile/NAR-hash receipt
 with the same persistent identity and verifies publication/readback. A different
 receipt for the same recipe is an error, not an automatic replacement.
@@ -50,9 +46,8 @@ After that succeeds, set repository variable `DEVELOPMENT_NIX_CACHE_ENABLED=true
 and run the ordinary `development-process.yml` against a source with the reviewed
 flake/lock bytes. `development-main.ts` performs the prefetch before starting the
 graph and saves a private `nix-cache.json` receipt alongside development evidence.
-The graph's child environment allowlists do not forward reader, publisher, signing
-or AWS credentials. Reusable workflow callers must pass the optional reader
-secrets when enabling this repository setting.
+The graph's child environment allowlists do not forward S3, signing or AWS
+credentials. Reusable callers use the existing `S3_CACHE_*` secret contract.
 
 Unrelated repositories and changed/missing declarations are `not-applicable`.
 A missing signed receipt is `miss` and leaves normal Nix provisioning available.
@@ -65,7 +60,8 @@ blindly replay an admitted process.
 `operation=inspect-access` makes only a fixed B2 authorization request with the
 existing object key and prints bounded capability flags. It never prints tokens
 or provider identity values and does not create keys or modify objects. This can
-identify whether an account administrator is required to provision scoped keys.
+describe the existing provider binding. Separate key provisioning is not a
+prerequisite for the shared-key integration.
 
 ## Scope
 
