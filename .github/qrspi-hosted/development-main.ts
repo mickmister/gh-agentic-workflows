@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { assert, validateSeed, type Binding } from "./core.ts";
+import { assert } from "./core.ts";
+import { developmentContext, developmentBinding, developmentThread } from "./development-context.ts";
 import { developmentRequest } from "./development.ts";
 import { runDevelopment } from "./development-run.ts";
 import { inspectDevelopment } from "./development-inspect.ts";
@@ -18,9 +19,17 @@ import { reportFailure } from "./diagnostics.ts";
 async function main() {
   const env = process.env;
   assert(env.DEVELOPMENT_OPERATORS?.split(",").map(v => v.trim()).includes(`github:${env.GITHUB_ACTOR_ID}`), "Development execution requires a trusted operator");
-  const seed = validateSeed(JSON.parse(env.NUGS_WORKSPACE_SEED!)), request = developmentRequest(JSON.parse(env.DEVELOPMENT_REQUEST!));
+  const request = developmentRequest(JSON.parse(env.DEVELOPMENT_REQUEST!));
+  const suppliedContext = JSON.parse(env.NUGS_WORKSPACE_SEED!);
+  // An omitted context may use the existing trusted repository identity, without
+  // making its historical native collection/checkpoint an execution prerequisite.
+  const seed = developmentContext(request.schemaVersion === 2 && env.DEVELOPMENT_DEFAULT_CONTEXT === "true"
+    ? { schema_version: 2, workspace: suppliedContext.workspace, workspace_ref: suppliedContext.workspace_ref, engagement: suppliedContext.engagement }
+    : suppliedContext, request.schemaVersion);
+  assert(!env.DEVELOPMENT_ENGINE_COMMIT || env.DEVELOPMENT_ENGINE_COMMIT === env.GITHUB_SHA, "Development workflow source changed before dispatch");
   assert(env.REVIEW_WORKSPACE === seed.workspace, "Workspace binding mismatch");
-  const binding: Binding = { workspace: seed.workspace, workspace_ref: seed.workspace_ref, process: request.process, bead: request.bead };
+  const binding = developmentBinding(seed, request);
+  if (request.schemaVersion === 2 && request.taskRef) assert(request.taskRef.workspace === seed.workspace, "Tracker reference workspace mismatch");
   const key = `development/${digest(binding)}`, store = new PrivateStore();
   if (env.DEVELOPMENT_OPERATION === "inspect") { console.log(JSON.stringify(await inspectDevelopment(store, key, binding))); return; }
   assert(env.ALLOW_SOURCE_EFFECTS === "true", "Explicit bound source authority required");
@@ -36,9 +45,11 @@ async function main() {
     const docsRoot = join(home, "documents"); mkdirSync(docsRoot, { recursive: true });
     const docs = new Documents(docsRoot, binding.workspace), github = new GitHub(); docs.ready(seed);
     const workspace = await checkoutWorkspace(home, docs, github, binding.workspace);
-    installNativeTools(home, env.NUGS_STORAGE_URL!);
-    restoreCollection(workspace.root, join(home, "native-data"), seed, env.NUGS_STORAGE_URL!);
-    const bead = readBeads(workspace.root, "show", request.bead); await save("bead.json", bead);
+    if (request.schemaVersion === 1) {
+      installNativeTools(home, env.NUGS_STORAGE_URL!);
+      restoreCollection(workspace.root, join(home, "native-data"), seed, env.NUGS_STORAGE_URL!);
+      const bead = readBeads(workspace.root, "show", request.bead); await save("bead.json", bead);
+    }
     const member = workspace.members.find(m => m.path === request.member); assert(member, "Requested source member not declared");
     const directory = sourceDirectory(workspace.root, workspace.members, member.path);
     await github.git(directory, ["fetch", "--quiet", "origin", request.baseCommit], member.repository);
@@ -50,9 +61,13 @@ async function main() {
     await evidence.close(); closed = true;
     const assessment = await inspectDevelopment(store, key, binding); await save("assessment.json", assessment);
     assert(assessment.evidence.unresolvedOperations === 0, "Unresolved execution evidence prevents delivery");
-    const name = `threads/${request.bead}/development/${request.process}.md`;
-    const report = `# Development candidate: ${state.status}\n\nMethodology: implement-review-test. Process: ${request.process}. Owning Bead: ${request.bead}.\n\nCurrent step: ${state.currentStep}. Next step: ${state.nextStep}.\n\nCycles: ${state.cycle}/4. Candidate: ${state.candidate}.\n\n${state.evaluations.map(e => `## ${e.role}: ${e.approval}\n\n${e.summary}\n\n${e.findings.slice(0,20).map(f => `- ${f.slice(0,1000)}`).join("\n")}`).join("\n\n")}\n\n## Evidence and boundary\n\nAll three explicit decisions bind the candidate above. Mandatory test outcomes and every cycle's complete findings are retained privately under ${key}. Native sessions and host OTLP spans were decoded by the automatic assessment: ${assessment.evidence.spans} spans, ${assessment.evidence.failedSpans} failed, ${assessment.evidence.unresolvedOperations} unresolved operations. Host durations overlap; no provider-native request spans or verified billing are claimed.\n\nCandidate publication: ${request.publishCandidate ? "authorized per-cycle candidate branches" : "private incremental Git bundles only"}. No source branch integration, PR creation, human approval or QRSPI phase approval is performed. A new request requires a new process identity; rerunning this process cannot replay model work. UI continue/new-thread controls remain separate delivery work (task-clh).\n`;
-    const pin = docs.save(name, report);
+    const thread = developmentThread(binding), name = `threads/${thread}/development/${request.process}.md`;
+    const report = `# Development candidate: ${state.status}\n\nMethodology: implement-review-test. Process: ${request.process}. Thread: ${thread}.\n\nCurrent step: ${state.currentStep}. Next step: ${state.nextStep}.\n\nCycles: ${state.cycle}/4. Candidate: ${state.candidate}.\n\n${state.evaluations.map(e => `## ${e.role}: ${e.approval}\n\n${e.summary}\n\n${e.findings.slice(0,20).map(f => `- ${f.slice(0,1000)}`).join("\n")}`).join("\n\n")}\n\n## Evidence and boundary\n\nAll three explicit decisions bind the candidate above. Mandatory test outcomes and every cycle's complete findings are retained privately under ${key}. Native sessions and host OTLP spans were decoded by the automatic assessment: ${assessment.evidence.spans} spans, ${assessment.evidence.failedSpans} failed, ${assessment.evidence.unresolvedOperations} unresolved operations. Host durations overlap; no provider-native request spans or verified billing are claimed.\n\nCandidate publication: ${request.publishCandidate ? "authorized per-cycle candidate branches" : "private incremental Git bundles only"}. No source branch integration, PR creation, human approval or QRSPI phase approval is performed. A new request requires a new process identity; rerunning this process cannot replay model work. UI continue/new-thread controls remain separate delivery work (task-clh).\n`;
+    const resultContract = { schemaVersion: 1, workspace: binding.workspace, thread, process: request.process, executionId,
+      status: state.status, currentStep: state.currentStep, nextStep: state.nextStep, cycle: state.cycle, candidate: state.candidate,
+      testsPassed: state.history.at(-1)?.testsPassed === true,
+      evaluations: state.evaluations.map(({ role, candidate, approval }) => ({ role, candidate, approval })) };
+    const pin = docs.save(name, `${report}\n## Result contract\n\n\`\`\`json\n${JSON.stringify(resultContract)}\n\`\`\`\n`);
     const url = new URL(env.REVIEW_APP_URL!);
     url.hash = `/documents/${encodeURIComponent(`${pin.version}:documents/${name}`)}?${new URLSearchParams({ repository: env.REVIEW_REPOSITORY!, workspace: binding.workspace })}`;
     await save("result.json", { ...state, report: pin, reportUrl: url.href, assessment: `${key}/assessment.json` });

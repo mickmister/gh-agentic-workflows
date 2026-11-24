@@ -1,5 +1,6 @@
 import { ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { assert, type Binding } from "./core.ts";
+import { assert } from "./core.ts";
+import type { DevelopmentBinding as Binding } from "./development-context.ts";
 import { digest, type PrivateStore } from "./storage.ts";
 import { nativeSummary } from "./analyze-native.ts";
 import { evaluators } from "./development.ts";

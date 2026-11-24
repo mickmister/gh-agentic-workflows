@@ -10,6 +10,21 @@ import { localGit } from "./workspace.ts";
 import { ExecutionEvidence } from "./execution.ts";
 import { inspectDevelopment } from "./development-inspect.ts";
 import { digest } from "./storage.ts";
+import { developmentContext, developmentBinding } from "./development-context.ts";
+
+test("standalone identity is tracker-free, strict and preserves exact historical bindings", () => {
+  const seed = { schema_version: 2, workspace: "fixture", workspace_ref: `ws-${"a".repeat(32)}`, engagement: "personal" };
+  const request = { schemaVersion: 2, process: "run-1", thread: "conversation-1", member: "app", baseCommit: "a".repeat(40), task: "Fix source", acceptanceCriteria: ["Checks pass"], publishCandidate: false };
+  assert.deepEqual(developmentContext(seed, 2), seed);
+  assert.deepEqual(developmentRequest(request), request);
+  assert.equal("bead" in developmentBinding(seed, developmentRequest(request)), false);
+  for (const field of ["bead", "testCommands", "setupCommands", "dolt_commit"]) assert.throws(() => developmentRequest({ ...request, [field]: "hidden" }));
+  assert.throws(() => developmentContext({ ...seed, collection_id: "hidden" }, 2));
+  assert.throws(() => developmentContext({ ...seed, schema_version: 1 }, 2));
+  const old = { workspace: "fixture", workspace_ref: seed.workspace_ref, process: "old", bead: "task-old" };
+  assert.equal(digest(developmentBinding(seed, { schemaVersion: 1, process: "old", bead: "task-old" })), digest(old));
+  assert.notEqual(digest(developmentBinding(seed, developmentRequest(request))), digest(developmentBinding(seed, developmentRequest({ ...request, thread: "other" }))));
+});
 
 test("evaluation is explicit, role-attributed and bound to the exact candidate", () => {
   const candidate = "a".repeat(40), good = { candidate, approval: "approve", summary: "Inspected candidate", findings: [] };
@@ -52,11 +67,18 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       }
       assert(text.includes("implementation-command-proof"), "Evaluators must receive actual implementer command evidence");
       assert(text.includes('"exitCode":0'));
+      if (role === "tester" && mode.startsWith("standalone") && mode !== "standalone-no-checks" && round === 1) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `checks-${cycle}`, type: "function", function: {
+          name: "workspace_operation", arguments: JSON.stringify({ area: "verification", operation: "run", args: { commands: [[process.execPath, "-e", mode === "standalone-failed-checks" ? "process.exit(1)" : "if(!require('node:fs').readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]] } }) } }] };
+        res.end(`data: ${JSON.stringify({ id: "checks", choices: [{ index: 0, delta, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+        return;
+      }
       const candidate = text.match(/"candidate":"([a-f0-9]{40})"/)?.[1]; assert(candidate);
       active++; maximum = Math.max(maximum, active);
       await new Promise<void>(ok => { waiting.push(ok); if (waiting.length === 3) waiting.splice(0).forEach(resolve => resolve()); });
       active--;
-      const approve = mode === "failed-tests" || mode === "retry" && (cycle > 1 || role !== "reviewer-1");
+      const approve = mode.startsWith("standalone") || mode === "failed-tests" || mode === "retry" && (cycle > 1 || role !== "reviewer-1");
       delta = { role: "assistant", content: JSON.stringify({ candidate, approval: approve ? "approve" : "reject", summary: `Independent ${role}`, findings: approve ? [] : ["Fixture requires another pass"] }) };
     }
     res.writeHead(200, { "content-type": "text/event-stream" });
@@ -68,29 +90,35 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
   try {
     Object.assign(process.env, { HOME: home, INFERENCE_BASE_URL: `http://127.0.0.1:${(server.address() as any).port}/v1`, INFERENCE_API_KEY: "test",
       CF_ACCESS_CLIENT_ID: "test", CF_ACCESS_CLIENT_SECRET: "test", QRSPI_MODEL: "test-model" });
-    for (mode of ["retry", "exhausted", "failed-tests"]) {
+    for (mode of ["retry", "exhausted", "failed-tests", "standalone", "standalone-no-checks", "standalone-failed-checks"]) {
       cycle = 0;
       const directory = join(home, mode), root = join(directory, "workspace"), app = join(root, "app"); await mkdir(app, { recursive: true });
       localGit(app, ["init", "--quiet", "-b", "feature"]); await writeFile(join(app, "answer.txt"), "broken\n"); localGit(app, ["add", "."]);
       localGit(app, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "initial"]);
       const baseCommit = localGit(app, ["rev-parse", "HEAD"]), saved = new Map<string, any>();
       const sources = new Sources(root, directory, [{ path: "app", repository: "owner/app", branch: "refs/heads/feature", commit: baseCommit }], {} as any, true, mode);
-      const request = developmentRequest({ schemaVersion: 1, process: mode, bead: "task-fixture", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"],
+      const request = developmentRequest(mode.startsWith("standalone") ? { schemaVersion: 2, process: mode, thread: "conversation", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"], publishCandidate: false } : { schemaVersion: 1, process: mode, bead: "task-fixture", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"],
         setupCommands: [[process.execPath, "-e", "const fs=require('node:fs'),p=require('node:path').join(process.env.HOME,'.npm','cache','a','b','c','d','e','f','g','h','i');fs.mkdirSync(p,{recursive:true});fs.writeFileSync(require('node:path').join(p,'index.json'),'package-cache-not-native-evidence')"]],
         testCommands: [[process.execPath, "-e", mode === "failed-tests" ? "process.exit(1)" : "if(!require('node:fs').readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]], publishCandidate: false });
-      const binding = { workspace: "fixture", workspace_ref: "ws-fixture", process: mode, bead: request.bead };
+      const binding = developmentBinding({ workspace: "fixture", workspace_ref: "ws-fixture" }, request);
       const key = `development/${digest(binding)}`;
       saved.set("identity.json", { binding, executionId: "1-1" });
       const evidence = new ExecutionEvidence(binding, "1-1", async (suffix, value) => { saved.set(`evidence/${suffix}`, structuredClone(value)); });
       try {
         const result = await runDevelopment(directory, request, sources, binding, "1-1", evidence, async (key, value) => { saved.set(key, structuredClone(value)); });
-        assert.equal(result.status, mode === "retry" ? "accepted" : "exhausted");
-        assert.equal(result.cycle, mode === "retry" ? 2 : 4); assert.equal(maximum, 3);
+        const accepted = mode === "retry" || mode === "standalone";
+        assert.equal(result.status, accepted ? "accepted" : "exhausted");
+        assert.equal(result.cycle, mode === "standalone" ? 1 : mode === "retry" ? 2 : 4); assert.equal(maximum, 3);
         assert.equal(result.evaluations.length, 3); assert.equal(new Set(result.evaluations.map(e => e.sessionId)).size, 3);
-        assert(result.history.every(h => h.evaluations.every(e => e.candidate === h.candidate) && h.testsPassed === (mode !== "failed-tests")));
+        assert(result.history.every(h => h.evaluations.every(e => e.candidate === h.candidate) && h.testsPassed === (!["failed-tests", "standalone-no-checks", "standalone-failed-checks"].includes(mode))));
+        if (mode.startsWith("standalone")) {
+          assert.equal("bead" in result.binding, false);
+          assert.equal(saved.has("bead.json"), false);
+          assert.equal(saved.has("cycles/1/verification.json"), mode !== "standalone-no-checks");
+        }
         assert(saved.has(`cycles/${result.cycle}/candidate-bundle.json`));
         assert.equal(JSON.stringify(saved.get(`cycles/${result.cycle}/native/implementer.json`).files).includes("package-cache-not-native-evidence"), false);
-        assert.equal(saved.get("progress.json").nextStep, mode === "retry" ? "human-review-candidate" : "human-review-unresolved-findings");
+        assert.equal(saved.get("progress.json").nextStep, accepted ? "human-review-candidate" : "human-review-unresolved-findings");
         assert.equal(JSON.parse(saved.get("engine.json").output).status, "completed");
         assert.equal(localGit(app, ["rev-parse", "HEAD"]), baseCommit, "No integration into caller branch");
         await evidence.close();
