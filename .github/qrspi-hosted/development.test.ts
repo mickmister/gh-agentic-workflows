@@ -37,8 +37,21 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
         finish = "tool_calls";
         delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `write-${cycle}`, type: "function", function: {
           name: "workspace_operation", arguments: JSON.stringify({ area: "files", operation: "write", args: { path: "answer.txt", content: `fixed cycle ${cycle}\n` } }) } }] };
+      } else if (round === 1) {
+        finish = "tool_calls";
+        delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `command-${cycle}`, type: "function", function: {
+          name: "workspace_operation", arguments: JSON.stringify({ area: "execute", operation: "run", args: { argv: [process.execPath, "-p", "'implementation-command-proof'"] } }) } }] };
       } else delta = { role: "assistant", content: JSON.stringify({ summary: "Implemented the fixture", paths: ["answer.txt"] }) };
     } else {
+      if (round === 0) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `evidence-${cycle}-${role}`, type: "function", function: {
+          name: "workspace_operation", arguments: JSON.stringify({ area: "evidence", operation: "implementation", args: { offset: 0 } }) } }] };
+        res.end(`data: ${JSON.stringify({ id: "evidence", choices: [{ index: 0, delta, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+        return;
+      }
+      assert(text.includes("implementation-command-proof"), "Evaluators must receive actual implementer command evidence");
+      assert(text.includes('"exitCode":0'));
       const candidate = text.match(/"candidate":"([a-f0-9]{40})"/)?.[1]; assert(candidate);
       active++; maximum = Math.max(maximum, active);
       await new Promise<void>(ok => { waiting.push(ok); if (waiting.length === 3) waiting.splice(0).forEach(resolve => resolve()); });
