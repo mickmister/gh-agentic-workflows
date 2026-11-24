@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { assert } from "./core.ts";
 import { classify } from "./diagnostics.ts";
+import { developmentThread, type DevelopmentBinding } from "./development-context.ts";
 import type { SessionIdentity } from "./session.ts";
 
 export const operations = ["session", "worker", "qrspi_context", "qrspi_document", "qrspi_dispatch", "workspace_operation", "workspace_workers", "development_control", "command"] as const;
@@ -27,10 +28,10 @@ export class ExecutionEvidence {
   private timer: ReturnType<typeof setInterval>;
   private active = new Map<string, { operation: Operation; scope: Scope; started: number }>();
   readonly traceId: string;
-  readonly binding: { workspace: string; workspace_ref: string; process: string; bead: string };
+  readonly binding: DevelopmentBinding;
   readonly executionId: string;
   readonly budgets: { bytes: number; events: number; chunks: number };
-  constructor(binding: { workspace: string; workspace_ref: string; process: string; bead: string }, executionId: string,
+  constructor(binding: DevelopmentBinding, executionId: string,
     privateWrite: (suffix: string, value: unknown) => Promise<unknown>,
     budgets = { bytes: 256_000_000, events: 1000000, chunks: 16384 }) {
     assert(Object.values(budgets).every(n => Number.isSafeInteger(n) && n > 0), "Invalid execution evidence budgets");
@@ -62,7 +63,7 @@ export class ExecutionEvidence {
     const events = this.pending; this.pending = []; this.pendingBytes = 0;
     const chunk = ++this.chunks;
     assert(chunk <= this.budgets.chunks, "Execution chunk budget exceeded");
-    const payload = { schemaVersion: 1, binding: this.binding, threadId: `threads/${this.binding.bead}`, executionId: this.executionId, traceId: this.traceId,
+    const payload = { schemaVersion: 1, binding: this.binding, threadId: `threads/${developmentThread(this.binding)}`, executionId: this.executionId, traceId: this.traceId,
       engineSha: /^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? "") ? process.env.GITHUB_SHA : null, events,
       phaseApproval: false, replayAuthorized: false };
     this.chain = this.chain.then(async () => {
@@ -101,7 +102,7 @@ export class ExecutionEvidence {
       try {
         await this.write(`spans/${id}.json`, { resourceSpans: [{ resource: { attributes: [attribute("service.name", "qrspi-hosted"),
           attribute("qrspi.execution_id", this.executionId), attribute("qrspi.workspace_ref", this.binding.workspace_ref),
-          attribute("qrspi.process", this.binding.process), attribute("qrspi.bead", this.binding.bead)] }, scopeSpans: [{ scope: { name: "qrspi-hosted", version: "1" }, spans: [span] }] }] });
+           attribute("qrspi.process", this.binding.process), attribute("thread" in this.binding ? "qrspi.thread" : "qrspi.bead", developmentThread(this.binding))] }, scopeSpans: [{ scope: { name: "qrspi-hosted", version: "1" }, spans: [span] }] }] });
       } catch (error) { this.failure ??= error; throw error; }
     };
   }

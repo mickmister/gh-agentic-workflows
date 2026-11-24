@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { assert, type Binding } from "./core.ts";
+import { assert } from "./core.ts";
+import type { DevelopmentBinding as Binding } from "./development-context.ts";
 import { configurePi } from "./pi.ts";
 import { serveTools } from "./tools.ts";
 import { Development, type DevelopmentRequest, type DevelopmentRole } from "./development.ts";

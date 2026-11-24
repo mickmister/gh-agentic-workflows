@@ -1,11 +1,12 @@
 name: Bounded development workflow
-run-name: Development ${{ fromJSON(inputs.request).process }} · ${{ inputs.operation }}
+run-name: Development ${{ inputs.workspace }} / ${{ fromJSON(inputs.request).thread || fromJSON(inputs.request).bead }} / ${{ fromJSON(inputs.request).process }} · ${{ inputs.operation }}
 on:
   workflow_dispatch:
     inputs:
       workspace: { type: string, required: true, description: Bound readable workspace handle }
-      workspace-context: { type: string, default: '', description: Native handoff JSON; empty uses trusted repository seed }
-      request: { type: string, required: true, description: Versioned development request JSON with exact source base and test commands }
+      workspace-context: { type: string, default: '', description: Versioned workspace context JSON; v2 has no native tracker handoff }
+      request: { type: string, required: true, description: Versioned request; v2 task and acceptance criteria use project-owned verification }
+      engine-commit: { type: string, default: '', description: Expected exact workflow source commit }
       allow-source-effects: { type: boolean, default: false, description: Explicit source execution and requested candidate publication authority }
       operation:
         type: choice
@@ -17,6 +18,7 @@ on:
       workspace: { type: string, required: true }
       workspace-context: { type: string, default: '' }
       request: { type: string, required: true }
+      engine-commit: { type: string, default: '' }
       allow-source-effects: { type: boolean, default: false }
       operation: { type: string, default: run }
     outputs:
@@ -117,6 +119,8 @@ jobs:
           REVIEW_REPOSITORY: ${{ vars.QRSPI_REVIEW_REPOSITORY }}
           REVIEW_APP_URL: ${{ vars.QRSPI_REVIEW_APP_URL }}
           NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context || vars.NUGS_WORKSPACE_SEED }}
+          DEVELOPMENT_DEFAULT_CONTEXT: ${{ inputs.workspace-context == '' }}
+          DEVELOPMENT_ENGINE_COMMIT: ${{ inputs.engine-commit }}
           NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
           NUGS_STORAGE_TOKEN: ${{ steps.storage-auth.outputs.token }}
           AGENT_APP_ID: ${{ inputs.operation == 'run' && secrets.AGENT_APP_ID || '' }}

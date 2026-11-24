@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, copyFile, readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { assert, type Binding } from "./core.ts";
+import { assert } from "./core.ts";
+import { type DevelopmentBinding as Binding, developmentThread } from "./development-context.ts";
 import { Sources, files, command, readable, type Task } from "./source.ts";
 import { localGit } from "./workspace.ts";
 import { serveTools } from "./tools.ts";
@@ -13,17 +14,29 @@ import { observePi } from "./live-session.ts";
 
 export const evaluators = ["reviewer-1", "reviewer-2", "tester"] as const;
 export type DevelopmentRole = "implementer" | typeof evaluators[number];
-export type DevelopmentRequest = {
+type LegacyDevelopmentRequest = {
   schemaVersion: 1; process: string; bead: string; member: string; baseCommit: string;
   task: string; acceptanceCriteria: string[]; testCommands: string[][]; setupCommands?: string[][];
   publishCandidate: boolean;
 };
+export type DevelopmentRequest = LegacyDevelopmentRequest | {
+  schemaVersion: 2; process: string; thread: string; member: string; baseCommit: string;
+  task: string; acceptanceCriteria: string[]; publishCandidate: boolean;
+  taskRef?: { system: string; workspace: string; id: string };
+};
 export function developmentRequest(value: any): DevelopmentRequest {
-  assert(value?.schemaVersion === 1 && /^[a-z0-9][a-z0-9-]{0,39}$/.test(value.process) && /^[\w.:-]{1,100}$/.test(value.bead), "Invalid development identity");
+  assert(value && (value.schemaVersion === 1 || value.schemaVersion === 2) && typeof value.process === "string" && /^[a-z0-9][a-z0-9-]{0,39}$/.test(value.process), "Invalid development identity");
+  if (value.schemaVersion === 1) assert(typeof value.bead === "string" && /^[\w.:-]{1,100}$/.test(value.bead), "Invalid development identity");
+  else {
+    const fields = ["schemaVersion", "process", "thread", "member", "baseCommit", "task", "acceptanceCriteria", "publishCandidate", "taskRef"];
+    assert(Object.keys(value).every(key => fields.includes(key)) && typeof value.thread === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(value.thread), "Invalid standalone development fields");
+    if (value.taskRef !== undefined) assert(value.taskRef && Object.keys(value.taskRef).sort().join(",") === "id,system,workspace" &&
+      Object.values(value.taskRef).every(v => typeof v === "string" && v.length > 0 && v.length <= 200), "Invalid optional tracker reference");
+  }
   assert(typeof value.member === "string" && value.member.length <= 100 && /^[a-f0-9]{40}$/.test(value.baseCommit), "Exact source member/base required");
   assert(typeof value.task === "string" && value.task.trim() && value.task.length <= 24000 && Array.isArray(value.acceptanceCriteria) &&
     value.acceptanceCriteria.length > 0 && value.acceptanceCriteria.length <= 30 && value.acceptanceCriteria.every((s: unknown) => typeof s === "string" && s.length > 0 && s.length <= 2000), "Task and acceptance criteria required");
-  for (const [commands, required] of [[value.testCommands, true], [value.setupCommands ?? [], false]] as const) {
+  for (const [commands, required] of value.schemaVersion === 1 ? [[value.testCommands, true], [value.setupCommands ?? [], false]] as const : []) {
     assert(Array.isArray(commands) && commands.length <= 10 && (!required || commands.length > 0) && commands.every((argv: unknown) =>
       Array.isArray(argv) && argv.length > 0 && argv.length <= 40 && argv.every(s => typeof s === "string" && s.length > 0 && s.length <= 16000)), "Invalid declared commands");
   }
@@ -46,7 +59,7 @@ export type DevelopmentProgress = {
 type Agent = { role: DevelopmentRole; task: Task; dir: string; socketDir: string; session: SessionIdentity;
   bridge: Awaited<ReturnType<typeof serveTools>>; stopNative: ReturnType<typeof observeNative>; stopPi: () => Promise<void>;
   finish: (error?: unknown) => Promise<void>; result?: any; closed?: boolean; tests: Awaited<ReturnType<typeof command>>[];
-  commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[] };
+  commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[]; requiredChecks?: string[][] };
 
 /** Mechanical source/session/receipt capabilities. Spec Kit YAML owns scheduling. */
 export class Development {
@@ -94,7 +107,8 @@ export class Development {
     const cwd = this.sources.directory(task), tests: Agent["tests"] = [];
     const commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[] = [];
     const assignment = { task: this.request.task, acceptanceCriteria: this.request.acceptanceCriteria, candidate: this.state.candidate ?? null,
-      baseCommit: this.request.baseCommit, cycle: this.state.cycle, priorFindings: this.state.history.at(-1)?.evaluations ?? [], testCommands: this.request.testCommands,
+      baseCommit: this.request.baseCommit, cycle: this.state.cycle, priorFindings: this.state.history.at(-1)?.evaluations ?? [],
+      ...(this.request.schemaVersion === 1 ? { testCommands: this.request.testCommands } : { verification: "Inspect project scripts, CI and acceptance criteria. Tester must declare and run nonempty required checks with area: verification, operation: run, args: {commands: [[executable, ...arguments], ...]}. Exploratory commands alone do not count. Reuse project-owned setup; discover/provision dependencies in this job using Nix or justified conventional setup." }),
       diff: role === "implementer" ? undefined : localGit(cwd, ["diff", this.request.baseCommit, this.state.candidate!, "--"]) };
     const runCommand = async (argv: string[], category: string, seconds?: number) => {
       const finish = await this.evidence.begin("command", this.evidence.scope(session));
@@ -114,7 +128,22 @@ export class Development {
     const tools = { call: async (call: { name: string; args: any; callId: string }) => {
       assert(++calls <= 1000, "Development tool budget exceeded"); this.signal.throwIfAborted();
       const { area, operation, args = {} } = call.args;
-      if (area === "help" || area === "assignment") return { role, assignment, capabilities: ["assignment", "files list/read", ...(role === "implementer" ? ["files write", "execute run"] : ["evidence implementation", ...(role === "tester" ? ["execute run"] : [])])] };
+      if (area === "verification") {
+        assert(role === "tester" && this.request.schemaVersion === 2 && operation === "run" && !this.agents.get(role)?.requiredChecks, "Verification requires standalone tester and one declared check set");
+        const commands = args.commands;
+        assert(Array.isArray(commands) && commands.length > 0 && commands.length <= 10 && commands.every((argv: unknown) =>
+          Array.isArray(argv) && argv.length > 0 && argv.length <= 40 && argv.every(s => typeof s === "string" && s.length > 0 && s.length <= 16000)), "Required verification commands missing");
+        this.agents.get(role)!.requiredChecks = structuredClone(commands);
+        await this.save(`cycles/${this.state.cycle}/verification.json`, { candidate: this.state.candidate, commands });
+        const results = [];
+        for (const argv of commands) {
+          const result = await runCommand(argv, "tests", 1800); tests.push(result);
+          await this.save(`cycles/${this.state.cycle}/tests/${result.commandId}.json`, { argv, ...result });
+          results.push({ argv, ...result });
+        }
+        return { candidate: this.state.candidate, results };
+      }
+      if (area === "help" || area === "assignment") return { role, assignment, capabilities: ["assignment", "files list/read", ...(role === "implementer" ? ["files write", "execute run"] : ["evidence implementation", ...(role === "tester" ? ["execute run", ...(this.request.schemaVersion === 2 ? ["verification run"] : [])] : [])])] };
       if (area === "evidence") {
         assert(role !== "implementer" && operation === "implementation" && this.state.candidate, "Role capability does not permit this evidence");
         const implementer = this.agents.get("implementer"); assert(implementer?.result, "Completed implementation required");
@@ -139,13 +168,13 @@ export class Development {
     this.agents.set(role, agent);
     await this.save(`cycles/${this.state.cycle}/sessions/${role}.json`, { ...session, status: "allocated", candidate: this.state.candidate ?? null });
     if (role === "implementer" || role === "tester") {
-      for (const argv of this.request.setupCommands ?? []) {
+      for (const argv of this.request.schemaVersion === 1 ? this.request.setupCommands ?? [] : []) {
         const result = await runCommand(argv, "setup", 1800);
         await this.save(`cycles/${this.state.cycle}/setup/${role}-${result.commandId}.json`, result);
         assert(result.outcome === "completed" && result.exitCode === 0, "Declared role setup failed");
       }
     }
-    if (role === "tester") for (const argv of this.request.testCommands) {
+    if (role === "tester") for (const argv of this.request.schemaVersion === 1 ? this.request.testCommands : []) {
       const result = await runCommand(argv, "tests", 1800); tests.push(result);
       await this.save(`cycles/${this.state.cycle}/tests/${result.commandId}.json`, { argv, ...result });
     }
@@ -186,7 +215,7 @@ export class Development {
       localGit(cwd, ["add", "--", ...agent.result.paths]);
       const staged = localGit(cwd, ["diff", "--cached", "--name-only", "-z"]).split("\0").filter(Boolean);
       assert(staged.every(p => agent.result.paths.includes(p)), "Unassigned paths staged");
-      if (staged.length) localGit(cwd, ["-c", "user.name=Workspace Agent", "-c", "user.email=agent@users.noreply.github.com", "commit", "-m", `Implement ${this.request.bead} cycle ${this.state.cycle} (AI-authored)`]);
+      if (staged.length) localGit(cwd, ["-c", "user.name=Workspace Agent", "-c", "user.email=agent@users.noreply.github.com", "commit", "-m", `Implement ${developmentThread(this.state.binding)} cycle ${this.state.cycle} (AI-authored)`]);
     }
     assert(!localGit(cwd, ["status", "--porcelain"]), "Candidate has uncommitted files");
     const candidate = localGit(cwd, ["rev-parse", "HEAD"]);
@@ -207,7 +236,8 @@ export class Development {
     assert(new Set(this.state.evaluations.map(e => e.sessionId)).size === 3 && this.state.evaluations.length === 3, "Distinct evaluator receipts required");
     assert(localGit(this.sources.directory(this.candidateTask), ["rev-parse", "HEAD"]) === this.state.candidate && !localGit(this.sources.directory(this.candidateTask), ["status", "--porcelain"]), "Frozen candidate changed");
     const tester = this.agents.get("tester")!;
-    const testsPassed = tester.tests.length === this.request.testCommands.length && tester.tests.every(t => t.outcome === "completed" && t.exitCode === 0);
+    const requiredCount = this.request.schemaVersion === 1 ? this.request.testCommands.length : tester.requiredChecks?.length ?? 0;
+    const testsPassed = requiredCount > 0 && tester.tests.length === requiredCount && tester.tests.every(t => t.outcome === "completed" && t.exitCode === 0);
     const accepted = testsPassed && this.state.evaluations.every(e => e.candidate === this.state.candidate && e.approval === "approve");
     this.state.history.push({ cycle: this.state.cycle, candidate: this.state.candidate, evaluations: [...this.state.evaluations], testsPassed });
     if (accepted) this.state.status = "accepted";
