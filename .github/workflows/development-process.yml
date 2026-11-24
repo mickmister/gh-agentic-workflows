@@ -64,6 +64,17 @@ jobs:
         env:
           DEVELOPMENT_OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
         run: node -e 'if (!process.env.DEVELOPMENT_OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - name: Install repairable Nix before any project agent
+        if: inputs.operation == 'run'
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
       - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: .github/qrspi-hosted
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78

@@ -46,6 +46,13 @@ They do not establish a supported source-enabled entry by themselves.
 
 ## Workspace and setup
 
+The source-capable development entry now installs pinned Nix before Pi starts.
+Agents can provision and use a missing tool through `nix shell` or `nix develop`
+in the same running session/job. The independent host bootstrap remains available
+when a project flake is broken. See [Nix environments and the native B2 proof](../../docs/nix-environments.md).
+This first feasibility slice does not replace the discussion workflow's composite
+preparation path or qualify arbitrary agent-controlled cache publication.
+
 The host restores exact manifest members and native Beads context. Missing,
 ambiguous or incompatible bindings fail rather than select a global/latest run.
 Source credentials are scoped to the selected repository; storage credentials
