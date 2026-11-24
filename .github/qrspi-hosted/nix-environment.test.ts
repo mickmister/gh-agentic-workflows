@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
-import { assessNixLoop, loopCommands, nixCache, nixCacheEnvironment, probeMarker } from "./nix-environment.ts";
+import { assessNixLoop, inspectNixCommands, loopCommands, nixCache, nixCacheEnvironment, probeMarker } from "./nix-environment.ts";
 
 const config = { S3_CACHE_URL: "https://s3.example.invalid", S3_CACHE_BUCKET: "private-cache", S3_CACHE_PREFIX: "ci/project",
   S3_CACHE_REGION: "us-west-004", S3_CACHE_PATH_STYLE: "true", S3_CACHE_ACCESS_KEY_ID: "reader", S3_CACHE_SECRET_ACCESS_KEY: "private-value" };
@@ -50,6 +50,17 @@ test("proof requires observed missing, ad-hoc and declared use in order in the s
     (e: any[]) => e.map(v => v.data.commandId === "missing" ? { ...v, data: { ...v.data, text: "network error" } } : v),
     (e: any[]) => e.map(v => v.data.commandId === "declared" ? { ...v, data: { ...v.data, code: 1 } } : v),
   ]) assert.throws(() => assessNixLoop(mutate(events), "native-implementer"));
+});
+
+test("failed-loop diagnostics expose fixed classifications, not argv or raw output", () => {
+  const events = observations();
+  events[0].data.argv = ["private-command", "private-argument"];
+  events[1].data.text = "private-stdout";
+  const result = inspectNixCommands(events, "native-implementer");
+  assert.equal(result[0].command, "other");
+  assert.equal(result[0].marker, "absent");
+  assert.equal(result[0].error, "missing-file-or-command");
+  assert(!JSON.stringify(result).includes("private-"));
 });
 
 test("proof workflow separates publisher, live agent and fresh replay and never uploads Actions artifacts", async () => {

@@ -39,7 +39,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 /** Accept actual command observations in one implementer session, not final prose.
  * Exact commands deliberately make the bounded proof inspectable and repeatable.
  */
-export function assessNixLoop(events: readonly Event[], sessionId: string) {
+function observedCommands(events: readonly Event[], sessionId: string) {
   const commands = new Map<string, { argv: string[]; start: number; end?: number; exit?: number; state?: string; stdout: string; stderr: string }>();
   for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
     if (event.sessionId !== sessionId || event.role !== "implementer" || event.kind !== "command") continue;
@@ -54,12 +54,27 @@ export function assessNixLoop(events: readonly Event[], sessionId: string) {
       if (d.state) { c.end = event.sequence; c.exit = d.code; c.state = d.state; }
     }
   }
-  const all = [...commands.values()];
+  return [...commands.values()];
+}
+
+export function inspectNixCommands(events: readonly Event[], sessionId: string) {
+  return observedCommands(events, sessionId).map(c => ({
+    sequence: c.start,
+    command: same(c.argv, loopCommands.missing) ? "declared-probe" : same(c.argv, loopCommands.adhoc) ? "adhoc-probe" : "other",
+    exit: c.exit, state: c.state,
+    marker: c.stdout.trim() === probeMarker ? "matched" : "absent",
+    error: /SSL|certificate/i.test(c.stderr) ? "tls" : /not found|No such file/i.test(c.stderr) ? "missing-file-or-command" :
+      /Permission denied|not allowed|restricted|not trusted/i.test(c.stderr) ? "permission" : c.exit ? "unclassified" : "none",
+  }));
+}
+
+export function assessNixLoop(events: readonly Event[], sessionId: string) {
+  const all = observedCommands(events, sessionId);
   const missing = all.find(c => same(c.argv, loopCommands.missing) && c.state === "failed" && c.exit !== 0 && /not found|No such file/i.test(c.stderr));
   assert(missing?.end, "Missing-tool observation absent");
   const adhoc = all.find(c => same(c.argv, loopCommands.adhoc) && c.start > missing.end! && c.state === "completed" && c.exit === 0 && c.stdout.trim() === probeMarker);
   assert(adhoc?.end, "Successful same-session ad-hoc provision/use absent");
   const declared = all.find(c => same(c.argv, loopCommands.missing) && c.start > adhoc.end! && c.state === "completed" && c.exit === 0 && c.stdout.trim() === probeMarker);
   assert(declared?.end, "Successful declared environment use absent");
-  return { sessionId, missingSequence: missing.start, adhocSequence: adhoc.start, declaredSequence: declared.start, commands: commands.size };
+  return { sessionId, missingSequence: missing.start, adhocSequence: adhoc.start, declaredSequence: declared.start, commands: all.length };
 }

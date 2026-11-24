@@ -11,7 +11,7 @@ import { localGit } from "./workspace.ts";
 import { runDevelopment } from "./development-run.ts";
 import { ExecutionEvidence } from "./execution.ts";
 import { inspectDevelopment } from "./development-inspect.ts";
-import { assessNixLoop, loopCommands, nixCache, nixCacheEnvironment, nixVersion, probeMarker } from "./nix-environment.ts";
+import { assessNixLoop, inspectNixCommands, loopCommands, nixCache, nixCacheEnvironment, nixVersion, probeMarker } from "./nix-environment.ts";
 
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -203,7 +203,7 @@ async function inspect() {
       const native = (await store.read(`${reference.value.developmentKey}/cycles/${cycle}/native/implementer.json`))?.value;
       if (!native) { loops.push({ cycle, completedImplementer: false }); continue; }
       try { loops.push({ cycle, ...assessNixLoop(events, native.session.id), verified: true }); }
-      catch { loops.push({ cycle, completedImplementer: true, verified: false }); }
+      catch { loops.push({ cycle, completedImplementer: true, verified: false, commands: inspectNixCommands(events, native.session.id) }); }
     }
     summaries.implementerLoops = loops;
   }
