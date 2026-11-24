@@ -58,12 +58,20 @@ function observedCommands(events: readonly Event[], sessionId: string) {
 }
 
 export function inspectNixCommands(events: readonly Event[], sessionId: string) {
+  // A fixed vocabulary reveals diagnostic concepts, never raw paths, URLs,
+  // command arguments, provider prose or arbitrary words from private output.
+  const vocabulary = ["experimental", "disabled", "feature", "Git", "git", "shallow", "repository", "revision", "object", "parent", "worktree",
+    "certificate", "SSL", "CA", "curl", "download", "fetch", "HTTP", "resolve", "network", "connect", "daemon", "socket",
+    "file", "directory", "lock", "lockfile", "flake", "config", "attribute", "undefined", "syntax", "Permission", "denied", "trusted",
+    "unrecognized", "flag", "option", "HOME", "NIX_SSL_CERT_FILE", "NIX_CONFIG", "USER", "LOGNAME", "passwd", "user", "determine", "environment"];
   return observedCommands(events, sessionId).map(c => ({
     sequence: c.start,
     command: same(c.argv, loopCommands.missing) ? "declared-probe" : same(c.argv, loopCommands.adhoc) ? "adhoc-probe" : "other",
     exit: c.exit, state: c.state,
     marker: c.stdout.trim() === probeMarker ? "matched" : "absent",
-    error: /SSL|certificate/i.test(c.stderr) ? "tls" : /not found|No such file/i.test(c.stderr) ? "missing-file-or-command" :
+    diagnosticTerms: vocabulary.filter(word => new RegExp(`\\b${word}\\b`).test(c.stderr)),
+    executable: ["nix", "git", "bash", "sh", "env", "node"].includes(c.argv[0]) ? c.argv[0] : "other",
+    error: !c.exit ? "none" : /experimental.*disabled|disabled.*experimental/i.test(c.stderr) ? "feature-disabled" : /SSL|certificate/i.test(c.stderr) ? "tls" : /not found|No such file/i.test(c.stderr) ? "missing-file-or-command" :
       /Permission denied|not allowed|restricted|not trusted/i.test(c.stderr) ? "permission" : c.exit ? "unclassified" : "none",
   }));
 }
