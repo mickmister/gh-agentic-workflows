@@ -25,6 +25,31 @@ test("commands stream more than128KB, retain full logs and bounded tails, and pr
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+test("remote start evidence precedes execution and never loses a fast child's small diagnostics", async () => {
+  const home = await mkdtemp(join(tmpdir(), "command-intent-")), effect = join(home, "effect");
+  const events: any[] = [];
+  const argv = [process.execPath, "-e", "require('node:fs').writeFileSync(process.argv[1],'ran');process.stdout.write('tiny-out');process.stderr.write('tiny-error');process.exitCode=9", effect];
+  try {
+    const result = await command(home, home, argv, 10, { log: async (event: any) => {
+      events.push(event);
+      if (event.state === "started") {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await assert.rejects(readFile(effect), { code: "ENOENT" });
+      }
+    } });
+    assert.equal(result.exitCode, 9);
+    assert.equal(result.stdout, "tiny-out"); assert.equal(result.stderr, "tiny-error");
+    assert.equal(events.filter(e => e.stream === "stderr").map(e => e.text).join(""), "tiny-error");
+    assert.equal(await readFile(join(result.logs, "stderr.log"), "utf8"), "tiny-error");
+    await rm(effect);
+    await assert.rejects(command(home, home, argv, 10, { log: async () => { throw new Error("Intent unavailable"); } }), /Intent unavailable/);
+    await assert.rejects(readFile(effect), { code: "ENOENT" });
+    const controller = new AbortController();
+    await assert.rejects(command(home, home, argv, 10, { signal: controller.signal, log: async () => { controller.abort(); } }), /aborted/);
+    await assert.rejects(readFile(effect), { code: "ENOENT" });
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 test("command cancellation kills descendants, explicit limits stop work, and unlimited execution requires caller authority", async () => {
   const home = await mkdtemp(join(tmpdir(), "command-cancel-"));
   const controller = new AbortController();

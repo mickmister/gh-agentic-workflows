@@ -47,6 +47,15 @@ export async function command(root: string, home: string, argv: string[], second
   const tails = { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }, bytes = { stdout: 0, stderr: 0 };
   const maximum = options.outputBytes ?? 256_000_000;
   assert(Number.isSafeInteger(maximum) && maximum > 0, "Invalid command output allowance");
+  // Persist intent before launching. Waiting for remote evidence after spawn
+  // lets Node flush an already-exited child's unread pipes, losing short errors.
+  try {
+    await options.log?.({ commandId: id, state: "started", argv, deadlineSeconds: seconds || null });
+    options.signal?.throwIfAborted();
+  } catch (error) {
+    await Promise.all([stdoutFile.close(), stderrFile.close()]);
+    throw error;
+  }
   let termination: "timeout" | "cancelled" | "output-limit" | "capture-failed" | undefined;
   let killTimer: ReturnType<typeof setTimeout> | undefined, timer: ReturnType<typeof setTimeout> | undefined;
   const child = spawn(argv[0], argv.slice(1), { cwd: root, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
@@ -86,7 +95,6 @@ export async function command(root: string, home: string, argv: string[], second
   };
   let drains: Promise<void>[] = [];
   try {
-    await options.log?.({ commandId: id, state: "started", argv, deadlineSeconds: seconds || null });
     drains = [drain("stdout", stdoutFile), drain("stderr", stderrFile)].map(p => p.catch(error => { stop("capture-failed"); throw error; }));
     await Promise.all(drains);
     const result = await closed;

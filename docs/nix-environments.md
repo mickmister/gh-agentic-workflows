@@ -77,6 +77,11 @@ linked by `development-reference.json`. No GitHub workflow artifacts are uploade
 The inspection path uses `inspect-run` and `inspect-attempt` inputs.
 It verifies completed implementer command loops even when a later evaluator fails.
 An inspection error does not write into the inspected run's private evidence.
+Command start evidence is persisted before launching the child. Output readers
+attach immediately after launch, so a slow S3 write cannot discard short-lived
+command diagnostics. A failed start write or cancellation before launch prevents
+execution. Initial runs before this correction can have irrecoverably missing
+short stdout/stderr; an empty captured error is not proof of its underlying cause.
 
 Each native cache proof generates a **temporary signing key** in the fixed
 publisher job. Only the public key crosses to the fresh consumer. Secret outputs
