@@ -35,7 +35,7 @@ function fixture() {
   run("remote", "add", "origin", remote);
   const initial = run("rev-parse", "HEAD");
   const manifest: Manifest = { schema_version: 1, workspace: "fixture", repositories: [
-    { path: "app", branch: "refs/heads/feature", commit: "0".repeat(40), detached: false, remotes: [{ name: "origin", url: "https://github.com/owner/app.git" }] },
+    { path: "app", branch: "refs/heads/feature", remotes: [{ name: "origin", url: "https://github.com/owner/app.git" }] },
   ] };
   const git = (dir: string, args: string[]) => localGit(dir, args[0] === "remote" && args[1] === "add" ? ["remote", "add", "origin", remote] : args);
   const github = { git: async (dir: string, args: string[]) => localGit(dir, args) } as unknown as GitHub;
@@ -47,16 +47,18 @@ test("manifest checkout captures current branch vector once and restores old pin
   try {
     const declared = manifestMembers(f.manifest, "fixture");
     const first = materialize(join(f.root, "workspace-1"), declared, undefined, f.git);
-    assert.equal(first[0].commit, f.initial, "historical manifest commit is not treated as branch tip");
+    assert.equal(first[0].commit, f.initial);
+    assert.equal(localGit(join(f.root, "workspace-1/app"), ["symbolic-ref", "HEAD"]), "refs/heads/feature");
     writeFileSync(join(f.seed, "new.txt"), "advanced"); f.run("add", ".");
     f.run("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "advance"); f.run("push", "-q", "origin", "feature");
     assert.notEqual(f.run("rev-parse", "HEAD"), f.initial);
     const restored = materialize(join(f.root, "workspace-2"), declared, first, f.git);
     assert.equal(restored[0].commit, f.initial);
+    assert.equal(localGit(join(f.root, "workspace-2/app"), ["symbolic-ref", "HEAD"]), "refs/heads/feature");
     assert.equal(materialize(join(f.root, "workspace-3"), declared, undefined, f.git)[0].commit, f.run("rev-parse", "HEAD"));
     assert.throws(() => materialize(join(f.root, "workspace-4"), [{ ...declared[0], branch: "refs/heads/other" }], first, f.git));
     for (const change of [
-      { path: "../escape" }, { branch: "refs/heads/a..b" }, { detached: true },
+      { path: "../escape" }, { branch: "refs/heads/a..b" }, { branch: "" },
       { remotes: [{ name: "origin", url: "https://secret@github.com/owner/app" }] },
     ]) assert.throws(() => manifestMembers({ ...f.manifest, repositories: [{ ...f.manifest.repositories[0], ...change }] }, "fixture"));
     assert.throws(() => manifestMembers({ ...f.manifest, repositories: [...f.manifest.repositories, { ...f.manifest.repositories[0], path: "app/nested", remotes: [{ name: "origin", url: "https://github.com/owner/second" }] }] }, "fixture"));

@@ -5,7 +5,7 @@ import { assert } from "./core.ts";
 
 export type Member = { path: string; repository: string; branch: string; commit: string };
 export type Manifest = { schema_version: number; workspace: string; repositories: {
-  path: string; branch: string; commit?: string; detached: boolean; remotes: { name: string; url: string }[];
+  path: string; branch: string; remotes: { name: string; url: string }[];
 }[] };
 export function within(root: string, name: string) {
   assert(typeof name === "string" && name.length > 0 && name.length <= 400 && !name.includes("\\") &&
@@ -25,7 +25,7 @@ export function manifestMembers(manifest: Manifest, workspace: string): Omit<Mem
   const members = manifest.repositories.map(item => {
     assert(typeof item.path === "string" && /^[\w.-]+(?:\/[\w.-]+)*$/.test(item.path) &&
       !item.path.split("/").some(p => p.startsWith(".")), "Invalid member path");
-    assert(!item.detached && typeof item.branch === "string" && item.branch.startsWith("refs/heads/") &&
+    assert(typeof item.branch === "string" && item.branch.startsWith("refs/heads/") && item.branch !== "refs/heads/" &&
       !/[\s~^:?*\[\\]/.test(item.branch) && !item.branch.includes("..") && !item.branch.endsWith("/"), "Member needs a configured branch");
     const origin = item.remotes.filter(r => r.name === "origin");
     assert(origin.length === 1, "Member requires one explicit origin");
@@ -60,7 +60,10 @@ export function materialize(root: string, declared: Omit<Member, "commit">[], pr
     run(["fetch", "--quiet", "--no-tags", "origin", ref]);
     const commit = run(["rev-parse", "FETCH_HEAD"]);
     assert(/^[a-f0-9]{40}$/.test(commit) && (!prior || commit === ref), "Source pin mismatch");
-    run(["checkout", "--quiet", "--detach", commit]);
+    const branch = member.branch.slice("refs/heads/".length);
+    run(["checkout", "--quiet", "-b", branch, commit]);
+    run(["config", `branch.${branch}.remote`, "origin"]);
+    run(["config", `branch.${branch}.merge`, member.branch]);
     return { ...member, commit };
   });
 }

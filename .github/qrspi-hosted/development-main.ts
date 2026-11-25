@@ -66,7 +66,7 @@ async function main() {
     let cacheReceipt: Awaited<ReturnType<typeof prefetchDevelopmentCache>> = { status: "disabled" };
     if (env.DEVELOPMENT_NIX_CACHE_ENABLED === "true") {
       const cacheTask = join(home, "cache-source");
-      localGit(directory, ["worktree", "add", "--quiet", "--detach", cacheTask, resolvedRequest.baseCommit]);
+      localGit(directory, ["worktree", "add", "--quiet", "-b", `development-cache-${executionId}`, cacheTask, resolvedRequest.baseCommit]);
       try { cacheReceipt = await prefetchDevelopmentCache(cacheTask, member.repository, home); }
       finally { localGit(directory, ["worktree", "remove", "--force", cacheTask]); }
     }

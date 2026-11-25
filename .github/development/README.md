@@ -44,7 +44,8 @@ No source commit is required from the caller. At startup the workflow fetches th
 latest remote commit of every configured workspace repository branch, retains that
 source vector, and gives the implementer/evaluators the captured target base. Later
 branch advances do not change the running execution. Manifest membership records
-branches, not observed local commits. Historical version-2 requests that explicitly
+branches, not observed local commits or detached modes. CI checks out each member's
+configured branch at its captured remote head. Historical version-2 requests that explicitly
 included baseCommit retain their original pinned semantics; ordinary Pi launch
 does not expose that legacy field. An old manifest observation never selects the
 base of a new unpinned request.
