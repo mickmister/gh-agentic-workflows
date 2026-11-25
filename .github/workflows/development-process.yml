@@ -7,7 +7,7 @@ on:
       workspace-context: { type: string, default: '', description: Versioned workspace context JSON; v2 has no native tracker handoff }
       request: { type: string, required: true, description: Versioned request; v2 task and acceptance criteria use project-owned verification }
       engine-commit: { type: string, default: '', description: Expected exact workflow source commit }
-      allow-source-effects: { type: boolean, default: false, description: Explicit source execution and requested candidate publication authority }
+      allow-source-effects: { type: boolean, default: false, description: Bound source work and approved branch-or-PR delivery authority }
       operation:
         type: choice
         options: [run, inspect]
@@ -43,6 +43,7 @@ on:
       S3_CACHE_SECRET_ACCESS_KEY: { required: true }
 permissions:
   contents: read
+  checks: write
 jobs:
   development:
     runs-on: ubuntu-24.04
@@ -103,9 +104,32 @@ jobs:
           permission-contents: write
       - run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts init
         if: inputs.operation == 'run'
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: source-auth
+        if: inputs.operation == 'run'
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: github-ultimate
+          permission-contents: read
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: inputs.operation == 'run'
+        with:
+          repository: mickmister/github-ultimate
+          ref: a8c1fd67981ab662ac4d4c2872e4ee89e3315a03
+          token: ${{ steps.source-auth.outputs.token }}
+          path: .qrspi-review-cli
+          persist-credentials: false
+      - name: Install frozen review protocol dependencies
+        if: inputs.operation == 'run'
+        working-directory: .qrspi-review-cli
+        run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts
       - name: Run bounded development or inspect retained evidence
         id: work
-        env:
+        env: &development-env
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ULTIMATE_ROOT: ${{ github.workspace }}/.qrspi-review-cli
           DEVELOPMENT_OPERATION: ${{ inputs.operation }}
           DEVELOPMENT_NIX_CACHE_ENABLED: ${{ vars.DEVELOPMENT_NIX_CACHE_ENABLED || 'false' }}
           DEVELOPMENT_REQUEST: ${{ inputs.request }}
@@ -134,3 +158,64 @@ jobs:
           S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
           S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
         run: node --experimental-strip-types .github/qrspi-hosted/development-main.ts
+  analysis:
+    name: Deferred development analysis
+    needs: development
+    if: always() && !cancelled() && inputs.operation == 'run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DEVELOPMENT_REFERENCE: ${{ needs.development.outputs.result_reference }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Authenticate operator before installation or credentials
+        env:
+          DEVELOPMENT_OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.DEVELOPMENT_OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+      - id: storage-target
+        env:
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts storage-target
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: storage-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ steps.storage-target.outputs.owner }}
+          repositories: ${{ steps.storage-target.outputs.repository }}
+          permission-contents: write
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: source-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: github-ultimate
+          permission-contents: read
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mickmister/github-ultimate
+          ref: a8c1fd67981ab662ac4d4c2872e4ee89e3315a03
+          token: ${{ steps.source-auth.outputs.token }}
+          path: .qrspi-review-cli
+          persist-credentials: false
+      - name: Install frozen review protocol dependencies
+        working-directory: .qrspi-review-cli
+        run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts
+      - run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts init
+      - name: Interpret retained private evidence and enrich delivery review
+        env: *development-env
+        run: node --experimental-strip-types .github/qrspi-hosted/development-analysis.ts

@@ -21,14 +21,14 @@ type LegacyDevelopmentRequest = {
 };
 export type DevelopmentRequest = LegacyDevelopmentRequest | {
   schemaVersion: 2; process: string; thread: string; member: string; baseCommit?: string;
-  task: string; acceptanceCriteria: string[]; publishCandidate: boolean;
+  task: string; acceptanceCriteria: string[]; publishCandidate?: boolean; delivery?: "auto" | "pull-request";
   taskRef?: { system: string; workspace: string; id: string };
 };
 export function developmentRequest(value: any): DevelopmentRequest {
   assert(value && (value.schemaVersion === 1 || value.schemaVersion === 2) && typeof value.process === "string" && /^[a-z0-9][a-z0-9-]{0,39}$/.test(value.process), "Invalid development identity");
   if (value.schemaVersion === 1) assert(typeof value.bead === "string" && /^[\w.:-]{1,100}$/.test(value.bead), "Invalid development identity");
   else {
-    const fields = ["schemaVersion", "process", "thread", "member", "baseCommit", "task", "acceptanceCriteria", "publishCandidate", "taskRef"];
+    const fields = ["schemaVersion", "process", "thread", "member", "baseCommit", "task", "acceptanceCriteria", "publishCandidate", "taskRef", "delivery"];
     assert(Object.keys(value).every(key => fields.includes(key)) && typeof value.thread === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(value.thread), "Invalid standalone development fields");
     if (value.taskRef !== undefined) assert(value.taskRef && Object.keys(value.taskRef).sort().join(",") === "id,system,workspace" &&
       Object.values(value.taskRef).every(v => typeof v === "string" && v.length > 0 && v.length <= 200), "Invalid optional tracker reference");
@@ -41,7 +41,8 @@ export function developmentRequest(value: any): DevelopmentRequest {
     assert(Array.isArray(commands) && commands.length <= 10 && (!required || commands.length > 0) && commands.every((argv: unknown) =>
       Array.isArray(argv) && argv.length > 0 && argv.length <= 40 && argv.every(s => typeof s === "string" && s.length > 0 && s.length <= 16000)), "Invalid declared commands");
   }
-  assert(typeof value.publishCandidate === "boolean", "Candidate publication must be explicit");
+  assert(typeof value.publishCandidate === "boolean" || value.schemaVersion === 2 && value.publishCandidate === undefined, "Invalid candidate publication field");
+  assert(value.delivery === undefined || value.schemaVersion === 2 && ["auto", "pull-request"].includes(value.delivery), "Invalid development delivery mode");
   return value;
 }
 export type ResolvedDevelopmentRequest = DevelopmentRequest & { baseCommit: string };
@@ -62,6 +63,7 @@ export type DevelopmentProgress = {
   schemaVersion: 1; methodology: "implement-review-test"; binding: Binding; executionId: string;
   status: "running" | "accepted" | "exhausted" | "uncertain"; cycle: number; maxCycles: 4;
   currentStep: string; nextStep: string; candidate?: string;
+  updatedAt?: string; roles?: { role: DevelopmentRole; status: "running" | "completed" }[];
   evaluations: Evaluation[]; history: { cycle: number; candidate: string; evaluations: Evaluation[]; testsPassed: boolean }[];
 };
 type Agent = { role: DevelopmentRole; task: Task; dir: string; socketDir: string; session: SessionIdentity;
@@ -90,6 +92,8 @@ export class Development {
   }
   async progress(currentStep: string, nextStep: string) {
     this.state.currentStep = currentStep; this.state.nextStep = nextStep;
+    this.state.updatedAt = new Date().toISOString();
+    this.state.roles = [...this.agents.values()].map(agent => ({ role: agent.role, status: agent.closed ? "completed" : "running" }));
     const snapshot = structuredClone(this.state);
     this.progressWrites = this.progressWrites.then(async () => { await this.save("progress.json", snapshot); });
     await this.progressWrites;
@@ -174,6 +178,7 @@ export class Development {
     const stopPi = observePi(dir, this.evidence, session, () => {});
     const agent: Agent = { role, task, dir, socketDir, session, bridge, finish, stopNative, stopPi, tests, commands };
     this.agents.set(role, agent);
+    await this.progress(role === "implementer" ? "implement" : "evaluate", role === "implementer" ? "freeze-candidate" : "collect-evaluations");
     await this.save(`cycles/${this.state.cycle}/sessions/${role}.json`, { ...session, status: "allocated", candidate: this.state.candidate ?? null });
     if (role === "implementer" || role === "tester") {
       for (const argv of this.request.schemaVersion === 1 ? this.request.setupCommands ?? [] : []) {
@@ -234,8 +239,9 @@ export class Development {
       assert((await stat(bundle)).size <= 8_000_000, "Candidate bundle exceeds bound");
       await this.save(`cycles/${this.state.cycle}/candidate-bundle.json`, { base: this.request.baseCommit, candidate, bundleBase64: (await readFile(bundle)).toString("base64") });
     }
-    if (this.request.publishCandidate) await this.sources.call({ operation: "publish", task: agent.task.id, expectedCommit: candidate });
-    await this.save(`cycles/${this.state.cycle}/candidate.json`, { candidate, base: this.request.baseCommit, branch: this.request.publishCandidate ? agent.task.branch : null, summary: agent.result.summary });
+    const publish = this.request.schemaVersion === 1 && this.request.publishCandidate;
+    if (publish) await this.sources.call({ operation: "publish", task: agent.task.id, expectedCommit: candidate });
+    await this.save(`cycles/${this.state.cycle}/candidate.json`, { candidate, base: this.request.baseCommit, branch: publish ? agent.task.branch : null, summary: agent.result.summary });
     await this.progress("evaluate", "collect-evaluations");
     return { candidate };
   }
@@ -251,7 +257,7 @@ export class Development {
     if (accepted) this.state.status = "accepted";
     else if (this.state.cycle === 4) this.state.status = "exhausted";
     await this.progress(accepted ? "candidate-accepted" : this.state.status === "exhausted" ? "retry-limit-reached" : "findings-recorded",
-      accepted ? "human-review-candidate" : this.state.status === "exhausted" ? "human-review-unresolved-findings" : "revise-candidate");
+      accepted ? "deliver-approved-candidate" : this.state.status === "exhausted" ? "publish-blocked-review" : "revise-candidate");
     return { accepted, retry: this.state.status === "running", cycle: this.state.cycle };
   }
   async closeAgents() {

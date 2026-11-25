@@ -1,6 +1,6 @@
 # Callable bounded development
 
-Methodology ID: `implement-review-test`. Owner: `task-cx3`.
+Methodology ID: `implement-review-test`. Owner: `task-cx3`; delivery/review: `task-16a.7`.
 Spec Kit owns the four-cycle loop and the three-way parallel evaluator fan-out.
 The thin TypeScript integration supplies shared source/session/evidence mechanics;
 there is no alternate execution backend or custom scheduling loop.
@@ -27,8 +27,7 @@ without a Bead ID, Dolt server, native collection restore or caller command arra
   "process": "stable-request-id",
   "member": "app",
   "task": "A bounded source change",
-  "acceptanceCriteria": ["Observable required behavior"],
-  "publishCandidate": false
+  "acceptanceCriteria": ["Observable required behavior"]
 }
 ```
 
@@ -39,6 +38,12 @@ unknown fields. The implementer reuses source-owned setup. The independent teste
 selects required checks from source/CI/acceptance criteria and declares a nonempty
 command set through verification/run. Every declared check must complete and pass,
 and all three candidate-bound approvals remain required. No-check approval fails.
+Optional `delivery:"pull-request"` selects a PR even when direct fast-forward is
+possible. Default `auto` integrates only an approved candidate containing the
+configured branch head; a diverged head selects a PR before integration is attempted.
+The legacy version-2 `publishCandidate` flag is optional and no longer publishes
+unapproved per-cycle branches. Version-1 candidate publication retains its explicit
+historical behavior.
 
 No source commit is required from the caller. At startup the workflow fetches the
 latest remote commit of every configured workspace repository branch, retains that
@@ -125,36 +130,63 @@ not an OS sandbox for hostile repository code.
    in three distinct worktrees/sessions, through native Spec Kit parallel fan-out.
 4. Each must return an explicit candidate-bound `approve` or `reject`, with summary
    and findings. Missing/stale/malformed receipts cannot become approval.
-5. All three must approve and all caller-declared mandatory tests must actually
+5. All three must approve and all required verification commands must actually
    succeed. Passing tests alone is not the tester's approval.
 6. On rejection, the next implementer receives findings and starts from the prior
    candidate. Stop early on unanimous approval; initial plus three retries means
    **at most four total cycles**. Exhaustion retains the candidate and findings and
    fails the Actions work step. Native/transport uncertainty stops without replay.
 
-The workflow never integrates into the caller's branch or creates a PR. Published
-candidate branches and private bundles are evidence, not permission to merge.
+After acceptance the host verifies the clean, exact candidate and delivers a
+non-force update to the configured branch or publishes that candidate and creates
+a PR. No rebase or unchecked merge is introduced during delivery. A moved branch
+or uncertain write never authorizes a force push or blind retry. Intent precedes
+effects; remote readback confirms delivery. Unknown effects remain blocked and
+can only be reconciled read-only. An unchanged candidate does not invent a commit.
 The selected simple methodology does not claim QRSPI phase approval.
+
+## Prompt delivery and deferred analysis
+
+The development job invokes a bounded, source-disabled Spec Kit/Pi review-author
+after source delivery. That CI agent writes changes and initial analysis from
+the actual assignment, checks and scoped evidence. The host validates and publishes
+an execution-owned document-only review-request without a Bead. The review and
+delivery links become available with deeper analysis explicitly pending.
+
+A dependent analysis job, including after ordinary development failure, invokes
+the same pinned Spec Kit engine with an evidence-reader role. It decodes retained
+native sessions/tool outcomes/usage/OTLP and authors the semantic exit interview
+as an enrichment of the delivery review. Unanswered reviews receive an immutable
+new revision. Responded revisions retain their answers and receive a linked
+successor containing changes and analysis together. Whole-run cancellation may
+prevent analysis; incomplete exports or coverage must remain explicit. Analysis
+failure does not erase previously verified delivery.
+
+Cross-job handoffs and raw evidence use private S3. No Actions artifacts or
+external monitoring author are required. Reusable callers must permit the workflow's
+`contents:read` and `checks:write` permissions. The latter emits compact observed
+progress through an execution-bound neutral GitHub check, not methodology approval.
 
 ## Results, evidence and UI projection
 
 Reusable outputs: `status`, `candidate`, `result_reference` and `report_url`.
 Results and progress use `development/<binding-digest>/` under the existing private
-runtime store. The result binds workspace, owning Bead, process, execution, cycle,
+runtime store. The result binds workspace/thread, process, execution, cycle,
 candidate and distinct evaluator receipts. Native JSONL, incremental source bundles,
 live Pi records, host tool/session OTLP and command logs stay private.
 
-The workflow performs its own bound readback/evidence assessment and publishes a
-compact authored nugs report. No external monitoring agent or per-run publication
-script is required. `operation=inspect` reads retained native/execution/OTLP evidence
+The fast path verifies source and publication receipts without waiting for full
+native/OTLP analysis. The analysis job performs that assessment and publishes the
+CI-agent-authored enrichment. `operation=inspect` reads retained native/execution/OTLP evidence
 without model execution or writes. Reusing an existing process for `run` is refused,
 including after a partial failure; do not use Actions rerun to retry uncertain work.
 
 `progress.json` exposes methodology, identity, status, cycle/maxCycles, currentStep,
-nextStep, current candidate, evaluation receipts and prior cycle results. Values
-are authoritative runtime facts for a later UI projection, not a UI-owned scheduler.
-Accepted means three evaluator approvals and successful mandatory tests; the next
-step is human candidate review, not automatic source integration.
+nextStep, role allocation/completion, current candidate, evaluation receipts and
+prior cycle results. Compact projection adds separate delivery and analysis states
+and revision-pinned review links. Accepted means candidate approvals/checks; delivered
+requires verified source publication and an available initial review. The overall
+Actions run can remain active while analysis runs. Neither implies QRSPI approval.
 
 User requirement `task-clh`: a multi-step human-in-the-loop UI must show where the
 user is and the expected next step, with actions to continue the same workflow or

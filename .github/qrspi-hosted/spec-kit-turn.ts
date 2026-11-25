@@ -15,8 +15,10 @@ import { observePi } from "./live-session.ts";
 
 export async function specKitTurn(home: string, prompt: string, d: ToolDependencies, session: SessionIdentity,
   archive: (id: string, value: unknown) => Promise<unknown>, record: (value: SessionRecord) => Promise<unknown>, evidence: ExecutionEvidence,
-  options: { signal?: AbortSignal; timeoutMs?: number; definition?: "workspace" | "worker" | "setup" } = {}) {
-  assert(!d.sources.writable && (!d.worker || options.definition === "worker" || options.definition === "setup"), "Spec Kit mini-workflows are source-disabled");
+  options: { signal?: AbortSignal; timeoutMs?: number; definition?: "workspace" | "worker" | "setup" | "development-review"; scopedTools?: Pick<WorkspaceTools, "call"> } = {}) {
+  const review = options.definition === "development-review";
+  assert(!d.sources.writable && (!d.worker || options.definition === "worker" || options.definition === "setup" || review), "Spec Kit mini-workflows are source-disabled");
+  assert(Boolean(options.scopedTools) === review && (!review || ["review-author", "evidence-reader"].includes(session.role)), "Scoped review tools require an assigned development packet author");
   assert(options.definition !== "setup" || d.worker?.role === "setup-author", "Setup workflow requires the assigned setup specialist");
   await configurePi(home);
   const dir = await mkdtemp(join(home, "spec-kit-")), sessions = join(dir, "sessions");
@@ -26,7 +28,7 @@ export async function specKitTurn(home: string, prompt: string, d: ToolDependenc
   const canonical = options.definition === "workspace" || options.definition === "worker", name = options.definition ?? "goals-intake";
   const definition = fileURLToPath(new URL(`../qrspi-spec-kit/${name}.yml`, import.meta.url));
   const yaml = await readFile(definition, "utf8"); await writeFile(join(dir, "goals-intake.yml"), yaml, { mode: 0o600 });
-  await writeFile(join(dir, "prompt.txt"), (canonical || options.definition === "setup" ? "" : "This is the bounded Goals/intake slice. No worker delegation or downstream phase/source work is available in this slice.\n") + prompt, { mode: 0o600 });
+  await writeFile(join(dir, "prompt.txt"), (canonical || options.definition === "setup" || review ? "" : "This is the bounded Goals/intake slice. No worker delegation or downstream phase/source work is available in this slice.\n") + prompt, { mode: 0o600 });
   if (d.worker && canonical) {
     assert(d.worker.promptFiles?.length, "Canonical worker requires existing prompt file references");
     await writeFile(join(dir, "selection.json"), JSON.stringify(d.worker.promptFiles), { mode: 0o600 });
@@ -36,16 +38,16 @@ export async function specKitTurn(home: string, prompt: string, d: ToolDependenc
   const controller = new AbortController();
   const cancel = () => controller.abort(options.signal?.reason ?? new Error("Spec Kit execution interrupted"));
   const interrupt = () => controller.abort(new Error("Spec Kit execution interrupted"));
-  const tools = new WorkspaceTools({ ...d, signal: controller.signal, evidence, session, dispatch: canonical && !d.worker ? d.dispatch : undefined });
+  const tools = options.scopedTools ?? new WorkspaceTools({ ...d, signal: controller.signal, evidence, session, dispatch: canonical && !d.worker ? d.dispatch : undefined });
   const bridge = await serveTools(join(dir, "socket"), tools, { names: canonical && !d.worker ? ["workspace_operation", "workspace_workers"] : ["workspace_operation"], evidence, session });
   const env: NodeJS.ProcessEnv = {};
   for (const key of ["PATH", "HOME", "INFERENCE_BASE_URL", "INFERENCE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "QRSPI_MODEL"])
     if (process.env[key]) env[key] = process.env[key];
   Object.assign(env, { PI_CODING_AGENT_DIR: dir, QRSPI_TOOL_SOCKET: bridge.socket, QRSPI_TOOL_TOKEN: bridge.token,
-      WORKSPACE_AGENT_ROLE: canonical && !d.worker ? "orchestrator" : "worker", QRSPI_TURN_DIR: dir, QRSPI_PREPARATION: String(Boolean(d.preparation)), QRSPI_SETUP_AUTHOR: String(options.definition === "setup"),
+      WORKSPACE_AGENT_ROLE: canonical && !d.worker ? "orchestrator" : "worker", QRSPI_TURN_DIR: dir, QRSPI_PREPARATION: String(Boolean(d.preparation)), QRSPI_SETUP_AUTHOR: String(options.definition === "setup"), QRSPI_REVIEW_AUTHOR: String(review),
      QRSPI_STEP_RUNNER: fileURLToPath(new URL(canonical ? "spec-kit-file-step.ts" : "spec-kit-step.ts", import.meta.url)),
      QRSPI_METHODOLOGY: resolve(d.methodology, ".."), QRSPI_SOURCE_SHA: session.sourceSha });
-  if (canonical) {
+  if (canonical || review) {
     env.SPECKIT_INTEGRATION_PI_EXECUTABLE = env.QRSPI_STEP_RUNNER;
     await chmod(env.QRSPI_STEP_RUNNER!, 0o700);
   }

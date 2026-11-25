@@ -116,6 +116,13 @@ test("callable development workflow uses the sole pinned engine and authenticate
   const fan = loop.steps.find((s: any) => s.type === "fan-out");
   assert.equal(fan.max_concurrency, 3); assert.deepEqual(fan.items, ["reviewer-1", "reviewer-2", "tester"]);
   assert.equal(fan.step.integration, "pi");
+  const analysis = workflow.jobs.analysis;
+  assert.equal(analysis.needs, "development");
+  assert.match(analysis.if, /always\(\).*inputs.operation == 'run'/);
+  assert(analysis.steps.some((s: any) => s.run?.includes("development-analysis.ts")));
+  assert.equal(workflow.permissions.checks, "write");
+  assert(steps.find((s: any) => s.id === "work").env.GITHUB_TOKEN);
+  assert.equal(analysis.steps.find((s: any) => s.name?.startsWith("Interpret retained")).env.GITHUB_ULTIMATE_ROOT, steps.find((s: any) => s.id === "work").env.GITHUB_ULTIMATE_ROOT);
 });
 test("TS Git credential helper gives storage token only to its exact trusted HTTPS host/path", () => {
   const entry = resolve("bootstrap.ts");

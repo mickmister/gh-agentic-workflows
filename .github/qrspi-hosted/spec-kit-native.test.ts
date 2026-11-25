@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { specKitTurn } from "./spec-kit-turn.ts";
 import { workspaceTurn } from "./workspace-turn.ts";
 import { ExecutionEvidence } from "./execution.ts";
+import { reviewEvidenceTools } from "./development-review.ts";
 
 test("actual pinned Spec Kit YAML runs direct Pi with scoped tools, rejects invalid final output and cancels quiet inference", { timeout: 180000 }, async () => {
   const home = mkdtempSync(join(tmpdir(), "spec-kit-native-")), root = join(home, "workspace"); mkdirSync(root);
@@ -22,11 +23,12 @@ test("actual pinned Spec Kit YAML runs direct Pi with scoped tools, rejects inva
     const turn = round++;
     if (mode === "cancel") { setTimeout(() => cancellation.abort(new Error("Cancel direct Pi fixture")), 50); return; }
     let delta: any, finish = "stop";
-    if (mode === "valid" && turn < 2) {
+    if (mode === "valid" && turn < 2 || mode === "review" && turn === 0) {
       finish = "tool_calls";
-      const args = turn === 0 ? { area: "help" } : { area: "artifact", operation: "write", args: { name: "intake.md", content: "# Actual scoped fixture write\n" } };
+      const args = mode === "review" ? { area: "evidence", operation: "read", args: { name: "source-vector.json" } } : turn === 0 ? { area: "help" } : { area: "artifact", operation: "write", args: { name: "intake.md", content: "# Actual scoped fixture write\n" } };
       delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `call-${turn}`, type: "function", function: { name: "workspace_operation", arguments: JSON.stringify(args) } }] };
     } else delta = { role: "assistant", content: mode === "valid" ? JSON.stringify({ title: "Fixture", question: "What next?", reviewArtifact: "intake.md", approvalOffered: false })
+      : mode === "review" ? JSON.stringify({ title: "Delivered fixture", purpose: "Review exact changes", question: "Any findings?", body: "# Changes\n\nEvidence read; deeper analysis pending." })
       : mode === "setup" ? JSON.stringify({ action: "name: fixture\nruns:\n  using: composite\n  steps: []\n", reason: "Scoped setup fixture" }) : '{"done":true}' };
     res.writeHead(200, { "content-type": "text/event-stream" });
     for (const chunk of [{ choices: [{ index: 0, delta, finish_reason: null }] }, { choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }]) {
@@ -65,6 +67,16 @@ test("actual pinned Spec Kit YAML runs direct Pi with scoped tools, rejects inva
     assert.equal(setup.reason, "Scoped setup fixture");
     assert.equal(round, 1); assert.equal(archives.at(-1).backend, "spec-kit");
     assert.equal(JSON.parse(archives.at(-1).engineOutput).workflow_id, "workspace-setup-author");
+    mode = "review"; round = 0;
+    const capabilities = reviewEvidenceTools({}, async name => ({ name, candidate: "b".repeat(40) }), false);
+    const review = await specKitTurn(home, "Write the scoped delivery review.",
+      { docs: {} as any, prefix: "", root, home, artifacts, pins: {}, methodology: root, sources: { writable: false } as any },
+      { id: randomUUID(), parentId: null, executionId: "1-1", role: "review-author", sourceSha: "a".repeat(40) },
+      async (_id, value) => { archives.push(value); }, async value => { records.push(value); }, evidence,
+      { definition: "development-review", scopedTools: capabilities, timeoutMs: 60000 });
+    assert.equal(review.title, "Delivered fixture"); assert.equal(round, 2);
+    assert.equal(JSON.parse(archives.at(-1).engineOutput).workflow_id, "development-review");
+    assert(capabilities.coverage.has("source-vector.json"));
     mode = "invalid"; round = 0;
     await assert.rejects(run(), /Spec Kit workflow failed/); assert.equal(round, 1, "invalid native final output must not be replayed");
     assert.equal(records.at(-1).status, "failed");

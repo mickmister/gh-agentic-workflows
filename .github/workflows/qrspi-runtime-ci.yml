@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mickmister/github-ultimate
-          ref: 0943aa424737b236fe8b0c536eb92b846e2e6378
+          ref: a8c1fd67981ab662ac4d4c2872e4ee89e3315a03
           path: .qrspi-review-cli
           persist-credentials: false
       - run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts

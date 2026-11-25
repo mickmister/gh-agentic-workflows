@@ -131,7 +131,7 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
         }
         assert(saved.has(`cycles/${result.cycle}/candidate-bundle.json`));
         assert.equal(JSON.stringify(saved.get(`cycles/${result.cycle}/native/implementer.json`).files).includes("package-cache-not-native-evidence"), false);
-        assert.equal(saved.get("progress.json").nextStep, accepted ? "human-review-candidate" : "human-review-unresolved-findings");
+        assert.equal(saved.get("progress.json").nextStep, accepted ? "deliver-approved-candidate" : "publish-blocked-review");
         assert.equal(JSON.parse(saved.get("engine.json").output).status, "completed");
         assert.equal(localGit(app, ["rev-parse", "HEAD"]), baseCommit, "No integration into caller branch");
         await evidence.close();

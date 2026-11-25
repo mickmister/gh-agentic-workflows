@@ -21,8 +21,11 @@ runtime stable workspace reference to the readable handle. These are different
 identities. Do not infer bindings from a branch or sibling path. Verify viewer,
 storage and authorization before publication.
 
-An owning Bead owns `threads/<bead-id>/`. Request/revision IDs identify review
-history, not form IDs, native sessions or Actions attempts. Resources are:
+An owning Bead owns authored task work under `threads/<bead-id>/`. The supported
+development review schema v2 instead binds an independent execution/thread and
+document-only members; do not create a fake Bead for CI review publication.
+Request/revision IDs identify review history, not form IDs or native sessions.
+Resources are:
 
 - `review-requests/<request-id>/request.json`
 - `review-requests/<request-id>/forms/<form-id>.json`
@@ -41,8 +44,10 @@ nugs documents list --workspace "$REVIEW_WORKSPACE" --prefix ...
 ```
 
 Follow `page.next_token` using `--token` at the same fixed snapshot; inspect
-installed help for snapshot inputs. The review CLI's `list` currently reads only
-the first page, so absence there proves neither a name nor a response absent.
+installed help for snapshot inputs. The updated pinned review CLI explicitly
+requests a full review inventory, with request-specific prefix filtering for
+publication. Ordinary native listings remain paged; absence from their first
+page proves neither a name nor a response absent.
 
 Prepare a manifest and, if needed, standard form against the pinned production
 `src/protocol.ts` and `src/review-protocol.ts`. Form `id` and `task_id` must match

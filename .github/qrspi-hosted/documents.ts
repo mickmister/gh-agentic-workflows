@@ -109,7 +109,7 @@ export async function protocol(root: string) {
     ...(await load("protocol.ts")),
   };
 }
-export function publish(root: string, docs: Documents, request: any) {
+export function publish(root: string, docs: Documents, request: any, previous?: Pin) {
   const file = join(docs.root, "request-to-publish.json");
   writeFileSync(file, JSON.stringify(request));
   const transport = fileURLToPath(
@@ -133,6 +133,7 @@ export function publish(root: string, docs: Documents, request: any) {
         process.env.REVIEW_REPOSITORY!,
         "--app-url",
         process.env.REVIEW_APP_URL!,
+        ...(previous ? ["--expected", previous.version] : []),
       ],
       {
         encoding: "utf8",

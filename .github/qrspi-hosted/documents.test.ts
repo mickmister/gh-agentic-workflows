@@ -125,6 +125,25 @@ test(
         await fresh.pin(artifact),
         "---\nstatus: draft\n---\n# Goals\n",
       );
+      // Put the delivery request beyond the ordinary first page. Amendments must
+      // discover the exact request/responses, not infer absence from that page.
+      for (let i = 0; i < 21; i++) docs.save(`review-requests/00-padding-${i}/context.md`, "# Unrelated fixture context\n");
+      const body = docs.save("threads/conversation/development/result.md", "# Delivered fixture\n\nDeep analysis pending.\n");
+      const development = { kind: "review-request", schema_version: 2, request_id: "test-development", revision_id: "revision-one", workspace: "test",
+        execution: { kind: "development", id: "123-1", process: "feature", thread_id: "conversation" }, thread: "threads/conversation",
+        title: "Delivered fixture", purpose: "Review changes", question: "Any findings?", status: "published", change_kind: "implemented",
+        members: [{ kind: "document", id: "delivery", label: "Changes and analysis", target: body }] };
+      const initial = publish(process.env.GITHUB_ULTIMATE_ROOT!, docs, development);
+      const enriched = docs.save(body.resource, "# Delivered fixture\n\nSemantic interview with explicit evidence gaps.\n", body);
+      const amended = { ...development, revision_id: "revision-two", members: [{ ...development.members[0], target: enriched }] };
+      const complete = publish(process.env.GITHUB_ULTIMATE_ROOT!, docs, amended, initial.pin);
+      assert.notEqual(complete.pin.version, initial.pin.version);
+      assert.equal(p.parseReviewRequest(await docs.pin(initial.pin)).members[0].target.version, body.version, "initial review remains immutable");
+      docs.save("review-requests/test-development/responses/response.json", JSON.stringify({ schema_version: 1, transport: "workspace-resources", id: "response", kind: "review-response",
+        request: { id: development.request_id, version: complete.pin.version, snapshot: complete.pin.snapshot }, reviewer: "github:1", forms: [], comments: [], progress: [], intent: "feedback" }));
+      assert.throws(() => publish(process.env.GITHUB_ULTIMATE_ROOT!, docs, { ...amended, revision_id: "revision-three" }, complete.pin), /Command failed/);
+      const followup = publish(process.env.GITHUB_ULTIMATE_ROOT!, docs, { ...amended, request_id: "test-development-analysis", revision_id: "revision-followup", previous_request: development.request_id });
+      assert.equal(p.parseReviewRequest(await docs.pin(followup.pin)).previous_request, development.request_id);
     } finally {
       for (const key of Object.keys(process.env))
         if (!(key in previous)) delete process.env[key];

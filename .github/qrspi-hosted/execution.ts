@@ -76,6 +76,7 @@ export class ExecutionEvidence {
     return { bytes: this.totalBytes, events: this.sequence, chunks: this.chunks, budgets: this.budgets,
       nearLimit: this.totalBytes >= this.budgets.bytes * .9 || this.sequence >= this.budgets.events * .9 || this.chunks >= this.budgets.chunks * .9 };
   }
+  activeOperations() { return this.active.size; }
   async begin(operation: Operation, scope: Scope = {}, id = randomBytes(8).toString("hex")) {
     const started = performance.now(), startTimeUnixNano = `${BigInt(Date.now()) * 1_000_000n}`;
     this.active.set(id, { operation, scope, started });
