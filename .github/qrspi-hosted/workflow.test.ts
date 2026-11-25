@@ -81,7 +81,7 @@ test("published package pins and nugs registry integrity match the existing sour
     readFileSync("../nugs-toolchain.lock.json", "utf8"),
   );
   for (const [name, version] of Object.entries({
-    "@mickmister/nugs": "0.1.6",
+    "@mickmister/nugs": "0.1.7",
     "@earendil-works/pi-coding-agent": "1.5.2",
   })) {
     assert.equal(pkg.dependencies[name], version);
