@@ -33,6 +33,7 @@ async function main() {
   if (request.schemaVersion === 2 && request.taskRef) assert(request.taskRef.workspace === seed.workspace, "Tracker reference workspace mismatch");
   const key = `development/${digest(binding)}`, store = new PrivateStore();
   if (env.DEVELOPMENT_OPERATION === "inspect") { console.log(JSON.stringify(await inspectDevelopment(store, key, binding))); return; }
+  assert(request.schemaVersion !== 2 || request.baseCommit === undefined, "New standalone work resolves configured branches; remove the obsolete baseCommit argument");
   assert(env.ALLOW_SOURCE_EFFECTS === "true", "Explicit bound source authority required");
   assert(env.DEVELOPMENT_OPERATION === "run" && env.QRSPI_HOME, "Unknown development operation or missing bootstrap");
   const home = join(env.QRSPI_HOME, "development"), executionId = `${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
@@ -53,8 +54,8 @@ async function main() {
     }
     const member = workspace.members.find(m => m.path === request.member); assert(member, "Requested source member not declared");
     const directory = sourceDirectory(workspace.root, workspace.members, member.path);
-    // New requests use the already fetched current branch vector. Preserve old
-    // explicitly pinned request semantics without requiring pins from new callers.
+    // New standalone requests use the fetched current branch vector. The explicit
+    // native v1 compatibility entry retains its original request semantics.
     if (request.baseCommit) {
       await github.git(directory, ["fetch", "--quiet", "origin", request.baseCommit], member.repository);
       localGit(directory, ["merge-base", "--is-ancestor", request.baseCommit, member.commit]);

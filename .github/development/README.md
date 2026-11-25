@@ -45,9 +45,10 @@ latest remote commit of every configured workspace repository branch, retains th
 source vector, and gives the implementer/evaluators the captured target base. Later
 branch advances do not change the running execution. Manifest membership records
 branches, not observed local commits or detached modes. CI checks out each member's
-configured branch at its captured remote head. Historical version-2 requests that explicitly
-included baseCommit retain their original pinned semantics; ordinary Pi launch
-does not expose that legacy field. An old manifest observation never selects the
+configured branch at its captured remote head. Historical version-2 requests that
+included baseCommit remain inspectable with their original identity and evidence;
+new standalone runs reject that obsolete field before admission. Ordinary Pi launch
+does not expose it. An old manifest observation never selects the
 base of a new unpinned request.
 
 Explicit workspace-context is {schema_version:2,workspace,workspace_ref,engagement}.
