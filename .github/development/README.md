@@ -147,6 +147,13 @@ The selected simple methodology does not claim QRSPI phase approval.
 
 ## Prompt delivery and deferred analysis
 
+The execution-bound delivery report records the repository, captured `baseCommit`,
+exact delivered `candidate` and individual commits in that range. At most 1,000
+commits are listed; `commitsPartial` marks a larger history while preserving the
+exact base/head. Consumers use this immutable mapping to inspect source CI by the
+delivered SHA, separately from the development run and current workspace heads.
+No candidate or branch is changed while gathering this attribution.
+
 The development job invokes a bounded, source-disabled Spec Kit/Pi review-author
 after source delivery. That CI agent writes changes and initial analysis from
 the actual assignment, checks and scoped evidence. The host validates and publishes

@@ -11,7 +11,7 @@ type Intent = { schemaVersion: 1; binding: DevelopmentProgress["binding"]; execu
 type Receipt = { intent: Intent; status: "verified"; observation: any; reconciled: boolean };
 export type DevelopmentDelivery = {
   status: "delivered"; kind: "branch" | "pull-request"; repository: string; branch: string;
-  candidate: string; url: string; receipts: string[];
+  candidate: string; baseCommit?: string; commits?: string[]; commitsPartial?: boolean; url: string; receipts: string[];
 } | { status: "blocked"; reason: string; candidate?: string; receipts: string[] };
 
 /** A single effect attempt, then read-only reconciliation. A retained intent is
@@ -60,6 +60,10 @@ export async function deliverDevelopment(sources: Sources, task: Task, state: De
     !localGit(directory, ["status", "--porcelain"]), "Delivery requires the exact clean approved candidate");
   localGit(directory, ["merge-base", "--is-ancestor", member.commit, candidate]);
   if (candidate === member.commit) return blocked("no-source-change");
+  // The immutable report binds this source range to executionId. Keep individual
+  // commits for UI attribution; the exact base/head survives a bounded inventory.
+  const commits = localGit(directory, ["rev-list", "--max-count=1001", `${member.commit}..${candidate}`]).split("\n").filter(Boolean);
+  const source = { baseCommit: member.commit, commits: commits.slice(0, 1000), commitsPartial: commits.length > 1000 };
   const repository = member.repository, branch = member.branch;
   const remoteUrl = `https://github.com/${repository}.git`;
   const base = { schemaVersion: 1 as const, binding: state.binding, executionId: state.executionId, repository, branch, candidate };
@@ -84,7 +88,7 @@ export async function deliverDevelopment(sources: Sources, task: Task, state: De
       () => github.git(directory, ["push", remoteUrl, `${candidate}:${branch}`], repository, true),
       async () => await remote(branch) === candidate ? { commit: candidate, ref: branch } : undefined);
     if (!receipt) return blocked("integration-unconfirmed", [`${branchKey}/intent.json`]);
-    return { status: "delivered", kind: "branch", repository, branch, candidate,
+    return { status: "delivered", kind: "branch", repository, branch, candidate, ...source,
       url: `https://github.com/${repository}/commit/${candidate}`, receipts: [`${branchKey}/receipt.json`] };
   }
   const ref = `refs/heads/${task.branch}`;
@@ -121,6 +125,6 @@ export async function deliverDevelopment(sources: Sources, task: Task, state: De
     await github.api(`/repos/${repository}/pulls`, token, "POST", args);
   }, observe);
   if (!created) return blocked("pull-request-unconfirmed", [`${candidateKey}/receipt.json`, `${prKey}/intent.json`]);
-  return { status: "delivered", kind: "pull-request", repository, branch, candidate, url: created.observation.url,
+  return { status: "delivered", kind: "pull-request", repository, branch, candidate, ...source, url: created.observation.url,
     receipts: [`${candidateKey}/receipt.json`, `${prKey}/receipt.json`] };
 }

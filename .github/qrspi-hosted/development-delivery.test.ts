@@ -84,6 +84,7 @@ test("approved candidate fast-forwards only the configured branch and retains a 
   const f = await fixture(t), result = await f.deliver();
   assert.equal(result.status, "delivered"); if (result.status !== "delivered") return;
   assert.equal(result.kind, "branch"); assert.equal(result.candidate, f.candidate);
+  assert.equal(result.baseCommit, f.base); assert.deepEqual(result.commits, [f.candidate]); assert.equal(result.commitsPartial, false);
   assert.equal(localGit(f.remote, ["rev-parse", "refs/heads/main"]), f.candidate);
   assert.equal(f.posts.length, 0); assert.equal(f.pushes.length, 1);
   assert.deepEqual(await f.deliver(), result); assert.equal(f.pushes.length, 1);
@@ -108,6 +109,7 @@ test("a moved configured branch gets a PR containing the exact approved candidat
   const f = await fixture(t), parallel = await f.advance(); f.options({ losePost: true });
   const result = await f.deliver(); assert.equal(result.status, "delivered"); if (result.status !== "delivered") return;
   assert.equal(result.kind, "pull-request"); assert.equal(result.url, "https://github.com/owner/repo/pull/42");
+  assert.equal(result.baseCommit, f.base); assert.deepEqual(result.commits, [f.candidate]);
   assert.equal(localGit(f.remote, ["rev-parse", "refs/heads/main"]), parallel);
   assert.equal(localGit(f.remote, ["rev-parse", `refs/heads/${f.task.branch}`]), f.candidate);
   assert.equal((f.objects.get("delivery/pull-request/receipt.json") as any).reconciled, true);
