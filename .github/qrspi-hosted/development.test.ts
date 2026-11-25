@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
-import { developmentRequest, evaluation } from "./development.ts";
+import { developmentRequest, evaluation, resolveDevelopmentRequest } from "./development.ts";
 import { runDevelopment } from "./development-run.ts";
 import { Sources } from "./source.ts";
 import { localGit } from "./workspace.ts";
@@ -31,6 +31,19 @@ test("evaluation is explicit, role-attributed and bound to the exact candidate",
   assert.equal(evaluation(good, "reviewer-1", "session-1", candidate).sessionId, "session-1");
   for (const change of [{ candidate: "b".repeat(40) }, { approval: true }, { approval: undefined }, { findings: "none" }, { summary: "" }])
     assert.throws(() => evaluation({ ...good, ...change }, "reviewer-1", "session-1", candidate));
+});
+
+test("new standalone work captures resolved branches instead of requiring an observed commit", () => {
+  const request = developmentRequest({ schemaVersion: 2, process: "latest", thread: "conversation", member: "app", task: "Fix source", acceptanceCriteria: ["Checks pass"], publishCandidate: false });
+  const members = [{ path: "app", commit: "b".repeat(40) }, { path: "library", commit: "c".repeat(40) }];
+  const captured = resolveDevelopmentRequest(request, members);
+  assert.equal(captured.baseCommit, "b".repeat(40));
+  assert.equal("baseCommit" in request, false);
+  members[0].commit = "d".repeat(40);
+  assert.equal(captured.baseCommit, "b".repeat(40), "Already captured work does not chase branch advances");
+  assert.equal(resolveDevelopmentRequest(request, members).baseCommit, "d".repeat(40));
+  assert.throws(() => resolveDevelopmentRequest(request, []));
+  assert.equal(resolveDevelopmentRequest(developmentRequest({ ...request, baseCommit: "a".repeat(40) }), members).baseCommit, "a".repeat(40), "Historical explicit input remains readable");
 });
 
 test("real Spec Kit loops, freezes candidates and overlaps all three evaluators; exhaustion never accepts", { timeout: 240000 }, async () => {
@@ -97,7 +110,7 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       localGit(app, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "initial"]);
       const baseCommit = localGit(app, ["rev-parse", "HEAD"]), saved = new Map<string, any>();
       const sources = new Sources(root, directory, [{ path: "app", repository: "owner/app", branch: "refs/heads/feature", commit: baseCommit }], {} as any, true, mode);
-      const request = developmentRequest(mode.startsWith("standalone") ? { schemaVersion: 2, process: mode, thread: "conversation", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"], publishCandidate: false } : { schemaVersion: 1, process: mode, bead: "task-fixture", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"],
+      const request = developmentRequest(mode.startsWith("standalone") ? { schemaVersion: 2, process: mode, thread: "conversation", member: "app", task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"], publishCandidate: false } : { schemaVersion: 1, process: mode, bead: "task-fixture", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"],
         setupCommands: [[process.execPath, "-e", "const fs=require('node:fs'),p=require('node:path').join(process.env.HOME,'.npm','cache','a','b','c','d','e','f','g','h','i');fs.mkdirSync(p,{recursive:true});fs.writeFileSync(require('node:path').join(p,'index.json'),'package-cache-not-native-evidence')"]],
         testCommands: [[process.execPath, "-e", mode === "failed-tests" ? "process.exit(1)" : "if(!require('node:fs').readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]], publishCandidate: false });
       const binding = developmentBinding({ workspace: "fixture", workspace_ref: "ws-fixture" }, request);

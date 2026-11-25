@@ -26,7 +26,6 @@ without a Bead ID, Dolt server, native collection restore or caller command arra
   "thread": "conversation-id",
   "process": "stable-request-id",
   "member": "app",
-  "baseCommit": "FULL_40_CHARACTER_COMMIT",
   "task": "A bounded source change",
   "acceptanceCriteria": ["Observable required behavior"],
   "publishCandidate": false
@@ -40,6 +39,15 @@ unknown fields. The implementer reuses source-owned setup. The independent teste
 selects required checks from source/CI/acceptance criteria and declares a nonempty
 command set through verification/run. Every declared check must complete and pass,
 and all three candidate-bound approvals remain required. No-check approval fails.
+
+No source commit is required from the caller. At startup the workflow fetches the
+latest remote commit of every configured workspace repository branch, retains that
+source vector, and gives the implementer/evaluators the captured target base. Later
+branch advances do not change the running execution. Manifest membership records
+branches, not observed local commits. Historical version-2 requests that explicitly
+included baseCommit retain their original pinned semantics; ordinary Pi launch
+does not expose that legacy field. An old manifest observation never selects the
+base of a new unpinned request.
 
 Explicit workspace-context is {schema_version:2,workspace,workspace_ref,engagement}.
 If omitted, the repository's existing trusted seed supplies only those identity

@@ -20,7 +20,7 @@ type LegacyDevelopmentRequest = {
   publishCandidate: boolean;
 };
 export type DevelopmentRequest = LegacyDevelopmentRequest | {
-  schemaVersion: 2; process: string; thread: string; member: string; baseCommit: string;
+  schemaVersion: 2; process: string; thread: string; member: string; baseCommit?: string;
   task: string; acceptanceCriteria: string[]; publishCandidate: boolean;
   taskRef?: { system: string; workspace: string; id: string };
 };
@@ -33,7 +33,8 @@ export function developmentRequest(value: any): DevelopmentRequest {
     if (value.taskRef !== undefined) assert(value.taskRef && Object.keys(value.taskRef).sort().join(",") === "id,system,workspace" &&
       Object.values(value.taskRef).every(v => typeof v === "string" && v.length > 0 && v.length <= 200), "Invalid optional tracker reference");
   }
-  assert(typeof value.member === "string" && value.member.length <= 100 && /^[a-f0-9]{40}$/.test(value.baseCommit), "Exact source member/base required");
+  assert(typeof value.member === "string" && value.member.length > 0 && value.member.length <= 100 &&
+    (value.schemaVersion === 2 && value.baseCommit === undefined || typeof value.baseCommit === "string" && /^[a-f0-9]{40}$/.test(value.baseCommit)), "Source member and valid optional legacy base required");
   assert(typeof value.task === "string" && value.task.trim() && value.task.length <= 24000 && Array.isArray(value.acceptanceCriteria) &&
     value.acceptanceCriteria.length > 0 && value.acceptanceCriteria.length <= 30 && value.acceptanceCriteria.every((s: unknown) => typeof s === "string" && s.length > 0 && s.length <= 2000), "Task and acceptance criteria required");
   for (const [commands, required] of value.schemaVersion === 1 ? [[value.testCommands, true], [value.setupCommands ?? [], false]] as const : []) {
@@ -42,6 +43,13 @@ export function developmentRequest(value: any): DevelopmentRequest {
   }
   assert(typeof value.publishCandidate === "boolean", "Candidate publication must be explicit");
   return value;
+}
+export type ResolvedDevelopmentRequest = DevelopmentRequest & { baseCommit: string };
+/** Capture current remote branch heads once; old explicit requests remain inspectable. */
+export function resolveDevelopmentRequest(request: DevelopmentRequest, members: { path: string; commit: string }[]): ResolvedDevelopmentRequest {
+  const member = members.find(member => member.path === request.member);
+  assert(member && /^[a-f0-9]{40}$/.test(member.commit), "Requested source branch was not resolved");
+  return { ...request, baseCommit: request.baseCommit ?? member.commit };
 }
 export type Evaluation = { role: typeof evaluators[number]; sessionId: string; candidate: string; approval: "approve" | "reject"; summary: string; findings: string[] };
 export function evaluation(value: any, role: Evaluation["role"], sessionId: string, candidate: string): Evaluation {
@@ -68,15 +76,15 @@ export class Development {
   private implementation?: Task;
   private candidateTask?: Task;
   private progressWrites = Promise.resolve();
-  readonly request: DevelopmentRequest; readonly sources: Sources; readonly home: string; readonly executionId: string;
+  readonly request: ResolvedDevelopmentRequest; readonly sources: Sources; readonly home: string; readonly executionId: string;
   readonly evidence: ExecutionEvidence; readonly save: (key: string, value: unknown) => Promise<unknown>; readonly signal: AbortSignal;
   constructor(request: DevelopmentRequest, sources: Sources, home: string,
     binding: Binding, executionId: string, evidence: ExecutionEvidence,
     save: (key: string, value: unknown) => Promise<unknown>, signal: AbortSignal) {
-    this.request = request; this.sources = sources; this.home = home; this.executionId = executionId;
+    this.request = resolveDevelopmentRequest(request, sources.members); this.sources = sources; this.home = home; this.executionId = executionId;
     this.evidence = evidence; this.save = save; this.signal = signal;
     developmentRequest(request);
-    assert(sources.writable && sources.members.some(m => m.path === request.member && m.commit === request.baseCommit), "Source authority and exact restored base required");
+    assert(sources.writable && sources.members.some(m => m.path === request.member && m.commit === this.request.baseCommit), "Source authority and exact restored base required");
     this.state = { schemaVersion: 1, methodology: "implement-review-test", binding, executionId, status: "running", cycle: 0, maxCycles: 4,
       currentStep: "ready", nextStep: "implement", evaluations: [], history: [] };
   }

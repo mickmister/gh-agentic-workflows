@@ -5,7 +5,7 @@ import { assert } from "./core.ts";
 
 export type Member = { path: string; repository: string; branch: string; commit: string };
 export type Manifest = { schema_version: number; workspace: string; repositories: {
-  path: string; branch: string; commit: string; detached: boolean; remotes: { name: string; url: string }[];
+  path: string; branch: string; commit?: string; detached: boolean; remotes: { name: string; url: string }[];
 }[] };
 export function within(root: string, name: string) {
   assert(typeof name === "string" && name.length > 0 && name.length <= 400 && !name.includes("\\") &&

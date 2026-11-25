@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { assert } from "./core.ts";
 import { developmentContext, developmentBinding, developmentThread } from "./development-context.ts";
-import { developmentRequest } from "./development.ts";
+import { developmentRequest, resolveDevelopmentRequest } from "./development.ts";
 import { runDevelopment } from "./development-run.ts";
 import { inspectDevelopment } from "./development-inspect.ts";
 import { PrivateStore, digest } from "./storage.ts";
@@ -53,23 +53,28 @@ async function main() {
     }
     const member = workspace.members.find(m => m.path === request.member); assert(member, "Requested source member not declared");
     const directory = sourceDirectory(workspace.root, workspace.members, member.path);
-    await github.git(directory, ["fetch", "--quiet", "origin", request.baseCommit], member.repository);
-    localGit(directory, ["merge-base", "--is-ancestor", request.baseCommit, member.commit]);
-    member.commit = request.baseCommit;
+    // New requests use the already fetched current branch vector. Preserve old
+    // explicitly pinned request semantics without requiring pins from new callers.
+    if (request.baseCommit) {
+      await github.git(directory, ["fetch", "--quiet", "origin", request.baseCommit], member.repository);
+      localGit(directory, ["merge-base", "--is-ancestor", request.baseCommit, member.commit]);
+      member.commit = request.baseCommit;
+    }
+    const resolvedRequest = resolveDevelopmentRequest(request, workspace.members);
     // Cache prefetch reads only signed reviewed-recipe metadata; it does not
     // evaluate a candidate flake with AWS credentials or enter the agent HOME.
     let cacheReceipt: Awaited<ReturnType<typeof prefetchDevelopmentCache>> = { status: "disabled" };
     if (env.DEVELOPMENT_NIX_CACHE_ENABLED === "true") {
       const cacheTask = join(home, "cache-source");
-      localGit(directory, ["worktree", "add", "--quiet", "--detach", cacheTask, request.baseCommit]);
+      localGit(directory, ["worktree", "add", "--quiet", "--detach", cacheTask, resolvedRequest.baseCommit]);
       try { cacheReceipt = await prefetchDevelopmentCache(cacheTask, member.repository, home); }
       finally { localGit(directory, ["worktree", "remove", "--force", cacheTask]); }
     }
     await save("nix-cache.json", cacheReceipt);
     console.log(JSON.stringify({ environmentCache: cacheReceipt }));
     const sources = new Sources(workspace.root, home, workspace.members, github, true, request.process);
-    await save("source-vector.json", { members: workspace.members, manifest: workspace.manifest });
-    state = await runDevelopment(home, request, sources, binding, executionId, evidence, save);
+    await save("source-vector.json", { members: workspace.members, manifest: workspace.manifest, request: resolvedRequest });
+    state = await runDevelopment(home, resolvedRequest, sources, binding, executionId, evidence, save);
     await evidence.close(); closed = true;
     const assessment = await inspectDevelopment(store, key, binding); await save("assessment.json", assessment);
     assert(assessment.evidence.unresolvedOperations === 0, "Unresolved execution evidence prevents delivery");
