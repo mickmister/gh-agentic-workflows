@@ -96,6 +96,7 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       assert(text.includes("implementation-command-proof"), "Evaluators must receive actual implementer command evidence");
       assert(text.includes('"exitCode":0'));
       assert(text.includes("Project-owned native setup"), "Evaluator receives environment evidence");
+      if (mode.startsWith("standalone")) assert(text.includes('"status":"disabled"'), "Evaluator receives host-recorded cache observations rather than only a model summary");
       if (role === "tester" && mode.startsWith("standalone") && round === 1) {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `setup-${cycle}`, type: "function", function: {

@@ -12,7 +12,7 @@ import { nativeSessionIds, type SessionIdentity } from "./session.ts";
 import { sessionSpan, type ExecutionEvidence } from "./execution.ts";
 import { observePi } from "./live-session.ts";
 import { environmentSources, workspaceSource, environmentReport } from "./project-environment.ts";
-import { loadProjectEnvironments } from "./project-cache.ts";
+import { loadProjectEnvironments, projectCacheSummary } from "./project-cache.ts";
 import { restoreDevelopmentEnvironment } from "./project-cache-runtime.ts";
 
 export const evaluators = ["reviewer-1", "reviewer-2", "tester"] as const;
@@ -176,6 +176,7 @@ export class Development {
         const offset = args.offset ?? 0;
         assert(Number.isSafeInteger(offset) && offset >= 0 && offset <= implementer.commands.length, "Invalid evidence offset");
         return { candidate: this.state.candidate, sessionId: implementer.session.id, summary: implementer.result.summary, environment: implementer.result.environment,
+          environmentCaches: projectCacheSummary(implementer.environmentCaches),
           commands: implementer.commands.slice(offset, offset + 3).map(({ argv, result }) => {
             const { commandId, exitCode, outcome, stdout, stderr, truncated, bytes } = result;
             return { argv, commandId, exitCode, outcome, stdout, stderr, truncated, bytes };
