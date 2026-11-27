@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, lstat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GitHub } from "./github.ts";
@@ -26,6 +26,11 @@ export function projectCacheFailureReason(failure: any) {
   if (/AccessDenied|Forbidden|403/.test(stderr)) return "provider-access-denied";
   if (/signature|public key/.test(stderr)) return "nix-signature-rejection";
   return "unclassified-private-diagnostic";
+}
+export async function assertAbsentProfile(profile: string, stat = lstat) {
+  try { await stat(profile); }
+  catch (error: any) { if (error.code === "ENOENT") return; throw error; }
+  throw new Error("Fresh reader already has profile");
 }
 export type ProjectCacheRequest = { schemaVersion: 1; member: string; environment: string; sources: Member[] };
 export function projectCacheRequest(value: any): ProjectCacheRequest {
@@ -167,12 +172,9 @@ async function main() {
   const envelope = (await store.read(projectReceiptKey(plan.recipe)))?.value;
   const receipt = verifyProjectReceipt(plan.recipe, envelope, publicKey);
   // A fresh reader cannot claim substitution when the environment was built here.
-  let absent = false;
-  try { await info(join(state, "reader-home"), receipt.profile); } catch (error: any) {
-    if (!/is not valid|does not exist/.test(String(error.stderr))) throw error;
-    absent = true;
-  }
-  assert(absent, "Fresh reader already has profile");
+  // Metadata queries may resolve remote information or return null without a
+  // failing exit status. Establish local absence without invoking Nix first.
+  await assertAbsentProfile(receipt.profile);
   await nix(join(state, "reader-home"), ["copy", "--from", nixCacheLocation(env, ["nix-development", "v1", "store"]), receipt.profile], env);
   await nix(join(state, "reader-home"), ["store", "verify", "--sigs-needed", "1", receipt.profile]);
   assert((await info(join(state, "reader-home"), receipt.profile)).narHash === receipt.narHash, "Imported content mismatch");

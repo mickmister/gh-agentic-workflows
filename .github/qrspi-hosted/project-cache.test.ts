@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { projectEnvironments, projectPlan, projectRecipeId, writeProjectSnapshot, restoreProjectCache, signProjectReceipt, verifyProjectReceipt,
   projectReceiptKey, projectLatestKey, type ProjectReceipt } from "./project-cache.ts";
-import { projectCacheRequest } from "./project-cache-runtime.ts";
+import { projectCacheRequest, assertAbsentProfile, projectCacheFailureReason } from "./project-cache-runtime.ts";
 import type { Member } from "./workspace.ts";
 const members: Member[] = [
   { path: "app", repository: "arbitrary/project", branch: "refs/heads/main", commit: "a".repeat(40) },
@@ -16,6 +16,16 @@ const members: Member[] = [
 const declaration = { schemaVersion: 1, environments: [{ name: "web", flake: ".", inputs: [
   { member: ".", path: "flake.nix" }, { member: ".", path: "flake.lock" }, { member: "library", path: "nix" },
 ], checks: [["node", "--version"]] }] };
+test("freshness checks local filesystem presence and fails closed on access errors", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "profile-presence-"));
+  try {
+    await assertAbsentProfile(join(directory, "absent"));
+    await assert.rejects(assertAbsentProfile(directory), /already has profile/);
+    await assert.rejects(assertAbsentProfile(directory, async () => { throw Object.assign(new Error("denied"), { code: "EACCES" }); }), /denied/);
+    assert.equal(projectCacheFailureReason({ message: "Fresh reader already has profile" }), "Fresh reader already has profile");
+    assert.equal(projectCacheFailureReason({ message: "secret-bearing arbitrary error" }), "unclassified-private-diagnostic");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 function keys() {
   const pair = generateKeyPairSync("ed25519"), seed = pair.privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32),
     publicBytes = pair.publicKey.export({ format: "der", type: "spki" }).subarray(-32);
