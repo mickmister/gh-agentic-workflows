@@ -72,7 +72,7 @@ export type DevelopmentProgress = {
 type Agent = { role: DevelopmentRole; task: Task; dir: string; socketDir: string; session: SessionIdentity;
   bridge: Awaited<ReturnType<typeof serveTools>>; stopNative: ReturnType<typeof observeNative>; stopPi: () => Promise<void>;
   finish: (error?: unknown) => Promise<void>; result?: any; closed?: boolean; tests: Awaited<ReturnType<typeof command>>[];
-  commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[]; requiredChecks?: string[][] };
+  commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[]; requiredChecks?: string[][]; environmentCaches: unknown[] };
 
 /** Mechanical source/session/receipt capabilities. Spec Kit YAML owns scheduling. */
 export class Development {
@@ -167,6 +167,7 @@ export class Development {
         assert(operation === "restore" && (role === "implementer" || role === "tester") && typeof args.name === "string", "Environment import requires an executing role and named project declaration");
         const receipt = await restoreDevelopmentEnvironment(this.sources, task, args.name, join(this.home, "project-cache", task.id));
         await this.save(`cycles/${this.state.cycle}/cache/${role}-${calls}.json`, receipt);
+        this.agents.get(role)!.environmentCaches.push({ environment: args.name, ...receipt });
         return receipt;
       }
       if (area === "evidence") {
@@ -189,7 +190,7 @@ export class Development {
     const finish = await this.evidence.begin("session", this.evidence.scope(session), sessionSpan(session.id));
     const stopNative = observeNative(join(dir, "sessions"), this.evidence, session);
     const stopPi = observePi(dir, this.evidence, session, () => {});
-    const agent: Agent = { role, task, dir, socketDir, session, bridge, finish, stopNative, stopPi, tests, commands };
+    const agent: Agent = { role, task, dir, socketDir, session, bridge, finish, stopNative, stopPi, tests, commands, environmentCaches: [] };
     this.agents.set(role, agent);
     await this.progress(role === "implementer" ? "implement" : "evaluate", role === "implementer" ? "freeze-candidate" : "collect-evaluations");
     await this.save(`cycles/${this.state.cycle}/sessions/${role}.json`, { ...session, status: "allocated", candidate: this.state.candidate ?? null });
@@ -230,6 +231,7 @@ export class Development {
     }
     const ids = nativeSessionIds(native); assert(ids.length === 1, "Exactly one native session per role required");
     await this.save(`cycles/${this.state.cycle}/native/${role}.json`, { backend: "spec-kit", session: { ...agent.session, nativeSessionIds: ids, status: "completed" }, result: agent.result, native,
+      environmentCaches: agent.environmentCaches,
       nativeTruncated: agent.stopNative.capture.truncated, files: await nativeFiles(agent.dir) });
     await agent.finish(); await agent.bridge.close(); await rm(agent.socketDir, { recursive: true, force: true }); agent.closed = true;
     await this.progress(role === "implementer" ? "implementation-complete" : "evaluate", role === "implementer" ? "freeze-candidate" : "collect-evaluations");
@@ -286,7 +288,7 @@ export class Development {
       if (!agent.closed) {
         try {
           await this.save(`cycles/${this.state.cycle}/interrupted/${agent.role}.json`, { backend: "spec-kit", session: { ...agent.session, status: "failed" },
-            native: agent.stopNative.capture.snapshot(), nativeTruncated: agent.stopNative.capture.truncated });
+            native: agent.stopNative.capture.snapshot(), nativeTruncated: agent.stopNative.capture.truncated, environmentCaches: agent.environmentCaches });
           await agent.finish(failure ?? new Error("Role did not complete"));
         } finally { await agent.bridge.close(); await rm(agent.socketDir, { recursive: true, force: true }); agent.closed = true; }
       }

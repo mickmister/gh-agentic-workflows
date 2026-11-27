@@ -62,6 +62,9 @@ Only executing roles can restore; all roles can list.
 Cache import never reuses current-task tests or approval. The store import itself
 does not execute the profile. New agent-built paths are not automatically signed.
 Unsigned, malformed or cross-project/environment pointers are rejected.
+Host-recorded import receipts are retained in role archives, including interrupted
+roles. Automatic/GET-only development assessment projects bounded per-role cache
+facts separately from model summaries; historical archives without them are unknown.
 
 ## Clean-runner qualification and publication
 
@@ -93,6 +96,10 @@ signing credentials. Qualification command results use private S3; no Actions
 artifacts are uploaded. Workflow-level serialization prevents overlapping native
 publishers; the S3 helper is not an atomic CAS service. Previous immutable receipts
 are preserved; different content for an existing recipe is an error.
+
+Use `operation=inspect` with the original request and exact run/attempt to read
+compact retained validation/import outcomes without installing Nix, evaluating
+project code, dispatching models or replaying publication.
 
 The guinea-pig project qualifies Node plus a pinned npm-installed tool, persistence
 between checks, and a disposable local HTTP service with cleanup. This does not

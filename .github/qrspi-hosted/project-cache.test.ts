@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { projectEnvironments, projectPlan, projectRecipeId, writeProjectSnapshot, restoreProjectCache, signProjectReceipt, verifyProjectReceipt,
-  projectReceiptKey, projectLatestKey, type ProjectReceipt } from "./project-cache.ts";
+  projectReceiptKey, projectLatestKey, projectCacheSummary, type ProjectReceipt } from "./project-cache.ts";
 import { projectCacheRequest, assertAbsentProfile, projectCacheFailureReason } from "./project-cache-runtime.ts";
 import type { Member } from "./workspace.ts";
 const members: Member[] = [
@@ -31,6 +31,15 @@ function keys() {
     publicBytes = pair.publicKey.export({ format: "der", type: "spki" }).subarray(-32);
   return { publicKey: `agentic-development-cache-v1:${publicBytes.toString("base64")}`, secret: `agentic-development-cache-v1:${Buffer.concat([seed, publicBytes]).toString("base64")}` };
 }
+test("automatic assessment exposes bounded host cache facts without arbitrary metadata", () => {
+  assert.equal(projectCacheSummary(undefined).available, false);
+  const summary = projectCacheSummary([{ environment: "web", status: "hit", recipeId: "a".repeat(64), profile: `/nix/store/${"b".repeat(32)}-env`, private: "do-not-print" },
+    { environment: "secret-bearing prose", status: "invented", profile: "/private/secret", recipeId: "secret" }]);
+  assert.equal(summary.receipts[0].status, "hit");
+  assert.deepEqual(summary.receipts[1], { environment: "unknown", status: "unknown" });
+  assert(!JSON.stringify(summary).includes("do-not-print"));
+  assert.equal(projectCacheSummary(Array.from({ length: 101 }, () => ({ environment: "web", status: "disabled" }))).truncated, true);
+});
 test("project inputs bind relevant cross-repo files, not unrelated source or other environments", async () => {
   const root = await mkdtemp(join(tmpdir(), "project-cache-"));
   try {

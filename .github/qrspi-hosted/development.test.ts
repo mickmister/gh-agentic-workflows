@@ -170,6 +170,8 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
         assert.equal(environment.cleanRunnerValidated, false);
         assert.equal(environment.cachePublished, false);
         assert.equal(environment.commandIds.length, mode.startsWith("standalone") ? 1 : 2);
+        assert.deepEqual(saved.get(`cycles/${result.cycle}/native/implementer.json`).environmentCaches,
+          mode.startsWith("standalone") ? [{ environment: "web", status: "disabled" }] : []);
         assert.equal(JSON.stringify(saved.get(`cycles/${result.cycle}/native/implementer.json`).files).includes("package-cache-not-native-evidence"), false);
         assert.equal(saved.get("progress.json").nextStep, accepted ? "deliver-approved-candidate" : "publish-blocked-review");
         assert.equal(JSON.parse(saved.get("engine.json").output).status, "completed");

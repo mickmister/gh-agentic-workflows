@@ -4,6 +4,7 @@ import type { DevelopmentBinding as Binding } from "./development-context.ts";
 import { digest, type PrivateStore } from "./storage.ts";
 import { nativeSummary } from "./analyze-native.ts";
 import { evaluators } from "./development.ts";
+import { projectCacheSummary } from "./project-cache.ts";
 
 // Return selected constants, never native/provider prose or captured shell output.
 export function developmentFailure(message: unknown) {
@@ -42,7 +43,7 @@ export async function inspectDevelopment(store: PrivateStore, key: string, bindi
     const archive = (await store.read(`${key}/cycles/${cycle}/native/${role}.json`))?.value;
     const interrupted = archive ? undefined : (await store.read(`${key}/cycles/${cycle}/interrupted/${role}.json`))?.value;
     const retained = archive ?? interrupted;
-    agents.push(retained ? { ...nativeSummary(retained), cycle, role, evidence: archive ? "completed-archive" : "interrupted-archive" } : { cycle, role, evidence: "missing-or-incomplete" });
+    agents.push(retained ? { ...nativeSummary(retained), environmentCaches: projectCacheSummary(retained.environmentCaches), cycle, role, evidence: archive ? "completed-archive" : "interrupted-archive" } : { cycle, role, evidence: "missing-or-incomplete" });
   }
   const prefix = `${store.prefix}${key}/evidence/`, events: any[] = [], spans: any[] = [];
   let token: string | undefined, objects = 0;

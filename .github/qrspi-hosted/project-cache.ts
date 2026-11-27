@@ -40,6 +40,17 @@ export type ProjectPlan = { recipe: ProjectRecipe; definition: ProjectEnvironmen
 export const projectRecipeId = (recipe: ProjectRecipe) => sha256(JSON.stringify(recipe));
 export const projectReceiptKey = (recipe: ProjectRecipe) => `project-receipts/${projectRecipeId(recipe)}.json`;
 export const projectLatestKey = (recipe: ProjectRecipe) => `project-latest/${sha256(JSON.stringify([recipe.repository, recipe.member, recipe.environment, recipe.flake, recipe.system, recipe.nixVersion]))}.json`;
+/** A bounded projection of host-recorded imports, never model/provider prose. */
+export function projectCacheSummary(value: unknown) {
+  if (!Array.isArray(value)) return { available: false, receipts: [], truncated: false };
+  return { available: true, truncated: value.length > 100, receipts: value.slice(0, 100).map(receipt => ({
+    environment: label(receipt?.environment) ? receipt.environment : "unknown",
+    status: ["hit", "warm", "miss", "disabled"].includes(receipt?.status) ? receipt.status : "unknown",
+    ...(/^[a-f0-9]{64}$/.test(receipt?.recipeId) ? { recipeId: receipt.recipeId } : {}),
+    ...(/^[a-f0-9]{64}$/.test(receipt?.importedRecipeId) ? { importedRecipeId: receipt.importedRecipeId } : {}),
+    ...(storePath(receipt?.profile) ? { profile: receipt.profile } : {}),
+  })) };
+}
 
 async function sourceFile(root: string, name: string) {
   const file = readable(root, name);
