@@ -66,6 +66,40 @@ Host-recorded import receipts are retained in role archives, including interrupt
 roles. Automatic/GET-only development assessment projects bounded per-role cache
 facts separately from model summaries; historical archives without them are unknown.
 
+## Run this repository's qualification checks
+
+First list environments and restore `web` with the host tool as described above;
+require `status: "hit"` for this exact-profile example. Set `PROFILE` in your shell
+to the exact `profile` value returned by that restore (not a store path copied
+from another run). From the repository root, run these two checks declared in
+`.agentic/environments.json`:
+
+```sh
+# Prerequisite: PROFILE is set to the host restore result's profile value.
+(
+  set -eu
+  : "${PROFILE:?Set PROFILE to the profile returned by environment restore}"
+  CHECK_HOME=$(mktemp -d "$HOME/web-qualification.XXXXXX")
+  trap 'rm -rf -- "$CHECK_HOME"' EXIT
+  export HOME="$CHECK_HOME"
+
+  nix --offline develop "$PROFILE" --command \
+    node --experimental-strip-types .agentic/check-web-environment.mts
+  nix --offline develop "$PROFILE" --command \
+    node --experimental-strip-types .agentic/check-web-environment.mts --require-existing
+)
+```
+
+The subshell shares one disposable private HOME between both commands without
+changing the caller's HOME. The first check installs `semver@7.7.2` with npm under
+`$HOME/project-tools`; the repeated check requires that installation to exist.
+Each check starts and closes its own disposable loopback HTTP service. The exit
+trap removes the temporary HOME, including npm output, on success or failure.
+The restored Nix profile supplies the toolchain, not npm-installed output or npm's
+mutable cache: those remain outside the Nix cache. `--offline` applies to Nix;
+the first npm install can still require registry network access. Passing these
+checks qualifies the environment, not product acceptance or another role's tests.
+
 ## Clean-runner qualification and publication
 
 The trusted operator dispatches `project-nix-cache.yml` with a request containing
