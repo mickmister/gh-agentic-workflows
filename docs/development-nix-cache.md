@@ -5,6 +5,11 @@ private B2 Nix cache before Pi starts. The cache supplies dependencies, not appr
 or test results. Agents keep the existing immediate `nix shell` / `nix develop`
 command path and independent repair bootstrap.
 
+This page describes the legacy fixed pre-Pi recipe. Arbitrary projects can now use
+the [general project-owned cache contract](project-nix-cache.md), with on-demand
+environment selection and separate clean-runner validation/publication. The fixed
+recipe is retained for existing consumers; it is not the general onboarding path.
+
 ## Configuration
 
 `.github/nix-cache.json` pins the reviewed recipe repository/commit, platform,

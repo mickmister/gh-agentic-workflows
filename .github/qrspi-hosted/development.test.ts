@@ -59,19 +59,28 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
     const role = text.match(/Assigned role: (implementer|reviewer-1|reviewer-2|tester)/)?.[1];
     assert(role); cycle = Number(text.match(/"cycle":(\d+)/)?.[1]); assert(cycle > 0);
     const key = `${mode}-${cycle}-${role}`, round = rounds.get(key) ?? 0; rounds.set(key, round + 1);
+    if (role === "implementer" && mode.startsWith("standalone") && round < 2) {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `environment-${cycle}-${round}`, type: "function", function: {
+        name: "workspace_operation", arguments: JSON.stringify({ area: "environment", operation: round === 0 ? "list" : "restore", args: round === 0 ? {} : { name: "web" } }) } }] };
+      res.end(`data: ${JSON.stringify({ id: "environment", choices: [{ index: 0, delta, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
+    const step = role === "implementer" && mode.startsWith("standalone") ? round - 2 : round;
     let delta: any, finish = "stop";
     if (role === "implementer") {
-      if (round === 0) {
+      if (mode.startsWith("standalone")) assert(text.includes('"status":"disabled"'), "Executing roles can request cache restore without credentials when disabled");
+      if (step === 0) {
         finish = "tool_calls";
         delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `workspace-${cycle}`, type: "function", function: {
           name: "workspace_operation", arguments: JSON.stringify({ area: "workspace", operation: "read", args: { member: "library", path: "setup.txt" } }) } }] };
-      } else if (round === 1) {
+      } else if (step === 1) {
         assert(text.includes("pinned sibling setup"), "Implementer can inspect captured sibling setup");
         assert(!text.includes("mutable sibling setup"));
         finish = "tool_calls";
         delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `write-${cycle}`, type: "function", function: {
           name: "workspace_operation", arguments: JSON.stringify({ area: "files", operation: "write", args: { path: "answer.txt", content: `fixed cycle ${cycle}\n` } }) } }] };
-      } else if (round === 2) {
+      } else if (step === 2) {
         finish = "tool_calls";
         delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `command-${cycle}`, type: "function", function: {
           name: "workspace_operation", arguments: JSON.stringify({ area: "execute", operation: "run", args: { argv: [process.execPath, "-e", "require('node:fs').writeFileSync(require('node:path').join(process.env.HOME,'implementer-only'),'private');console.log('implementation-command-proof')"] } }) } }] };
@@ -116,11 +125,15 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
   await new Promise<void>(ok => server.listen(0, "127.0.0.1", ok));
   try {
     Object.assign(process.env, { HOME: home, INFERENCE_BASE_URL: `http://127.0.0.1:${(server.address() as any).port}/v1`, INFERENCE_API_KEY: "test",
-      CF_ACCESS_CLIENT_ID: "test", CF_ACCESS_CLIENT_SECRET: "test", QRSPI_MODEL: "test-model" });
+      CF_ACCESS_CLIENT_ID: "test", CF_ACCESS_CLIENT_SECRET: "test", QRSPI_MODEL: "test-model", DEVELOPMENT_NIX_CACHE_ENABLED: "false" });
     for (mode of ["retry", "exhausted", "failed-tests", "standalone", "standalone-no-checks", "standalone-failed-checks"]) {
       cycle = 0;
       const directory = join(home, mode), root = join(directory, "workspace"), app = join(root, "app"); await mkdir(app, { recursive: true });
-      localGit(app, ["init", "--quiet", "-b", "feature"]); await writeFile(join(app, "answer.txt"), "broken\n"); localGit(app, ["add", "."]);
+      localGit(app, ["init", "--quiet", "-b", "feature"]); await writeFile(join(app, "answer.txt"), "broken\n");
+      await mkdir(join(app, ".agentic"));
+      await writeFile(join(app, ".agentic/environments.json"), JSON.stringify({ schemaVersion: 1, environments: [{ name: "web", flake: ".",
+        inputs: [{ member: ".", path: "flake.nix" }, { member: ".", path: "flake.lock" }], checks: [[process.execPath, "--version"]] }] }));
+      localGit(app, ["add", "."]);
       localGit(app, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "initial"]);
       const baseCommit = localGit(app, ["rev-parse", "HEAD"]), saved = new Map<string, any>();
       const library = join(root, "library"); await mkdir(library);

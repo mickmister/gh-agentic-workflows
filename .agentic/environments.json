@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "environments": [
+    {
+      "name": "web",
+      "flake": ".",
+      "inputs": [
+        { "member": ".", "path": "flake.nix" },
+        { "member": ".", "path": "flake.lock" }
+      ],
+      "checks": [
+        ["node", "--experimental-strip-types", ".agentic/check-web-environment.mts"],
+        ["node", "--experimental-strip-types", ".agentic/check-web-environment.mts", "--require-existing"]
+      ]
+    }
+  ]
+}

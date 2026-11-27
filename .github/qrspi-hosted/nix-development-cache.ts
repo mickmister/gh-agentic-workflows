@@ -23,22 +23,29 @@ export type CacheReceipt = { schemaVersion: 1; recipeId: string; sourceCommit: s
 const receiptBytes = (receipt: CacheReceipt) => Buffer.from(JSON.stringify({ schemaVersion: receipt.schemaVersion, recipeId: receipt.recipeId,
   sourceCommit: receipt.sourceCommit, profile: receipt.profile, narHash: receipt.narHash }));
 export function signReceipt(recipe: CacheRecipe, receipt: CacheReceipt, secret: string) {
+  const envelope = { receipt, signature: signCacheBytes(recipe.publicKey, secret, receiptBytes(receipt)) };
+  verifyReceipt(recipe, envelope); return envelope;
+}
+export function signCacheBytes(publicKey: string, secret: string, payload: Buffer) {
   const [name, encoded] = secret.trim().split(":");
   const bytes = Buffer.from(encoded ?? "", "base64");
   try {
-    assert(bytes.length === 64 && `${name}:${bytes.subarray(32).toString("base64")}` === recipe.publicKey, "Signing key does not match pinned public key");
+    assert(bytes.length === 64 && `${name}:${bytes.subarray(32).toString("base64")}` === publicKey, "Signing key does not match pinned public key");
     const key = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), bytes.subarray(0, 32)]), format: "der", type: "pkcs8" });
-    const envelope = { receipt, signature: sign(null, receiptBytes(receipt), key).toString("base64") };
-    verifyReceipt(recipe, envelope); return envelope;
+    return sign(null, payload, key).toString("base64");
   } finally { bytes.fill(0); }
 }
 export function verifyReceipt(recipe: CacheRecipe, envelope: any): CacheReceipt {
   const r = envelope?.receipt;
   assert(r?.schemaVersion === 1 && r.recipeId === recipeId(recipe) && r.sourceCommit === recipe.sourceCommit && storePath(r.profile) && /^sha256-[A-Za-z0-9+/]{43}=$/.test(r.narHash), "Cache receipt binding invalid");
   assert(typeof envelope.signature === "string" && /^[A-Za-z0-9+/]{86}==$/.test(envelope.signature), "Cache receipt signature missing");
-  const publicKey = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(recipe.publicKey.split(":")[1], "base64")]), format: "der", type: "spki" });
-  assert(verify(null, receiptBytes(r), publicKey, Buffer.from(envelope.signature, "base64")), "Cache receipt signature invalid");
+  verifyCacheBytes(recipe.publicKey, receiptBytes(r), envelope.signature);
   return r;
+}
+export function verifyCacheBytes(publicKey: string, payload: Buffer, signature: string) {
+  assert(typeof signature === "string" && /^[A-Za-z0-9+/]{86}==$/.test(signature), "Cache receipt signature missing");
+  const key = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(publicKey.split(":")[1], "base64")]), format: "der", type: "spki" });
+  assert(verify(null, payload, key, Buffer.from(signature, "base64")), "Cache receipt signature invalid");
 }
 export async function matchingRecipe(recipe: CacheRecipe, directory: string) {
   try {

@@ -16,7 +16,7 @@ function credentials(env: NodeJS.ProcessEnv) {
   assert(env.S3_CACHE_ACCESS_KEY_ID && env.S3_CACHE_SECRET_ACCESS_KEY, "Missing existing S3 cache credentials");
   return env;
 }
-function cacheStore(env: NodeJS.ProcessEnv) {
+export function cacheStore(env: NodeJS.ProcessEnv) {
   const store = new PrivateStore(env);
   store.prefix = new URL(nixCacheLocation(env, ["nix-development", "v1", "store"])).pathname.slice(1).replace(/store$/, "");
   return store;

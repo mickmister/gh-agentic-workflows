@@ -12,6 +12,8 @@ import { nativeSessionIds, type SessionIdentity } from "./session.ts";
 import { sessionSpan, type ExecutionEvidence } from "./execution.ts";
 import { observePi } from "./live-session.ts";
 import { environmentSources, workspaceSource, environmentReport } from "./project-environment.ts";
+import { loadProjectEnvironments } from "./project-cache.ts";
+import { restoreDevelopmentEnvironment } from "./project-cache-runtime.ts";
 
 export const evaluators = ["reviewer-1", "reviewer-2", "tester"] as const;
 export type DevelopmentRole = "implementer" | typeof evaluators[number];
@@ -158,8 +160,15 @@ export class Development {
         }
         return { candidate: this.state.candidate, results };
       }
-      if (area === "help" || area === "assignment") return { role, assignment, capabilities: ["assignment", "workspace members/list/read", "files list/read", ...(role === "implementer" ? ["files write", "execute run"] : ["evidence implementation", ...(role === "tester" ? ["execute run", ...(this.request.schemaVersion === 2 ? ["verification run"] : [])] : [])])] };
+      if (area === "help" || area === "assignment") return { role, assignment, capabilities: ["assignment", "workspace members/list/read", "environment list", "files list/read", ...(role === "implementer" ? ["files write", "execute run", "environment restore"] : ["evidence implementation", ...(role === "tester" ? ["execute run", "environment restore", ...(this.request.schemaVersion === 2 ? ["verification run"] : [])] : [])])] };
       if (area === "workspace") return workspaceSource(this.sources, task, operation, args);
+      if (area === "environment") {
+        if (operation === "list") return { environments: await loadProjectEnvironments(cwd, this.sources.members) };
+        assert(operation === "restore" && (role === "implementer" || role === "tester") && typeof args.name === "string", "Environment import requires an executing role and named project declaration");
+        const receipt = await restoreDevelopmentEnvironment(this.sources, task, args.name, join(this.home, "project-cache", task.id));
+        await this.save(`cycles/${this.state.cycle}/cache/${role}-${calls}.json`, receipt);
+        return receipt;
+      }
       if (area === "evidence") {
         assert(role !== "implementer" && operation === "implementation" && this.state.candidate, "Role capability does not permit this evidence");
         const implementer = this.agents.get("implementer"); assert(implementer?.result, "Completed implementation required");

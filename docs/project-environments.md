@@ -4,7 +4,9 @@ The development workflow supports Nix-first setup with justified conventional
 steps. Agents inspect the selected project and relevant workspace source, reuse
 working setup, and provision missing dependencies in the current session/job.
 Using setup for another repository does not require engine-side registration.
-Private binary-cache eligibility is a separate, currently narrower capability.
+Private binary-cache eligibility is a separate capability. See
+[general project cache onboarding](project-nix-cache.md) for project declarations,
+on-demand signed imports and separate clean-runner qualification/publication.
 
 ## Callers and workspace members
 
@@ -76,9 +78,11 @@ three same-runner evaluations authorize cache signing or reusable promotion.
 
 ## Cache and remaining issue-18 work
 
-The existing [signed B2 prefetch](development-nix-cache.md) still recognizes one
-reviewed recipe. Other projects can provision normally but are not automatically
-published. General substitution/publication, exact-definition clean-runner replay,
-Alohak Android capability expansion, incremental reuse measurements and retirement
+The existing [pre-Pi B2 prefetch](development-nix-cache.md) still recognizes one
+reviewed recipe. The [general on-demand path](project-nix-cache.md) accepts named
+project declarations without repository registration and has separate clean-runner
+qualification, independent rebuild/signing and fresh-import jobs. Project outputs
+are not automatically published by coding agents. Alohak Android capability
+expansion, realistic incremental reuse measurements and retirement
 of superseded setup/cache infrastructure remain tracked under
 [issue #18](https://github.com/mickmister/gh-agentic-workflows/issues/18).
