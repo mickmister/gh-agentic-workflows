@@ -4,6 +4,12 @@ The first issue-18 slice installs Nix **before** the Spec Kit/Pi development
 workflow. The host's Node/Pi/Spec Kit bootstrap is independent of project flakes.
 An invalid project environment does not prevent the agent from editing it.
 
+[Project-owned environments](project-environments.md) describes the general
+development onboarding path: pinned workspace-source inspection, Nix plus native
+setup, persistent role-local command HOME and candidate-bound setup evidence.
+The scoped feasibility and private cache proofs below do not establish general
+cache onboarding or clean-runner promotion for arbitrary projects.
+
 The reusable development-cache integration is described in
 [development-nix-cache.md](development-nix-cache.md). Its fixed publisher and
 host-managed prefetch use a persistent signing identity and the existing S3 cache

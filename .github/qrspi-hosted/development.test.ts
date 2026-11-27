@@ -63,13 +63,19 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
     if (role === "implementer") {
       if (round === 0) {
         finish = "tool_calls";
+        delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `workspace-${cycle}`, type: "function", function: {
+          name: "workspace_operation", arguments: JSON.stringify({ area: "workspace", operation: "read", args: { member: "library", path: "setup.txt" } }) } }] };
+      } else if (round === 1) {
+        assert(text.includes("pinned sibling setup"), "Implementer can inspect captured sibling setup");
+        assert(!text.includes("mutable sibling setup"));
+        finish = "tool_calls";
         delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `write-${cycle}`, type: "function", function: {
           name: "workspace_operation", arguments: JSON.stringify({ area: "files", operation: "write", args: { path: "answer.txt", content: `fixed cycle ${cycle}\n` } }) } }] };
-      } else if (round === 1) {
+      } else if (round === 2) {
         finish = "tool_calls";
         delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `command-${cycle}`, type: "function", function: {
-          name: "workspace_operation", arguments: JSON.stringify({ area: "execute", operation: "run", args: { argv: [process.execPath, "-p", "'implementation-command-proof'"] } }) } }] };
-      } else delta = { role: "assistant", content: JSON.stringify({ summary: "Implemented the fixture", paths: ["answer.txt"] }) };
+          name: "workspace_operation", arguments: JSON.stringify({ area: "execute", operation: "run", args: { argv: [process.execPath, "-e", "require('node:fs').writeFileSync(require('node:path').join(process.env.HOME,'implementer-only'),'private');console.log('implementation-command-proof')"] } }) } }] };
+      } else delta = { role: "assistant", content: JSON.stringify({ summary: "Implemented the fixture", paths: ["answer.txt"], environment: { summary: "Project-owned native setup", declarationPaths: [], limitations: ["Not a fresh-runner qualification"] } }) };
     } else {
       if (round === 0) {
         res.writeHead(200, { "content-type": "text/event-stream" });
@@ -80,10 +86,18 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       }
       assert(text.includes("implementation-command-proof"), "Evaluators must receive actual implementer command evidence");
       assert(text.includes('"exitCode":0'));
-      if (role === "tester" && mode.startsWith("standalone") && mode !== "standalone-no-checks" && round === 1) {
+      assert(text.includes("Project-owned native setup"), "Evaluator receives environment evidence");
+      if (role === "tester" && mode.startsWith("standalone") && round === 1) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `setup-${cycle}`, type: "function", function: {
+          name: "workspace_operation", arguments: JSON.stringify({ area: "execute", operation: "run", args: { argv: [process.execPath, "-e", "const fs=require('node:fs'),p=require('node:path');if(fs.existsSync(p.join(process.env.HOME,'implementer-only')))process.exit(1);fs.writeFileSync(p.join(process.env.HOME,'native-setup'),'ready')"] } }) } }] };
+        res.end(`data: ${JSON.stringify({ id: "setup", choices: [{ index: 0, delta, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+        return;
+      }
+      if (role === "tester" && mode.startsWith("standalone") && mode !== "standalone-no-checks" && round === 2) {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `checks-${cycle}`, type: "function", function: {
-          name: "workspace_operation", arguments: JSON.stringify({ area: "verification", operation: "run", args: { commands: [[process.execPath, "-e", mode === "standalone-failed-checks" ? "process.exit(1)" : "if(!require('node:fs').readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]] } }) } }] };
+          name: "workspace_operation", arguments: JSON.stringify({ area: "verification", operation: "run", args: { commands: [[process.execPath, "-e", mode === "standalone-failed-checks" ? "process.exit(1)" : "const fs=require('node:fs');if(fs.readFileSync(require('node:path').join(process.env.HOME,'native-setup'),'utf8')!=='ready'||!fs.readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]] } }) } }] };
         res.end(`data: ${JSON.stringify({ id: "checks", choices: [{ index: 0, delta, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
         return;
       }
@@ -109,7 +123,12 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       localGit(app, ["init", "--quiet", "-b", "feature"]); await writeFile(join(app, "answer.txt"), "broken\n"); localGit(app, ["add", "."]);
       localGit(app, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "initial"]);
       const baseCommit = localGit(app, ["rev-parse", "HEAD"]), saved = new Map<string, any>();
-      const sources = new Sources(root, directory, [{ path: "app", repository: "owner/app", branch: "refs/heads/feature", commit: baseCommit }], {} as any, true, mode);
+      const library = join(root, "library"); await mkdir(library);
+      localGit(library, ["init", "--quiet", "-b", "main"]); await writeFile(join(library, "setup.txt"), "pinned sibling setup\n");
+      localGit(library, ["add", "."]); localGit(library, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "initial"]);
+      const libraryCommit = localGit(library, ["rev-parse", "HEAD"]); await writeFile(join(library, "setup.txt"), "mutable sibling setup\n");
+      const sources = new Sources(root, directory, [{ path: "app", repository: "owner/app", branch: "refs/heads/feature", commit: baseCommit },
+        { path: "library", repository: "other-owner/library", branch: "refs/heads/main", commit: libraryCommit }], {} as any, true, mode);
       const request = developmentRequest(mode.startsWith("standalone") ? { schemaVersion: 2, process: mode, thread: "conversation", member: "app", task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"], publishCandidate: false } : { schemaVersion: 1, process: mode, bead: "task-fixture", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"],
         setupCommands: [[process.execPath, "-e", "const fs=require('node:fs'),p=require('node:path').join(process.env.HOME,'.npm','cache','a','b','c','d','e','f','g','h','i');fs.mkdirSync(p,{recursive:true});fs.writeFileSync(require('node:path').join(p,'index.json'),'package-cache-not-native-evidence')"]],
         testCommands: [[process.execPath, "-e", mode === "failed-tests" ? "process.exit(1)" : "if(!require('node:fs').readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]], publishCandidate: false });
@@ -130,6 +149,14 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
           assert.equal(saved.has("cycles/1/verification.json"), mode !== "standalone-no-checks");
         }
         assert(saved.has(`cycles/${result.cycle}/candidate-bundle.json`));
+        const environment = saved.get(`cycles/${result.cycle}/environment.json`);
+        assert.equal(environment.candidate, result.candidate);
+        assert.equal(environment.sources[1].commit, libraryCommit);
+        assert.equal(environment.sources[0].commit, result.candidate);
+        assert.equal(environment.report.summary, "Project-owned native setup");
+        assert.equal(environment.cleanRunnerValidated, false);
+        assert.equal(environment.cachePublished, false);
+        assert.equal(environment.commandIds.length, mode.startsWith("standalone") ? 1 : 2);
         assert.equal(JSON.stringify(saved.get(`cycles/${result.cycle}/native/implementer.json`).files).includes("package-cache-not-native-evidence"), false);
         assert.equal(saved.get("progress.json").nextStep, accepted ? "deliver-approved-candidate" : "publish-blocked-review");
         assert.equal(JSON.parse(saved.get("engine.json").output).status, "completed");

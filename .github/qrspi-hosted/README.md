@@ -50,6 +50,12 @@ The source-capable development entry now installs pinned Nix before Pi starts.
 Agents can provision and use a missing tool through `nix shell` or `nix develop`
 in the same running session/job. The independent host bootstrap remains available
 when a project flake is broken. See [Nix environments and the native B2 proof](../../docs/nix-environments.md).
+The development roles can inspect pinned source across declared workspace members
+and combine project-owned Nix/native setup. Setup and required checks share a
+role-local command HOME; the tester reproduces setup independently. Candidate-bound
+setup reports retain actual limitations without claiming fresh-runner validation.
+See [Project-owned setup](../../docs/project-environments.md) for tool examples and
+the remaining multi-repository execution and general cache-onboarding boundaries.
 This first feasibility slice does not replace the discussion workflow's composite
 preparation path or qualify arbitrary agent-controlled cache publication.
 
