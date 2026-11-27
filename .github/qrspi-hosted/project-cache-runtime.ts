@@ -15,6 +15,18 @@ import { loadProjectEnvironments, projectPlan, writeProjectSnapshot, projectReci
   restoreProjectCache, signProjectReceipt, verifyProjectReceipt, type ProjectPlan } from "./project-cache.ts";
 
 const exec = promisify(execFile);
+export function projectCacheFailureReason(failure: any) {
+  const known = ["Fresh reader already has profile", "Invalid project cache receipt", "Project cache recipe mismatch",
+    "Missing clean-runner validation provenance", "Cache receipt signature missing", "Cache receipt signature invalid",
+    "Imported content mismatch", "Project qualification checks failed", "Environment inputs changed during checks",
+    "Source changed since exact checkout", "Clean-runner qualification does not match independent rebuild"];
+  if (known.includes(failure?.message)) return failure.message;
+  const stderr = String(failure?.stderr ?? "");
+  if (/not (?:a )?valid|does not exist/.test(stderr)) return "nix-invalid-or-missing-path";
+  if (/AccessDenied|Forbidden|403/.test(stderr)) return "provider-access-denied";
+  if (/signature|public key/.test(stderr)) return "nix-signature-rejection";
+  return "unclassified-private-diagnostic";
+}
 export type ProjectCacheRequest = { schemaVersion: 1; member: string; environment: string; sources: Member[] };
 export function projectCacheRequest(value: any): ProjectCacheRequest {
   assert(value?.schemaVersion === 1 && Object.keys(value).sort().join(",") === "environment,member,schemaVersion,sources" &&
@@ -87,6 +99,7 @@ async function main() {
       assert(sha256(JSON.stringify(record.request)) === sha256(JSON.stringify(request)), "Inspection request does not match retained source vector");
       const checks = record.checks;
       phases.push({ job, status: record.failure ? "failed" : checks?.results?.length && checks.results.every((r: any) => r.outcome === "completed" && r.exitCode === 0) ? "passed" : "incomplete",
+        failureReason: record.failure ? projectCacheFailureReason(record.failure) : null,
         engineCommit: record.engineCommit, recipeId: checks?.built?.recipeId, profile: checks?.built?.profile, narHash: checks?.built?.narHash,
         checks: checks?.results?.map((r: any) => ({ outcome: r.outcome, exitCode: r.exitCode, durationMs: r.durationMs, truncated: r.truncated, bytes: r.bytes })) });
     }
