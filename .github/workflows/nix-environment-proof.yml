@@ -1,0 +1,173 @@
+name: Nix same-session and B2 feasibility proof
+run-name: Nix proof ${{ inputs.inspect-run || github.run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      inspect-run:
+        type: string
+        default: ''
+        description: GET-only inspect of an existing proof; empty starts a new proof
+      inspect-attempt:
+        type: string
+        default: '1'
+        description: Attempt of the inspected proof
+permissions:
+  contents: read
+env:
+  NIX_PROOF_RUN: ${{ inputs.inspect-run || github.run_id }}
+  NIX_PROOF_ATTEMPT: ${{ inputs.inspect-run && inputs.inspect-attempt || github.run_attempt }}
+jobs:
+  cache:
+    if: inputs.inspect-run == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      public_key: ${{ steps.proof.outputs.public_key }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Fixed reviewed publisher; no live agent in this job
+        id: proof
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: NIX_PROOF_PHASE=producer node --experimental-strip-types .github/qrspi-hosted/nix-proof.ts
+  substitute:
+    needs: cache
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
+            extra-trusted-public-keys = ${{ needs.cache.outputs.public_key }}
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Fresh native B2 import and signature rejection
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: NIX_PROOF_PHASE=consumer node --experimental-strip-types .github/qrspi-hosted/nix-proof.ts
+  agent:
+    if: inputs.inspect-run == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false, fetch-depth: 0 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with: { version: '0.13.7', enable-cache: false }
+      - run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+      - name: Real Spec Kit development graph and continuing Pi session
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          QRSPI_MODEL: ${{ vars.QRSPI_MODEL || 'gpt-6.1-sol' }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: NIX_PROOF_PHASE=agent node --experimental-strip-types .github/qrspi-hosted/nix-proof.ts
+  replay:
+    needs: agent
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false, fetch-depth: 0 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Replay exact private candidate on a fresh runner
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: NIX_PROOF_PHASE=replay node --experimental-strip-types .github/qrspi-hosted/nix-proof.ts
+  inspect:
+    if: ${{ !cancelled() }}
+    needs: [cache, substitute, agent, replay]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Compact private native and OTLP assessment; no replay
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: NIX_PROOF_PHASE=inspect node --experimental-strip-types .github/qrspi-hosted/nix-proof.ts

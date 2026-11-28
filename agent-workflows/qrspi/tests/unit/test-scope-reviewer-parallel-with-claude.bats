@@ -1,0 +1,181 @@
+#!/usr/bin/env bats
+bats_require_minimum_version 1.5.0
+
+# Task 17 — scope-reviewer running in parallel with Claude reviewer
+#
+# Asserts the contract that the scope-reviewer dispatch runs in parallel
+# with the Claude review subagent, that both reviewers' findings flow
+# through the M48 review-loop pause gate (using-qrspi/SKILL.md), and that
+# the conflict-resolution / merge policy is documented (deduplication or
+# both-flow framing).
+#
+# These are prompt-content invariant tests — assertion targets are the
+# consuming SKILL prompts plus the using-qrspi review-loop content. The
+# unit tier asserts the wiring; the acceptance tier exercises a real
+# dispatch.
+
+setup() {
+  ROOT="$BATS_TEST_DIRNAME/../.."
+  GOALS_FILE="$ROOT/skills/goals/SKILL.md"
+  DESIGN_FILE="$ROOT/skills/design/SKILL.md"
+  PHASING_FILE="$ROOT/skills/phasing/SKILL.md"
+  STRUCTURE_FILE="$ROOT/skills/structure/SKILL.md"
+  PLAN_FILE="$ROOT/skills/plan/SKILL.md"
+  PARALLELIZE_FILE="$ROOT/skills/parallelize/SKILL.md"
+  REPLAN_FILE="$ROOT/skills/replan/SKILL.md"
+  USING_QRSPI_FILE="$ROOT/skills/using-qrspi/SKILL.md"
+  AGENTS_DIR="$ROOT/agents"
+  REVIEWER_BOILERPLATE="$ROOT/skills/reviewer-protocol/SKILL.md"
+  export ROOT GOALS_FILE DESIGN_FILE PHASING_FILE STRUCTURE_FILE PLAN_FILE PARALLELIZE_FILE REPLAN_FILE
+  export USING_QRSPI_FILE AGENTS_DIR REVIEWER_BOILERPLATE
+}
+
+# ── Per-skill: scope-reviewer dispatched in parallel with Claude reviewer ──
+
+@test "goals SKILL: scope-reviewer dispatched in parallel with Claude reviewer" {
+  # The quality-reviewer and scope-reviewer subagents are both listed in
+  # the Review Round (commit 7/22 migration: Agent({subagent_type:...}) form).
+  grep -qi "qrspi-goals-reviewer" "$GOALS_FILE"
+  grep -qi "qrspi-goals-scope-reviewer" "$GOALS_FILE"
+  grep -Eqi "in parallel|run in parallel|reviewers run in parallel|four reviewer dispatches run in parallel" "$GOALS_FILE"
+}
+
+@test "design SKILL: scope-reviewer dispatched in parallel with Claude reviewer" {
+  # Commit 10/22 migration: Agent({subagent_type:...}) form.
+  grep -qi "qrspi-design-reviewer" "$DESIGN_FILE"
+  grep -qi "qrspi-design-scope-reviewer" "$DESIGN_FILE"
+  grep -Eqi "in parallel|run in parallel|two parallel reviewer dispatches" "$DESIGN_FILE"
+}
+
+@test "phasing SKILL: scope-reviewer dispatched in parallel with Claude reviewer" {
+  # Commit 12/22 migration: Agent({subagent_type:...}) form.
+  grep -qi "qrspi-phasing-reviewer" "$PHASING_FILE"
+  grep -qi "qrspi-phasing-scope-reviewer" "$PHASING_FILE"
+  grep -Eqi "in parallel|run in parallel|two parallel reviewer dispatches" "$PHASING_FILE"
+}
+
+@test "structure SKILL: scope-reviewer dispatched in parallel with Claude reviewer" {
+  # Commit 11/22 migration: Agent({subagent_type:...}) form.
+  grep -qi "qrspi-structure-reviewer" "$STRUCTURE_FILE"
+  grep -qi "qrspi-structure-scope-reviewer" "$STRUCTURE_FILE"
+  grep -Eqi "in parallel|run in parallel|two parallel reviewer dispatches" "$STRUCTURE_FILE"
+}
+
+@test "plan SKILL: scope-reviewer dispatched in parallel with Claude reviewer" {
+  # Commit 13/22 migration: Agent({subagent_type:...}) form.
+  grep -qi "qrspi-plan-reviewer" "$PLAN_FILE"
+  grep -qi "qrspi-plan-scope-reviewer" "$PLAN_FILE"
+  grep -Eqi "in parallel|run in parallel|parallel reviewer dispatches" "$PLAN_FILE"
+}
+
+@test "parallelize SKILL: scope-reviewer dispatched in parallel with Claude reviewer" {
+  # Commit 14/22 migration: Agent({subagent_type:...}) form.
+  grep -qi "qrspi-parallelize-reviewer" "$PARALLELIZE_FILE"
+  grep -qi "qrspi-parallelize-scope-reviewer" "$PARALLELIZE_FILE"
+  grep -Eqi "in parallel|run in parallel|two parallel reviewer dispatches" "$PARALLELIZE_FILE"
+}
+
+@test "replan SKILL: scope-reviewer dispatched in parallel with Claude reviewer" {
+  # Commit 17/22 migration: Agent({subagent_type:...}) form.
+  grep -qi "qrspi-replan-reviewer" "$REPLAN_FILE"
+  grep -qi "qrspi-replan-scope-reviewer" "$REPLAN_FILE"
+  grep -Eqi "in parallel|run in parallel|parallel reviewer dispatches" "$REPLAN_FILE"
+}
+
+# ── Shared finding schema: both reviewers emit M48 5-field findings ─────────
+
+@test "reviewer-boilerplate.md ## Finding Schema declares M48 5-field schema (shared by both reviewers)" {
+  [ -f "$REVIEWER_BOILERPLATE" ]
+  local section
+  section="$(awk '
+    $0 == "## Finding Schema" { in_b = 1; print; next }
+    in_b && /^## / { exit }
+    in_b { print }
+  ' "$REVIEWER_BOILERPLATE")"
+  [ -n "$section" ]
+  echo "$section" | grep -q "finding_id"
+  echo "$section" | grep -q "severity"
+  echo "$section" | grep -q "change_type"
+  echo "$section" | grep -q "message"
+  echo "$section" | grep -q "referenced_files"
+}
+
+@test "every per-artifact scope-reviewer agent declares skills: [reviewer-protocol] for unified Finding Schema" {
+  # Post-migration replacement for the legacy "Output Contract references
+  # reviewer-boilerplate Finding Schema" template assertion. Each agent file
+  # loads the reviewer-protocol skill via frontmatter, so the M48 5-field
+  # finding schema is shared across the Claude reviewer and the scope-reviewer.
+  for name in goals design phasing structure plan parallelize replan; do
+    local agent="$AGENTS_DIR/qrspi-${name}-scope-reviewer.md"
+    [ -f "$agent" ] || { echo "FAIL: missing agent $agent" >&2; return 1; }
+    grep -qE "^skills:[[:space:]]*\[.*reviewer-protocol.*\]" "$agent" || {
+      echo "FAIL: $agent does not declare skills: [reviewer-protocol]" >&2
+      return 1
+    }
+  done
+}
+
+# ── Conflict resolution / merger policy ─────────────────────────────────────
+
+@test "every per-artifact scope-reviewer agent loads reviewer-protocol so finding shapes are unified across reviewers" {
+  # The boilerplate-loading policy is the merger primitive — both the
+  # Claude reviewer and the scope-reviewer emit findings in the same
+  # 5-field shape, so deduplication / merger can run on a uniform set.
+  # Post-migration: agents declare `skills: [reviewer-protocol]` instead
+  # of the legacy ## Embedded Boilerplate prose section.
+  for name in goals design phasing structure plan parallelize replan; do
+    local agent="$AGENTS_DIR/qrspi-${name}-scope-reviewer.md"
+    [ -f "$agent" ] || { echo "FAIL: missing agent $agent" >&2; return 1; }
+    grep -qE "skills:.*reviewer-protocol" "$agent" || {
+      echo "FAIL: $agent does not load reviewer-protocol skill" >&2
+      return 1
+    }
+  done
+}
+
+@test "goals SKILL Review Round directs both reviewers to the same per-round subdir" {
+  # CD-1 (Task 20): the per-reviewer dispatch blocks (which each named
+  # `reviews/goals/round-NN/`) collapsed into a single REVIEW_OUTPUT_DIR
+  # preamble var that the shared reviewer-dispatch include passes to
+  # await-round.sh. The unified round subdir is now the single merger surface —
+  # named once in the preamble rather than repeated per reviewer dispatch.
+  grep -qE 'REVIEW_OUTPUT_DIR=.*reviews/goals/round-' "$GOALS_FILE" \
+    || { echo "goals preamble must set REVIEW_OUTPUT_DIR to the per-round goals subdir"; return 1; }
+  grep -qF '!cat skills/_shared/reviewer-dispatch-prose.md' "$GOALS_FILE" \
+    || { echo "goals Review Round must route through the shared reviewer-dispatch include"; return 1; }
+  # The shared include routes the unified subdir to await-round.sh so both
+  # reviewers' findings land under the same merger surface.
+  grep -qE 'await-round\.sh.*--round-dir.*REVIEW_OUTPUT_DIR' "$ROOT/skills/_shared/reviewer-dispatch-prose.md" \
+    || { echo "shared include must pass REVIEW_OUTPUT_DIR to await-round.sh --round-dir"; return 1; }
+}
+
+# ── M48 pause gate: both reviewers' findings flow through the gate ──────────
+
+@test "using-qrspi/SKILL.md documents the M48 review-loop pause gate" {
+  [ -f "$USING_QRSPI_FILE" ]
+  grep -Eqi "Pause Gate|pause gate|review-loop pause" "$USING_QRSPI_FILE"
+}
+
+@test "using-qrspi/SKILL.md pause gate splits findings into auto-applied / proposed / paused classes" {
+  # The Pause Gate uses the change_type tag (defined in reviewer-
+  # boilerplate.md ## Change-Type Classifier) to split findings into
+  # auto-applied (style/clarity/correctness) and paused (scope/intent).
+  # The using-qrspi prose names the three classes.
+  grep -Eqi "auto-applied|auto-apply|auto apply" "$USING_QRSPI_FILE"
+  grep -Eqi "Paused findings|paused" "$USING_QRSPI_FILE"
+  # And references the 3-option menu surfaced for paused findings.
+  grep -Eqi "3-option menu|3-option" "$USING_QRSPI_FILE"
+}
+
+@test "reviewer-boilerplate change-type classifier assigns scope/intent to pause action" {
+  local section
+  section="$(awk '
+    $0 == "## Change-Type Classifier" { in_b = 1; print; next }
+    in_b && /^## / { exit }
+    in_b { print }
+  ' "$REVIEWER_BOILERPLATE")"
+  [ -n "$section" ]
+  # Default-action rule: scope and intent pause, others auto-apply.
+  echo "$section" | grep -Eqi "scope.*intent.*pause|pause.*scope.*intent"
+  echo "$section" | grep -Eqi "auto-apply|auto apply"
+}

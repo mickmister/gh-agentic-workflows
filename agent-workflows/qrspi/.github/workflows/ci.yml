@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'qrspi/**'
+      - '*/issue-*'
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (shellcheck + bash32 ban-list)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        # --severity=error: surface parse/syntax errors and undefined-function bugs
+        # only. The bash-3.2-portability constraint we enforce elsewhere (see
+        # ban-list step below) generates false-positive shellcheck warnings:
+        # SC2206 suggests `mapfile`/`read -a` (both bash-4+, banned in this repo),
+        # and SC2016 flags single-quoted `$VAR` strings in printf/diagnostic
+        # messages where literal `$VAR` is intentional. Keep warnings visible in
+        # logs but non-blocking; the ban-list job is the real bash-3.2 backstop.
+        # Walks tests/ recursively so tests/lint/* shell helpers (when added)
+        # are covered on the same blocking lint path.
+        run: |
+          find scripts tests \
+            \( -name '*.sh' -o -name '*.bash' \) \
+            -print0 \
+          | xargs -0 shellcheck --shell=bash --severity=error
+
+      - name: Option B ban-list grep (bash 4+ constructs)
+        run: |
+          set +e
+          hits=$(find scripts tests \
+            \( -name '*.sh' -o -name '*.bash' \) \
+            -print0 \
+          | xargs -0 grep --color=never -En \
+              -e '\bmapfile\b' \
+              -e '\bdeclare -A\b' \
+              -e '\$\{[^}]*,,\}' \
+              -e '\$\{[^}]*\^\^\}' \
+              -e '\bcoproc\b' \
+              -e '\bwait -n\b' \
+          2>/dev/null \
+          | grep -Ev '^.*:[0-9]+:[[:space:]]*#')
+          if [ -n "$hits" ]; then
+            echo "ban-list: bash 4+ constructs detected (bash 3.2 portability violation):"
+            echo "$hits"
+            exit 1
+          fi
+          echo "ban-list: clean"
+
+  bash32:
+    name: BATS under bash 3.2
+    runs-on: ubuntu-latest
+    container:
+      # bash:3.2 manifest list (multi-arch) — verified against
+      # hub.docker.com/v2/repositories/library/bash/tags/3.2 (2026-04-18).
+      image: bash:3.2@sha256:a11f59667c0a9d51724e88ebebac74b208f4177e36a33ad80dd23436e70f6115
+    steps:
+      - name: Install git for actions/checkout
+        # The bash:3.2 alpine image has no git binary. Without git on PATH,
+        # actions/checkout falls back to a REST API tarball that lacks .git/,
+        # which breaks any tests (e.g. tests/helpers/skill-markdown.bash's
+        # require_repo_root) that depend on the .git directory or `git`.
+        run: apk add --no-cache git ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install runtime dependencies
+        run: |
+          apk add --no-cache \
+            bash \
+            bats \
+            jq \
+            yq \
+            coreutils \
+            grep \
+            findutils \
+            gawk \
+            nodejs \
+            perl-utils \
+            python3
+          # alpine ships `awk` as a busybox applet. Tests rely on GNU awk
+          # semantics (e.g. POSIX character-class regexes inside `/.../`,
+          # multi-statement actions), so replace the busybox symlink with
+          # gawk's binary on PATH.
+          rm -f /usr/bin/awk
+          ln -s /usr/bin/gawk /usr/bin/awk
+          awk --version | head -1
+
+      - name: Configure git for actions/checkout workspace
+        # actions/checkout owns /__w/<repo> as a different uid than the
+        # container runtime user. Newer git (>=2.35) refuses to operate on
+        # "unsafe" repos with status 128, breaking tests like the
+        # evergreen-markdown scan that shell out to `git ls-files`.
+        run: git config --global --add safe.directory '*'
+
+      - name: Run BATS suites (recursive over tests/)
+        # Walk tests/ recursively so any new top-level subtree
+        # (e.g. tests/lint/) lands on the same blocking path as
+        # tests/unit/ and tests/acceptance/. `bats -r tests` discovers
+        # *.bats under any subdirectory.
+        run: bats --tap -r tests
+
+      - name: Build-sync gate — node tools/build-plugin.mjs
+        # Rebuild the committed `build/` plugin tree from
+        # source. Must precede the diff gate below so the diff can compare
+        # the freshly-rebuilt tree against what the PR branch shipped.
+        run: node tools/build-plugin.mjs
+
+      - name: Build-sync gate — git diff --exit-code build/ + marketplace.json
+        # PR-blocking failure mode if `build/` on the branch
+        # differs from what the resolver produces from current source, or
+        # if `.claude-plugin/marketplace.json` was not refreshed alongside
+        # a source change. Fix locally with `node tools/build-plugin.mjs`
+        # then `git add build/ .claude-plugin/marketplace.json` and amend
+        # the PR commit. (CI does NOT auto-commit — v0.7.2 keeps the
+        # source/build pairing under contributor control.)
+        run: git diff --exit-code build/ .claude-plugin/marketplace.json

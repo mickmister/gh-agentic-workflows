@@ -1,0 +1,65 @@
+name: Private workflow files
+description: Transfer verified receipts and cross-job file bundles through private S3, never Actions artifacts
+inputs:
+  operation:
+    description: put or get
+    default: put
+  name:
+    description: Bundle name within this repository/run/attempt
+    required: true
+  path:
+    description: Files or directories to publish, one glob per line
+    default: ''
+  directory:
+    description: Destination directory for get
+    default: .
+  source-attempt:
+    description: Explicit producer attempt for get (defaults to this attempt)
+    default: ''
+  if-no-files-found:
+    description: error or warn
+    default: error
+  s3-url:
+    description: Existing S3_CACHE_URL
+    required: true
+  s3-region:
+    description: Existing S3_CACHE_REGION
+    required: true
+  s3-bucket:
+    description: Existing S3_CACHE_BUCKET
+    required: true
+  s3-prefix:
+    description: Existing S3_CACHE_PREFIX
+    required: true
+  s3-path-style:
+    description: Existing S3_CACHE_PATH_STYLE
+    required: true
+  s3-access-key-id:
+    description: Existing S3_CACHE_ACCESS_KEY_ID
+    required: true
+  s3-secret-access-key:
+    description: Existing S3_CACHE_SECRET_ACCESS_KEY
+    required: true
+  s3-session-token:
+    description: Optional existing S3_CACHE_SESSION_TOKEN
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        S3_FILES_OPERATION: ${{ inputs.operation }}
+        S3_FILES_NAME: ${{ inputs.name }}
+        S3_FILES_PATHS: ${{ inputs.path }}
+        S3_FILES_DIRECTORY: ${{ inputs.directory }}
+        S3_FILES_SOURCE_ATTEMPT: ${{ inputs.source-attempt }}
+        S3_FILES_MISSING: ${{ inputs.if-no-files-found }}
+        S3_CACHE_URL: ${{ inputs.s3-url }}
+        S3_CACHE_REGION: ${{ inputs.s3-region }}
+        S3_CACHE_BUCKET: ${{ inputs.s3-bucket }}
+        S3_CACHE_PREFIX: ${{ inputs.s3-prefix }}
+        S3_CACHE_PATH_STYLE: ${{ inputs.s3-path-style }}
+        S3_CACHE_ACCESS_KEY_ID: ${{ inputs.s3-access-key-id }}
+        S3_CACHE_SECRET_ACCESS_KEY: ${{ inputs.s3-secret-access-key }}
+        S3_CACHE_SESSION_TOKEN: ${{ inputs.s3-session-token }}
+      run: python3 "$GITHUB_ACTION_PATH/../../scripts/workflow-files.py"

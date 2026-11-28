@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/fizzbee-io/fizzbee.git",
+  "source": "ea134ecb439068dbba224c75176772811a014179",
+  "bazel": "9.3.1",
+  "bazeliskNpm": "@bazel/bazelisk@1.28.1",
+  "bazeliskNpmIntegrity": "sha512-K21x83NXOtd0yb2qzjMES3UV4xEWZ1q1vnXFhADA1u7IoiMVQkJAVQRK3oZ5txpnrGafY15HS+YYr2nmsEP4Tg==",
+  "bazeliskIntegrity": "sha512-K21x83NXOtd0yb2qzjMES3UV4xEWZ1q1vnXFhADA1u7IoiMVQkJAVQRK3oZ5txpnrGafY15HS+YYr2nmsEP4Tg==",
+  "build": ["//parser:parser_bin", "//:fizzbee", "--jobs=4"],
+  "platform": "linux-x86_64",
+  "checkerSha256": "18d03206639fab79d04311ac74c86b5e5ae80a2da579181cabaec8e76bef464d",
+  "parserLauncherSha256": "156a553dcd82404851c55976f362aee33b4cda2c1e01f98ddfda425bab249bf3",
+  "wrapperSha256": "68f5b2ae8c68b598dc253f24537377bf89f9cc420fc09f8bfe4c8c9b4bfb6223"
+}

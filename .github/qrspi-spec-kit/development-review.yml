@@ -1,0 +1,18 @@
+schema_version: '1.0'
+workflow:
+  id: development-review
+  name: CI development review author
+  version: 0.1.0
+steps:
+  - id: author
+    type: prompt
+    integration: pi
+    prompt: development-review
+    capture: true
+    capture_max_bytes: 16384
+    timeout: 1200
+  - id: validate
+    type: shell
+    strict: true
+    output_format: json
+    run: node --experimental-strip-types "$QRSPI_STEP_RUNNER" validate

@@ -1,0 +1,54 @@
+name: Hosted S3 cache proof
+run-name: Hosted S3 cache proof ${{ github.sha }}
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**', '!gh-pages']
+    paths:
+      - '.github/scripts/s3-cache-proof.py'
+      - '.github/scripts/project-cache.py'
+      - '.github/scripts/test_s3_cache_proof.py'
+      - '.github/workflows/s3-cache-proof.yml'
+permissions:
+  contents: read
+jobs:
+  s3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify cache contract and offline package proof before remote writes
+        run: |
+          python3 -m unittest discover -s .github/scripts -p test_project_cache.py -v
+          python3 -m unittest discover -s .github/scripts -p test_s3_cache_proof.py -v
+      - name: Verify real provider without exposing destination values
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_SESSION_TOKEN: ${{ secrets.S3_CACHE_SESSION_TOKEN }}
+        run: python3 .github/scripts/s3-cache-proof.py "$RUNNER_TEMP/s3-proof/result.json"
+      - name: Preserve metadata-only proof result
+        if: always()
+        uses: ./.github/actions/workflow-files
+        with:
+          name: s3-cache-proof-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/s3-proof/result.json
+          if-no-files-found: error
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}

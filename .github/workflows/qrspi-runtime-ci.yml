@@ -1,0 +1,42 @@
+name: QRSPI runtime checks
+on:
+  pull_request:
+    paths: ['.github/qrspi-hosted/**', '.github/qrspi-spec-kit/**', '.github/development/**', '.github/workflows/qrspi-*.yml', '.github/workflows/development-*.yml', '.github/workflows/workspace-setup.yml']
+  push:
+    paths: ['.github/qrspi-hosted/**', '.github/qrspi-spec-kit/**', '.github/development/**', '.github/workflows/qrspi-*.yml', '.github/workflows/development-*.yml', '.github/workflows/workspace-setup.yml']
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mickmister/github-ultimate
+          ref: a8c1fd67981ab662ac4d4c2872e4ee89e3315a03
+          path: .qrspi-review-cli
+          persist-credentials: false
+      - run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts
+        working-directory: .qrspi-review-cli
+      - run: npm run check
+        working-directory: .github/qrspi-hosted
+      - name: Synthetic inference, real pinned runtimes and production review contracts
+        working-directory: .github/qrspi-hosted
+        env:
+          GITHUB_ULTIMATE_ROOT: ${{ github.workspace }}/.qrspi-review-cli
+          QRSPI_INTEGRATION: '1'
+        run: node --experimental-strip-types --test --test-concurrency=1 *.test.ts

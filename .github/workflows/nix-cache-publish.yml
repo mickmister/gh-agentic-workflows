@@ -1,0 +1,116 @@
+name: Publish reviewed development Nix cache
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [publish, inspect-access]
+        default: publish
+        description: Publish the fixed recipe, or inspect existing B2 key administration capability without changes
+permissions:
+  contents: read
+concurrency:
+  group: reviewed-development-nix-cache-v1
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: inputs.operation == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Authenticate operator
+        env:
+          OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: a0d446cbacfdc8e97b47e2f2378c840edaf0c22b
+          path: _nix-cache-recipe
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Publish only the pinned reviewed closure under the dedicated Nix prefix
+        env:
+          NIX_CACHE_RECIPE_DIR: ${{ github.workspace }}/_nix-cache-recipe
+          NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/nix-cache-runtime.ts publish
+  fresh-reader:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: a0d446cbacfdc8e97b47e2f2378c840edaf0c22b
+          path: _nix-cache-recipe
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
+            extra-trusted-public-keys = agentic-development-cache-v1:EemmIz1RxukZhIqcPKeBuwyljsApMZ5qHAHDCNWnSlY=
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Import on a fresh runner and run the imported profile offline
+        env:
+          NIX_CACHE_RECIPE_DIR: ${{ github.workspace }}/_nix-cache-recipe
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/nix-cache-runtime.ts smoke
+  inspect-access:
+    if: inputs.operation == 'inspect-access'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Authenticate operator
+        env:
+          OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Inspect only fixed provider capability flags
+        env:
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: node --experimental-strip-types .github/qrspi-hosted/nix-cache-runtime.ts inspect-access

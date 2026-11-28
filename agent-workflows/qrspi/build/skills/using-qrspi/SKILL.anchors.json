@@ -1,0 +1,78 @@
+{
+  "Recommended Workspace Layout": {
+    "line_start": 12,
+    "line_end": 15
+  },
+  "The Pipeline": {
+    "line_start": 16,
+    "line_end": 19
+  },
+  "Route Templates": {
+    "line_start": 20,
+    "line_end": 23
+  },
+  "Artifact Directory": {
+    "line_start": 24,
+    "line_end": 27
+  },
+  "Approval Markers": {
+    "line_start": 28,
+    "line_end": 31
+  },
+  "State and Pipeline Ordering": {
+    "line_start": 32,
+    "line_end": 37
+  },
+  "Rejection Behavior": {
+    "line_start": 38,
+    "line_end": 41
+  },
+  "Backward Loops (New Learnings)": {
+    "line_start": 42,
+    "line_end": 45
+  },
+  "Mid-Pipeline Entry": {
+    "line_start": 46,
+    "line_end": 51
+  },
+  "Pipeline Progress": {
+    "line_start": 52,
+    "line_end": 55
+  },
+  "Artifact Gating Check (Standard Pattern)": {
+    "line_start": 56,
+    "line_end": 59
+  },
+  "Config File (`config.md`)": {
+    "line_start": 60,
+    "line_end": 63
+  },
+  "Standard Review Loop": {
+    "line_start": 64,
+    "line_end": 67
+  },
+  "Apply-Fix Protocol": {
+    "line_start": 68,
+    "line_end": 72
+  },
+  "Review-Loop Pause Gate": {
+    "line_start": 73,
+    "line_end": 78
+  },
+  "Compaction Checkpoints": {
+    "line_start": 79,
+    "line_end": 86
+  },
+  "Feedback File Format": {
+    "line_start": 87,
+    "line_end": 90
+  },
+  "Common Rationalizations — STOP": {
+    "line_start": 91,
+    "line_end": 94
+  },
+  "Pipeline Rules": {
+    "line_start": 95,
+    "line_end": 97
+  }
+}

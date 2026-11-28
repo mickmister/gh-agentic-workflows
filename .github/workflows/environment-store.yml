@@ -1,0 +1,45 @@
+name: Manage central environment revisions
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [seed, accept-proposal, bind-workspace, inspect]
+        default: inspect
+        description: Manage immutable definitions and qualified bindings; never execute project code
+      request:
+        type: string
+        required: true
+        description: Exact seed/proposal reference, observed binding change, or inspection request
+permissions:
+  contents: read
+concurrency:
+  group: central-environment-store-v1
+  cancel-in-progress: false
+jobs:
+  manage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Authenticate operator
+        env:
+          OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Apply exact central-store operation
+        env:
+          ENVIRONMENT_STORE_OPERATION: ${{ inputs.operation }}
+          ENVIRONMENT_STORE_REQUEST: ${{ inputs.request }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/environment-store-runtime.ts "$ENVIRONMENT_STORE_OPERATION"

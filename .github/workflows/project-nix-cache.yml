@@ -1,0 +1,242 @@
+name: Qualify and publish project Nix environment
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [qualify, inspect]
+        default: qualify
+        description: Qualify an environment, or GET-only inspect retained validation evidence
+      inspect-run:
+        type: string
+        default: ''
+        description: Exact run to inspect without replay
+      inspect-attempt:
+        type: string
+        default: '1'
+        description: Exact attempt to inspect
+      request:
+        type: string
+        required: true
+        description: Exact source vector, selected member, environment alias and immutable central definition reference (schema 2)
+      authorize-publication:
+        type: boolean
+        default: false
+        description: Authorize separate signing/publication after clean-runner validation and independent rebuild
+      activate-profile:
+        type: boolean
+        default: false
+        description: Activate the exact qualified central revision after fresh-reader success
+permissions:
+  contents: read
+concurrency:
+  group: project-nix-cache-v2
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: inputs.operation == 'qualify'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PROJECT_CACHE_REQUEST: ${{ inputs.request }}
+    outputs:
+      validation: ${{ steps.check.outputs.validation }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Authenticate operator
+        id: operator
+        env:
+          OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - uses: ./.github/actions/project-nix-bootstrap
+      - name: Materialize exact authorized source vector
+        env:
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts prepare
+      - name: Build bounded environment without project hooks or credentials
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts build
+      - name: Execute project-owned checks without publication or source credentials
+        id: check
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts check
+      - name: Restore trusted host source after project execution
+        if: always() && steps.operator.outcome == 'success'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - if: always() && steps.operator.outcome == 'success'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Retain private qualification evidence
+        if: always() && steps.operator.outcome == 'success'
+        env:
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts record
+  publish:
+    if: inputs.operation == 'qualify' && inputs.authorize-publication
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PROJECT_CACHE_REQUEST: ${{ inputs.request }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./.github/actions/project-nix-bootstrap
+      - name: Materialize exact authorized source vector
+        env:
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts prepare
+      - name: Independently rebuild bounded environment without executing project hooks
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts build
+      - name: Match clean-runner qualification, sign and publish exact closure
+        env:
+          PROJECT_CACHE_PUBLICATION_AUTHORIZED: ${{ inputs.authorize-publication }}
+          PROJECT_CACHE_VALIDATION: ${{ needs.validate.outputs.validation }}
+          NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts publish
+  fresh-reader:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PROJECT_CACHE_REQUEST: ${{ inputs.request }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: ./.github/actions/project-nix-bootstrap
+      - name: Materialize exact authorized source vector
+        env:
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts prepare
+      - name: Import initially absent signed environment without rebuilding
+        env:
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts import
+      - name: Recheck imported profile without cache credentials
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts check
+      - name: Restore trusted host source after project execution
+        if: always()
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - if: always()
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Retain private fresh-reader evidence
+        if: always()
+        env:
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts record
+  activate:
+    if: inputs.activate-profile && inputs.authorize-publication
+    needs: fresh-reader
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PROJECT_CACHE_REQUEST: ${{ inputs.request }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Materialize pinned definition and source for binding verification
+        env:
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts prepare
+      - name: Activate only after exact qualification and fresh import
+        env:
+          PROJECT_CACHE_ACTIVATION_AUTHORIZED: ${{ inputs.activate-profile }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts activate
+  inspect:
+    if: inputs.operation == 'inspect'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Authenticate operator
+        env:
+          OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: '22.23.4' }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - name: Read compact retained outcomes without project or model execution
+        env:
+          PROJECT_CACHE_REQUEST: ${{ inputs.request }}
+          PROJECT_CACHE_INSPECT_RUN: ${{ inputs.inspect-run }}
+          PROJECT_CACHE_INSPECT_ATTEMPT: ${{ inputs.inspect-attempt }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+        run: node --experimental-strip-types .github/qrspi-hosted/project-cache-runtime.ts inspect

@@ -1,0 +1,30 @@
+---
+options:
+  max_actions: 5
+  max_concurrent_actions: 1
+  crash_on_yield: true
+deadlock_detection: false
+liveness: strict
+---
+CLAIM_CACHE_DURABLE = False
+
+@state(ephemeral=["cache"])
+role Worker:
+    action Init:
+        self.durable = 0
+        self.cache = 0
+
+    action Work:
+        require self.durable == 0
+        self.cache = 1
+        self.durable = 1
+        self.durable = 2
+
+action Init:
+    worker = Worker()
+
+always assertion DurableDoesNotImplyCached:
+    return not CLAIM_CACHE_DURABLE or worker.durable == 0 or worker.cache == 1
+
+exists assertion EphemeralKnowledgeLost:
+    return worker.durable > 0 and worker.cache == 0

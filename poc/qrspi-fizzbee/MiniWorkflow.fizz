@@ -1,0 +1,206 @@
+---
+options:
+  max_actions: 24
+  max_concurrent_actions: 1
+  crash_on_yield: false
+deadlock_detection: false
+---
+# One checkpoint, one response and one fresh Actions invocation. These are
+# explicit protocol events, not an atomic whole-run transaction.
+KIND = "configuration"
+AUTH = True
+TARGET = 0
+CURRENT = 0
+CONDITIONS = True
+SOURCE_CAPABILITY = False
+CODE_PERMISSION = False
+QUERY = True
+ENFORCEMENT_AVAILABLE = False
+EXPORTS_COMPLETE = False
+LOSE_ACK = False
+DUPLICATE = False
+MUTATION = "none"
+WITNESS = "configuration"
+
+action Init:
+    run = 0
+    active = True
+    useful_result = False
+    publication = "absent"
+    publication_count = 0
+    publication_known = False
+    draft = False
+    submitted = False
+    processed = False
+    duplicate_seen = False
+    response_effects = 0
+    disposition = "pending"
+    phase_approved = False
+    code_written = False
+    configuration_recorded = False
+    runtime_enforced = False
+    enforcement_claimed = False
+    selected = "none"
+    # Native evidence can be readable while aggregate execution/OTel is missing.
+    native_readable = True
+    verified_exports = [True, EXPORTS_COMPLETE]
+    complete_evidence_claimed = False
+    assessment = "absent"
+    history = None
+
+atomic action PublishCheckpoint:
+    require active and run == 0 and publication == "absent"
+    useful_result = True
+    publication_count += 1
+    publication = "pending-receipt"
+
+atomic action SettlePublication:
+    require publication == "pending-receipt"
+    publication = "unknown" if LOSE_ACK else "present"
+    publication_known = not LOSE_ACK
+
+atomic action ExitActionsRun:
+    require active and run == 0 and publication in ["unknown", "present"]
+    active = False
+
+atomic action SaveDraft:
+    require not active and run == 0 and not draft
+    draft = True
+
+atomic action SubmitResponse:
+    require draft and not submitted
+    submitted = True
+
+atomic action RestoreFreshRun:
+    require not active and run == 0 and submitted
+    run = 1
+    active = True
+
+atomic action ReadCheckpoint:
+    require active and run == 1 and not publication_known and QUERY
+    # Supported exact read, not retrying the prior publication.
+    publication_known = True
+    publication = "present"
+
+atomic action ReplayUnknownPublication:
+    require active and run == 1 and publication == "unknown"
+    require MUTATION == "blind-publication-replay"
+    publication_count += 1
+    publication_known = True
+    publication = "present"
+
+atomic action InterpretResponse:
+    require active and run == 1 and publication_known and submitted and not processed
+    processed = True
+    if not AUTH or TARGET != CURRENT:
+        disposition = "rejected"
+    elif KIND == "configuration":
+        response_effects += 1
+        configuration_recorded = True
+        disposition = "configuration-recorded"
+        if MUTATION == "configuration-approval":
+            phase_approved = True
+    elif KIND == "approve":
+        if CONDITIONS or MUTATION == "drop-conditions":
+            response_effects += 1
+            phase_approved = True
+            disposition = "approved"
+        else:
+            disposition = "blocked-by-condition"
+
+atomic action RedeliverResponse:
+    require DUPLICATE and processed and not duplicate_seen
+    duplicate_seen = True
+    # The retained disposition is reused, not inferred from a dispatch receipt.
+    if MUTATION == "repeat-response-effect":
+        response_effects += 1
+
+atomic action SelectMiniWorkflow:
+    require processed and selected == "none"
+    # The retained hint may say Questions; it is not approval authority.
+    selected = "questions" if phase_approved or MUTATION == "hint-as-authority" else "goals"
+    history = record(kind=KIND, auth=AUTH, target=TARGET, current=CURRENT,
+        conditions=CONDITIONS, approved=phase_approved, selected=selected)
+
+atomic action WriteProductSource:
+    require processed and not code_written
+    require (phase_approved and SOURCE_CAPABILITY and CODE_PERMISSION) or MUTATION == "discussion-code" or (MUTATION == "ignore-code-permission" and phase_approved and SOURCE_CAPABILITY)
+    code_written = True
+
+atomic action AssessCheckpoint:
+    require useful_result and assessment == "absent"
+    assessment = "verified" if publication_known and all(verified_exports) else "incomplete"
+    if MUTATION == "assessment-overclaim":
+        assessment = "verified"
+    if MUTATION == "assessment-approval":
+        phase_approved = True
+
+atomic action EnforceRuntimePreference:
+    require configuration_recorded and ENFORCEMENT_AVAILABLE and not runtime_enforced
+    runtime_enforced = True
+
+atomic action ClaimRuntimePreference:
+    require not enforcement_claimed
+    require runtime_enforced or (configuration_recorded and MUTATION == "recorded-means-enforced")
+    enforcement_claimed = True
+
+atomic action ClaimCompleteEvidence:
+    require useful_result and not complete_evidence_claimed
+    require all(verified_exports) or (native_readable and MUTATION == "native-means-complete")
+    complete_evidence_claimed = True
+
+always assertion ExactPhaseAuthority:
+    return not phase_approved or (processed and submitted and AUTH and TARGET == CURRENT and KIND == "approve" and CONDITIONS)
+
+always assertion HintDoesNotAuthorize:
+    return history == None or history.selected != "questions" or (history.kind == "approve" and history.auth and history.target == history.current and history.conditions)
+
+always assertion SourcePermissionIsSeparate:
+    return not code_written or (phase_approved and SOURCE_CAPABILITY and CODE_PERMISSION)
+
+always assertion AssessmentNeedsEvidence:
+    return assessment != "verified" or (publication_known and all(verified_exports))
+
+always assertion RecordedIsNotEnforced:
+    return not enforcement_claimed or runtime_enforced
+
+always assertion NativeIsNotCompleteCoverage:
+    return not complete_evidence_claimed or all(verified_exports)
+
+always assertion NoBlindCheckpointReplay:
+    return publication_count <= 1
+
+always assertion NoDuplicateResponseEffects:
+    return response_effects <= 1
+
+always assertion UsefulResultSurvivesPartialEvidence:
+    return publication_count == 0 or useful_result
+
+exists assertion MiniWorkflowWitness:
+    if WITNESS == "configuration":
+        return run == 1 and configuration_recorded and selected == "goals" and not phase_approved and not runtime_enforced
+    if WITNESS == "approval":
+        return run == 1 and selected == "questions" and phase_approved
+    if WITNESS == "blocked":
+        return processed and disposition == "blocked-by-condition" and selected == "goals"
+    if WITNESS == "rejected":
+        return processed and disposition == "rejected" and selected == "goals"
+    if WITNESS == "unknown":
+        return run == 1 and publication == "unknown" and not processed and useful_result
+    if WITNESS == "recovered":
+        return LOSE_ACK and processed and publication_count == 1 and selected == "goals"
+    if WITNESS == "draft":
+        return draft and not submitted and run == 0 and not active and not phase_approved
+    if WITNESS == "enforced":
+        return configuration_recorded and runtime_enforced and enforcement_claimed
+    if WITNESS == "evidence":
+        return complete_evidence_claimed and useful_result
+    if WITNESS == "source":
+        return code_written and selected == "questions"
+    if WITNESS == "duplicate":
+        return duplicate_seen and selected == "goals" and response_effects == 1
+    if WITNESS == "assessment-partial":
+        return assessment == "incomplete" and useful_result and not phase_approved
+    if WITNESS == "assessment-complete":
+        return assessment == "verified" and useful_result and not phase_approved
+    return False

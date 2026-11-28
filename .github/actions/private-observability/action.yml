@@ -1,0 +1,36 @@
+name: Private observability transport
+description: Receive already-redacted OTLP locally and publish verified OTel/firewall payloads to the configured private S3 target after observer shutdown
+inputs:
+  job-instance:
+    description: Unique job instance within a run attempt, including matrix dimensions
+    default: ${{ github.job }}
+  secrets-to-redact:
+    description: Explicit caller secret object, also applied to firewall text
+    default: '{}'
+  s3-url:
+    description: Existing S3_CACHE_URL
+    required: true
+  s3-region:
+    description: Existing S3_CACHE_REGION
+    required: true
+  s3-bucket:
+    description: Existing S3_CACHE_BUCKET
+    required: true
+  s3-prefix:
+    description: Existing S3_CACHE_PREFIX
+    required: true
+  s3-path-style:
+    description: Existing S3_CACHE_PATH_STYLE
+    required: true
+  s3-access-key-id:
+    description: Existing S3_CACHE_ACCESS_KEY_ID
+    required: true
+  s3-secret-access-key:
+    description: Existing S3_CACHE_SECRET_ACCESS_KEY
+    required: true
+runs:
+  using: node24
+  pre: pre.cjs
+  main: main.cjs
+  post: post.cjs
+  post-if: always()

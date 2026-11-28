@@ -1,0 +1,55 @@
+name: Project worker and core seed proof
+run-name: Project worker proof ${{ github.sha }}
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**', '!gh-pages']
+    paths:
+      - '.github/scripts/project-*'
+      - '.github/scripts/test_project_*'
+      - '.github/actions/project-cache-*/**'
+      - '.github/workflows/project-worker-proof.yml'
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: .engine
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify config/member materialization and failure recovery
+        run: node --test .engine/.github/scripts/test_project_environment.mjs
+      - name: Verify cache reconstruction, races, corruption and input boundaries
+        run: python3 -m unittest discover -s .engine/.github/scripts -p test_project_cache.py -v
+      - name: Materialize pinned mixed-layout and multi-repo setup
+        run: node .engine/.github/scripts/project-worker-fixture.mjs "$GITHUB_WORKSPACE" "$RUNNER_TEMP/project-worker-fixture"
+      - name: Execute generated native composite just in time
+        uses: ./.agentic/active-setup
+      - name: Verify regular-step receipts (post cleanup follows job steps)
+        run: |
+          node -e 'const fs=require("fs"),r=JSON.parse(fs.readFileSync(".agentic/cache-receipt.json"));if(r.status!=="disabled")process.exit(1);'
+          node -e 'const fs=require("fs"),r=JSON.parse(fs.readFileSync(".agentic/environment-receipt.json"));if(Object.keys(r.sources).length!==2||r.projects.length!==2)process.exit(1);'
+      - name: Preserve pinned proof receipts
+        if: always()
+        uses: ./.engine/.github/actions/workflow-files
+        with:
+          name: project-worker-proof-${{ github.run_attempt }}
+          path: |
+            .agentic/environment-receipt.json
+            .agentic/cache-receipt.json
+            .agentic/cache-spec.json
+          if-no-files-found: error
+          s3-url: ${{ secrets.S3_CACHE_URL }}
+          s3-region: ${{ secrets.S3_CACHE_REGION }}
+          s3-bucket: ${{ secrets.S3_CACHE_BUCKET }}
+          s3-prefix: ${{ secrets.S3_CACHE_PREFIX }}
+          s3-path-style: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          s3-access-key-id: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          s3-secret-access-key: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+          s3-session-token: ${{ secrets.S3_CACHE_SESSION_TOKEN }}

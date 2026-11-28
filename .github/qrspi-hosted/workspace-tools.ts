@@ -1,0 +1,192 @@
+import { join, dirname } from "node:path";
+import { assert, frontmatter, type Pin } from "./core.ts";
+import type { Documents } from "./documents.ts";
+import { files, command, type Sources } from "./source.ts";
+import { sourceDirectory } from "./workspace.ts";
+import { readBeads } from "./beads-context.ts";
+import { methodologyCheck, methodologyChecks } from "./workspace-methodology.ts";
+import { classify } from "./diagnostics.ts";
+import type { ExecutionEvidence } from "./execution.ts";
+import type { SessionIdentity } from "./session.ts";
+
+export type Work = { id: string; role: string; prompt: string; task?: string; documents?: Pin[]; access: "read" | "write" | "test";
+  promptFiles?: string[]; artifactAccess?: { read: string[]; write: string[] } };
+export type ToolDependencies = {
+  docs: Documents; prefix: string; root: string; home: string; methodology: string;
+  artifacts: Record<string, string>; pins: Record<string, Pin>; sources: Sources;
+  worker?: Work;
+  workerDispatch?: string;
+  preparation?: boolean;
+  signal?: AbortSignal;
+  evidence?: ExecutionEvidence;
+  session?: SessionIdentity;
+  activity?: Map<string, unknown>;
+  budgets?: { calls: number; workers: number };
+  allowUnlimitedCommands?: boolean;
+  dispatch?: (work: Work) => Promise<unknown>;
+  setup?: (operation: string, args: any) => Promise<unknown>;
+  approve?: (name: string) => Promise<unknown>;
+};
+/** Generic capabilities. No phase labels, dependency solver, reviewer roster or retry strategy. */
+export class WorkspaceTools {
+  private calls = 0;
+  private dispatches = new Map<string, { input: string; result?: unknown }>();
+  private groupActive = false;
+  private uncertain = false;
+  readonly d: ToolDependencies;
+  constructor(d: ToolDependencies) {
+    this.d = { ...d, budgets: d.budgets ?? { calls: 2000, workers: 48 } };
+    assert(Object.values(this.d.budgets!).every(n => Number.isSafeInteger(n) && n > 0 && n <= 100000), "Invalid workspace budgets");
+  }
+  async call(call: { name: string; args: any; callId: string }) {
+    this.d.signal?.throwIfAborted();
+    assert(++this.calls <= this.d.budgets!.calls && typeof call.callId === "string", "Workspace tool budget exceeded");
+    if (call.name === "workspace_workers") {
+      assert(!this.d.worker && !this.d.preparation && this.d.dispatch && !this.groupActive && !this.uncertain, "Delegation unavailable");
+      const work = call.args.workers;
+      assert(Array.isArray(work) && work.length > 0 && work.length <= 2, "Invalid worker group");
+      for (const w of work) {
+        assert(/^[a-z0-9][a-z0-9-]{0,59}$/.test(w.id) && typeof w.role === "string" && w.role.length <= 100 &&
+          typeof w.prompt === "string" && w.prompt.length <= 64000 && ["read", "write", "test"].includes(w.access), "Invalid worker assignment");
+        if (w.access !== "read") assert(w.task && this.d.sources.writable, "Source execution not authorized");
+         if (w.task) this.d.sources.get(w.task);
+         if (w.promptFiles) assert(Array.isArray(w.promptFiles) && w.promptFiles.length > 0 && w.promptFiles.length <= 8 && w.promptFiles.every((p: unknown) =>
+           typeof p === "string" && /^(?:agents|skills)\/[\w./-]+\.md$/.test(p) && !p.split("/").includes("..")), "Invalid canonical prompt references");
+         if (w.artifactAccess) {
+           const acl = w.artifactAccess;
+           assert(Array.isArray(acl.read) && Array.isArray(acl.write) && acl.read.length <= 32 && acl.write.length <= 32 && [...acl.read, ...acl.write].every(artifactName), "Invalid artifact assignment");
+           assert(!acl.write.includes("config.md") && !acl.write.includes("dispatch.md"), "Worker cannot write configuration/dispatch");
+         }
+         if (w.documents) assert(Array.isArray(w.documents) && w.documents.length <= 12 && w.documents.every((p: Pin) =>
+           p.version_kind === "git-blob" && /^[a-f0-9]{40}$/.test(p.version) && /^[a-f0-9]{40}$/.test(p.snapshot) &&
+           typeof p.resource === "string" && /^(?:projects|threads|review-requests|archive)\/[\w./-]+$/.test(p.resource) &&
+           p.resource.length <= 400 && !p.resource.split("/").includes("..")), "Invalid worker document pins");
+      }
+      assert(new Set(work.map(w => w.id)).size === work.length, "Duplicate group identities");
+      // Explicitly reject simultaneous writers/test processes in the same mutable
+      // worktree. Independent reviewers can share read-only source capabilities.
+       assert(!work.some((a, i) => work.some((b, j) => i !== j && a.task && a.task === b.task && (a.access !== "read" || b.access !== "read"))), "Mutable worker worktrees overlap");
+       assert(!work.some((a, i) => work.some((b, j) => i !== j && a.artifactAccess?.write?.some((name: string) => [...(b.artifactAccess?.read ?? []), ...(b.artifactAccess?.write ?? [])].includes(name)))), "Mutable worker artifact assignments overlap");
+      this.groupActive = true;
+      try {
+        const results = await Promise.allSettled(work.map(async w => {
+          const input = JSON.stringify(w), previous = this.dispatches.get(w.id);
+          if (previous) { assert(previous.input === input && previous.result !== undefined, "Worker identity changed or outcome uncertain"); return previous.result; }
+           assert(this.dispatches.size < this.d.budgets!.workers, "Worker launch budget exceeded");
+          const record: { input: string; result?: unknown } = { input }; this.dispatches.set(w.id, record);
+          record.result = await this.d.dispatch!(w); return record.result;
+        }));
+        this.uncertain ||= results.some(r => r.status === "rejected");
+        return results.map((r, i) => ({ id: work[i].id, ...(r.status === "fulfilled" ? { outcome: "settled", result: r.value } : {
+          outcome: "uncertain", failure: classify(r.reason), sessionId: r.reason?.sessionId ?? null,
+          evidenceReference: { workerId: work[i].id, sessionId: r.reason?.sessionId ?? null }, replayAuthorized: false }) }));
+      } finally { this.groupActive = false; }
+    }
+    assert(call.name === "workspace_operation", "Tool not permitted");
+    const { area, operation, args = {} } = call.args;
+    if (area === "help") return {
+      role: this.d.worker ?? "orchestrator", sourceEffectsAuthorized: this.d.sources.writable,
+      capabilities: {
+        runtime: "status {}; observed session/command activity, elapsed time and remaining allowances; heartbeat alone does not prove progress",
+        ...(!this.d.worker || this.d.worker.task ? { files: "list/read/write {member?,task?,path?,content?,offset?}; worker is confined to assigned task; write only assigned write workers" } : {}),
+        methodology: "list/read {path?,offset?,source?}; default reads built skills; source:true reads the methodology source package, including supporting docs omitted from build",
+        ...(!this.d.worker ? { methodologyChecks: { operation: "methodology run {script,argv}; read-only probe or config-field validator; validator argv is [field] and uses an exact disposable copy of current staged config.md. scripts/validate-config-fields.ts is the QRSPI structural companion for model_routing (including default_tier), verifier_enabled, scope_tagger_enabled; the legacy shell fixture does not implement those fields. Missing routing is a repair-or-abort result, never permission to invent the human's tier selection.", scripts: methodologyChecks },
+          runtimeTransport: "hosted is the configured Pi provider, not a vendor CLI. workspace_workers uses the single configured hosted model in isolated sessions; no alternate vendor/model is provisioned. Five routing tiers can explicitly choose that one model or disable optional tiers; native vendor CLI dispatch is not used by this host. Native probe/validator results are evidence, never methodology approval." } : {}),
+         ...(this.d.worker?.documents?.length ? { documents: "read {name}; exact assigned resource/version/snapshot only; assignedDocuments lists available pins", assignedDocuments: this.d.worker.documents } : {}),
+         ...(this.d.worker?.artifactAccess || this.d.workerDispatch ? { artifact: "list/read/write {name,content?}; only assigned names; dispatch.md is private DISPATCH_FILE context, not a writable artifact", artifactAccess: this.d.worker?.artifactAccess } : {}),
+        ...(this.d.worker ? {} : {
+          documents: "list {prefix?,snapshot?,token?} or read {name,snapshot?}; authored workspace resources only",
+          artifact: "list/read/write {name,content?}; stage process Markdown, cannot create approval markers or mutate approved bytes. approve {name} applies only an actually submitted exact-byte approval after YOU interpret all notes/conditions",
+          beads: "show {id}, list {}, comments {id}; native read-only context. list returns up to 50 compact issue summaries; use show for exact task details",
+          source: "members/tasks/head {member}/create {id,member,base?}/status {task}/commit {task,paths,message}/publish {task,expectedCommit}/integrate {task,expectedHead}; publication needs caller source authority. Integrate requires candidate includes exact observed branch head: delegate merge/rebase and verification first if branch advanced",
+          setup: "dispatch {member,prompt}, inspect {launch}, wait {launch}; separate registered authoring workflow, not parent-authored YAML",
+        }),
+         ...(this.d.worker?.access === "test" || this.d.worker?.access === "write" ? { execute: `run {argv,seconds?}; default1800seconds, zero ${this.d.allowUnlimitedCommands ? "permitted" : "not permitted"}; assigned worktree, sanitized environment, full private logs and bounded tails` } : {}),
+      },
+      notice: "Read artifacts/instructions to decide methodology, dependencies, roles and next work. Tool outcomes are evidence, not phase approval. Host permissions never authorize bypassing methodology gates.",
+    };
+    if (area === "runtime") {
+      assert(operation === "status", "Unknown runtime operation");
+      return { activity: [...(this.d.activity?.entries() ?? [])].filter(([id]) => !this.d.worker || id === this.d.worker.id),
+        callsRemaining: this.d.budgets!.calls - this.calls, workerIdentitiesRemaining: this.d.budgets!.workers - this.dispatches.size,
+        nearLimit: this.calls >= this.d.budgets!.calls * .9 || this.dispatches.size >= this.d.budgets!.workers * .9,
+        evidence: this.d.evidence?.usage(),
+        groupActive: this.groupActive, uncertain: this.uncertain, replayAuthorized: false };
+    }
+    if (area === "methodology") {
+      if (operation === "run") {
+        assert(!this.d.worker, "Methodology checks require the designated orchestrator");
+        return methodologyCheck(this.d.methodology, this.d.home, this.d.artifacts, args);
+      }
+      return files(args.source === true ? dirname(this.d.methodology) : this.d.methodology, { ...args, operation }, false);
+    }
+    if (area === "documents" && this.d.worker) {
+      const pin = this.d.worker.documents?.find(p => p.resource === args.name);
+      assert(operation === "read" && pin && (!args.snapshot || args.snapshot === pin.snapshot), "Worker document is not assigned");
+      const text = await this.d.docs.pin(pin);
+      assert(Buffer.byteLength(text) <= 200000, "Assigned document exceeds context bound");
+      return { ...pin, text };
+    }
+    if (area === "files") {
+      const task = this.d.worker?.task ?? args.task;
+      assert(!this.d.worker || task, "Worker requires an assigned task to inspect source");
+      const root = task ? this.d.sources.directory(this.d.sources.get(task)) : sourceDirectory(this.d.root, this.d.sources.members, args.member);
+      return files(root, { ...args, operation }, Boolean(this.d.worker?.access === "write" && this.d.sources.writable));
+    }
+    if (area === "artifact" && this.d.worker) {
+      const acl = this.d.worker.artifactAccess ?? { read: [], write: [] };
+      if (operation === "read" && args.name === "dispatch.md" && this.d.workerDispatch) return this.d.workerDispatch;
+      if (operation === "list") return [...new Set([...acl.read, ...acl.write])];
+      assert(operation === "read" ? [...acl.read, ...acl.write].includes(args.name) : operation === "write" && acl.write.includes(args.name), "Worker artifact is not assigned");
+      return this.artifact(operation, args);
+    }
+    if (area === "execute") {
+      assert(this.d.worker && this.d.worker.task && ["write", "test"].includes(this.d.worker.access) && this.d.sources.writable && operation === "run", "Execution not authorized");
+      return command(this.d.sources.directory(this.d.sources.get(this.d.worker.task)), join(this.d.home, `shell-${this.d.worker.id}`), args.argv, args.seconds, {
+        signal: this.d.signal, allowUnlimited: this.d.allowUnlimitedCommands,
+        log: async value => {
+          this.d.evidence?.event("command", { ...this.d.evidence.scope(this.d.session), toolCallId: call.callId, role: this.d.worker!.role }, value);
+          await this.d.evidence?.flush();
+        },
+      });
+    }
+    assert(!this.d.worker, "Worker capability does not permit this operation");
+    if (area === "source") {
+      assert(!this.groupActive, "Await active worker group before source operations");
+      assert(!this.d.preparation || ["members", "tasks", "head", "status"].includes(operation), "Preparation source capability is read-only");
+      return this.d.sources.call({ ...args, operation });
+    }
+    if (area === "setup") { assert(this.d.setup, "Setup dispatch is unavailable in this role"); return this.d.setup(operation, args); }
+    if (area === "documents") {
+      if (operation === "list") return this.d.docs.call(["documents", "list", "--workspace", this.d.docs.workspace, "--prefix", args.prefix ?? "", "--limit", "50",
+        ...(args.snapshot ? ["--snapshot", args.snapshot] : []), ...(args.token ? ["--token", args.token] : [])]);
+      assert(operation === "read" && typeof args.name === "string", "Invalid document operation");
+      const doc = this.d.docs.read(args.name, args.snapshot);
+      assert(doc.size <= 200000, "Document exceeds context bound; use a narrower authored resource");
+      return { name: doc.name, version: doc.version, snapshot: doc.commit, text: doc.text };
+    }
+    if (area === "beads") {
+      return readBeads(this.d.root, operation, args.id);
+    }
+    assert(area === "artifact", "Unknown capability");
+    assert(!this.d.preparation || ["list", "read"].includes(operation), "Preparation cannot change methodology artifacts");
+    if (operation === "list") return Object.keys(this.d.artifacts);
+    if (operation === "approve") { assert(this.d.approve, "No submitted approval capability"); return this.d.approve(args.name); }
+    return this.artifact(operation, args);
+  }
+  private artifact(operation: string, args: any) {
+    assert(artifactName(args.name), "Invalid authored artifact name");
+    if (operation === "read") { assert(Object.hasOwn(this.d.artifacts, args.name), "Unknown artifact"); return this.d.artifacts[args.name]; }
+    assert(operation === "write" && typeof args.content === "string" && Buffer.byteLength(args.content) <= 256000, "Invalid artifact operation");
+    const before = this.d.artifacts[args.name];
+    const status = (text: string) => /^---\r?\n/.test(text) ? frontmatter(text).status : undefined;
+    assert(!before || status(before) !== "approved" || before === args.content, "Approved bytes are immutable");
+    assert(status(args.content) !== "approved" || before === args.content, "Agent cannot fabricate approval");
+    this.d.artifacts[args.name] = args.content;
+    assert(Object.keys(this.d.artifacts).length <= 128 && Object.values(this.d.artifacts).reduce((n, s) => n + Buffer.byteLength(s), 0) <= 4_000_000, "Artifact collection exceeds bound");
+    return { staged: args.name, published: false };
+  }
+}
+function artifactName(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 300 && /^(?:[\w-]+\/)*[\w-]+(?:\.[\w-]+)*\.md$/.test(value);
+}

@@ -1,0 +1,18 @@
+.worktrees/
+
+# QRSPI implementer scratch file
+.qrspi-commit-msg.txt
+
+# Editor / IDE
+.vscode/
+
+# macOS metadata files
+.DS_Store
+**/.DS_Store
+
+# Downstream vendor tree excludes upstream run history and retired deployments.
+/docs/qrspi/
+/reviews/
+/.gaw/
+/docs/slides/
+/.github/workflows/gaw-*

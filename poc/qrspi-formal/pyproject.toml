@@ -1,0 +1,8 @@
+[project]
+name = "qrspi-formal-spike"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "specify-cli @ git+https://github.com/github/spec-kit.git@980b3d027f4bd7958c35f97f618d854b41320e3f",
+  "jdk4py==25.0.5.0",
+]

@@ -1,0 +1,136 @@
+name: Agentic workflow observability
+description: Start CargoWall before Thoth, with configurable job telemetry and automatic reverse-order cleanup
+inputs:
+  job-instance:
+    description: Unique job instance within the run attempt (include matrix dimensions)
+    default: ${{ github.job }}
+  s3-url:
+    description: Existing S3_CACHE_URL
+    required: true
+  s3-region:
+    description: Existing S3_CACHE_REGION
+    required: true
+  s3-bucket:
+    description: Existing S3_CACHE_BUCKET
+    required: true
+  s3-prefix:
+    description: Existing S3_CACHE_PREFIX
+    required: true
+  s3-path-style:
+    description: Existing S3_CACHE_PATH_STYLE
+    required: true
+  s3-access-key-id:
+    description: Existing S3_CACHE_ACCESS_KEY_ID
+    required: true
+  s3-secret-access-key:
+    description: Existing S3_CACHE_SECRET_ACCESS_KEY
+    required: true
+  profile:
+    description: 'Thoth tracing profile: light (shell/step telemetry) or full (deep injection and subprocess/signal observation)'
+    default: light
+  service-name:
+    description: OpenTelemetry service name
+    default: '${{ github.event.repository.name }}-ci'
+  network-mode:
+    description: 'CargoWall mode: audit or enforce'
+    default: audit
+  allowed-hosts:
+    description: Allowed network hostnames, one per line (used in enforce mode)
+    default: ''
+  allowed-cidrs:
+    description: Allowed network CIDRs, one per line (used in enforce mode)
+    default: ''
+  fail-on-unsupported:
+    description: Fail if CargoWall cannot run on this runner
+    default: 'true'
+  telemetry-cache:
+    description: Cache Thoth instrumentation and dependencies
+    default: 'true'
+  secrets-to-redact:
+    description: 'JSON object explicitly enumerating the secrets used by the caller, forwarded to Thoth collector redaction. GitHub log masking alone does not sanitize telemetry.'
+    default: '{"github_token":"${{ github.token }}"}'
+  capture-stderr:
+    description: Capture shell stderr content in telemetry
+    default: 'false'
+  capture-pipes:
+    description: Capture shell pipe content in telemetry
+    default: 'false'
+  capture-genai-content:
+    description: Capture GenAI message content in telemetry
+    default: 'false'
+  shutdown-timeout:
+    description: Thoth shutdown budget in seconds
+    default: '60'
+outputs:
+  network-supported:
+    description: Whether CargoWall activated successfully
+    value: ${{ steps.network.outputs.supported }}
+runs:
+  using: composite
+  steps:
+    # A remote composite's nested pre-hooks retain this order. Do not use
+    # ./path invocation: local actions cannot run their pre-hooks.
+    - name: Prepare private payload destination
+      uses: mickmister/gh-agentic-workflows/.github/actions/private-observability@a05bdc5bac211041aebf6e5b511cdc30c7cc7545
+      with:
+        job-instance: ${{ inputs.job-instance }}
+        secrets-to-redact: ${{ inputs.secrets-to-redact }}
+        s3-url: ${{ inputs.s3-url }}
+        s3-region: ${{ inputs.s3-region }}
+        s3-bucket: ${{ inputs.s3-bucket }}
+        s3-prefix: ${{ inputs.s3-prefix }}
+        s3-path-style: ${{ inputs.s3-path-style }}
+        s3-access-key-id: ${{ inputs.s3-access-key-id }}
+        s3-secret-access-key: ${{ inputs.s3-secret-access-key }}
+    - name: Audit job network traffic
+      id: network
+      uses: mickmister/cargowall-action@a561148bc2fde00ab8667080ed54d2ef717e44b1
+      with:
+        start-phase: pre
+        mode: ${{ inputs.network-mode }}
+        offline: 'true'
+        audit-summary: 'false'
+        fail-on-unsupported: ${{ inputs.fail-on-unsupported }}
+        allowed-hosts: ${{ inputs.allowed-hosts }}
+        allowed-cidrs: ${{ inputs.allowed-cidrs }}
+    - name: Capture Thoth telemetry
+      uses: mickmister/Thoth/actions/instrument/job@8519efd79c06b84a2df4ea7c6165987c964f2383
+      with:
+        artifacts: disabled
+        traceparent: ${{ env.PRIVATE_OBSERVABILITY_TRACEPARENT }}
+        release_repository: plengauer/Thoth
+        self_monitoring: 'false'
+        cache: ${{ inputs.telemetry-cache }}
+        secrets_to_redact: ${{ inputs.secrets-to-redact }}
+        debug: ''
+      env:
+        OTEL_SERVICE_NAME: ${{ inputs.service-name }}
+        OTEL_TRACES_EXPORTER: otlp
+        OTEL_METRICS_EXPORTER: otlp
+        OTEL_LOGS_EXPORTER: otlp
+        OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+        OTEL_EXPORTER_OTLP_ENDPOINT: ${{ env.PRIVATE_OBSERVABILITY_ENDPOINT }}
+        OTEL_GITHUB_JOB_SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+        OTEL_SHELL_CONFIG_OBSERVE_STDERR: ${{ inputs.capture-stderr == 'true' && 'TRUE' || 'FALSE' }}
+        OTEL_SHELL_CONFIG_OBSERVE_PIPES: ${{ inputs.capture-pipes == 'true' && 'TRUE' || 'FALSE' }}
+        OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: ${{ inputs.capture-genai-content == 'true' && 'span_and_event' || 'no_content' }}
+        OTEL_SHELL_CONFIG_INJECT_DEEP: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
+        OTEL_SHELL_CONFIG_OBSERVE_SUBPROCESSES: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
+        OTEL_SHELL_CONFIG_OBSERVE_SIGNALS: ${{ inputs.profile == 'full' && 'TRUE' || 'FALSE' }}
+    - name: Validate observability inputs
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        SHUTDOWN_TIMEOUT: ${{ inputs.shutdown-timeout }}
+        CAPTURE_STDERR: ${{ inputs.capture-stderr }}
+        CAPTURE_PIPES: ${{ inputs.capture-pipes }}
+        CAPTURE_GENAI: ${{ inputs.capture-genai-content }}
+      run: |
+        case "$PROFILE" in
+          light|full) ;;
+          *) echo "::error::profile must be light or full"; exit 1 ;;
+        esac
+        [[ "$SHUTDOWN_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "::error::shutdown-timeout must be a positive integer"; exit 1; }
+        for value in "$CAPTURE_STDERR" "$CAPTURE_PIPES" "$CAPTURE_GENAI"; do
+          case "$value" in true|false) ;; *) echo '::error::capture inputs must be true or false'; exit 1 ;; esac
+        done

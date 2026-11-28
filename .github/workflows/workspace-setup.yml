@@ -1,0 +1,73 @@
+name: Workspace setup specialist
+run-name: Workspace setup ${{ inputs.launch-id }}
+on:
+  workflow_dispatch:
+    inputs:
+      launch: { type: string, required: true, description: Private exact setup launch reference }
+      launch-id: { type: string, required: true, description: Correlated launch identity }
+permissions:
+  contents: read
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: workspace-setup-${{ inputs.launch-id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+      - id: storage-target
+        env:
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts storage-target
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: storage-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ steps.storage-target.outputs.owner }}
+          repositories: ${{ steps.storage-target.outputs.repository }}
+          permission-contents: write
+      - run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts init
+      - name: Separate specialist inspects project and authors pinned setup candidate
+        id: author
+        env: &host
+          SETUP_LAUNCH: ${{ inputs.launch }}
+          SETUP_LAUNCH_ID: ${{ inputs.launch-id }}
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+          NUGS_STORAGE_TOKEN: ${{ steps.storage-auth.outputs.token }}
+          QRSPI_MODEL: ${{ vars.QRSPI_MODEL || 'gpt-6.1-sol' }}
+          INFERENCE_BASE_URL: ${{ secrets.INFERENCE_BASE_URL }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: SETUP_COMMAND=author node --experimental-strip-types .github/qrspi-hosted/setup-author.ts
+      - name: Execute candidate without host secrets
+        id: validate
+        continue-on-error: true
+        uses: ./.agentic/active-setup
+      - name: Persist exact candidate and observed validation outcome
+        if: ${{ !cancelled() && steps.author.outcome == 'success' }}
+        env: *host
+        run: SETUP_COMMAND=finish SETUP_OUTCOME='${{ steps.validate.outcome }}' node --experimental-strip-types .github/qrspi-hosted/setup-author.ts

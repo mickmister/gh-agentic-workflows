@@ -1,0 +1,48 @@
+schema_version: '1.0'
+workflow:
+  id: qrspi-pi-multi-agent-smoke
+  name: Live planner implementer reviewer through built-in Pi
+  version: 0.1.0
+steps:
+  - id: planner
+    type: prompt
+    integration: pi
+    prompt: |
+      spec-kit-smoke:planner
+      Read workspace_operation help for the exact disposable task and capabilities.
+      Write a short plan.md covering behavior and test cases. Do not implement.
+      Return JSON {"status":"complete","summary":"..."}.
+    capture: true
+    capture_max_bytes: 8192
+    timeout: 300
+  - id: implementer
+    type: prompt
+    integration: pi
+    prompt: |
+      spec-kit-smoke:implementer
+      Read help and plan.md. Write meaningful slug.test.ts tests FIRST, run them
+      and observe RED against the initial throwing stub. Only then implement
+      slug.ts, run tests GREEN, and call commit with a concise AI-authored message.
+      Do not push or create a PR. Return JSON {"status":"complete","summary":"..."}.
+    capture: true
+    capture_max_bytes: 8192
+    timeout: 600
+  - id: reviewer
+    type: prompt
+    integration: pi
+    prompt: |
+      spec-kit-smoke:reviewer
+      Independently read help, plan.md, slug.ts and slug.test.ts. Run tests yourself.
+      Check the code against the task, including empty strings, punctuation,
+      mixed case and digits. Do not edit, commit, push or create a PR.
+      Return JSON {"verdict":"accept or reject","findings":[],"summary":"..."}.
+      Accept only if no blocking findings; otherwise reject honestly.
+    capture: true
+    capture_max_bytes: 8192
+    timeout: 300
+  - id: acceptance
+    type: shell
+    strict: true
+    timeout: 30
+    output_format: json
+    run: node --experimental-strip-types "$SMOKE_RUNNER" accept

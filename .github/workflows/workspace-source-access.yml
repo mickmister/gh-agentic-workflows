@@ -1,0 +1,42 @@
+name: Workspace source App access inspection
+on:
+  workflow_dispatch:
+    inputs:
+      workspace: { type: string, required: true, description: Workspace bound to trusted repository seed }
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - id: storage-target
+        env:
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts storage-target
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: storage-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ steps.storage-target.outputs.owner }}
+          repositories: ${{ steps.storage-target.outputs.repository }}
+          permission-contents: read
+      - run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts init
+      - name: Read manifest and probe each installation without admitting a process
+        env:
+          NUGS_WORKSPACE_SEED: ${{ vars.NUGS_WORKSPACE_SEED }}
+          REVIEW_WORKSPACE: ${{ inputs.workspace }}
+          AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+          NUGS_STORAGE_TOKEN: ${{ steps.storage-auth.outputs.token }}
+        run: node --experimental-strip-types .github/qrspi-hosted/source-access.ts

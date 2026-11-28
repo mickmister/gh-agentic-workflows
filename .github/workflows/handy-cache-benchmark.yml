@@ -1,0 +1,22 @@
+name: Handy mobile dependency cache benchmark
+run-name: Handy dependency benchmark ${{ github.sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform(s) to measure on fresh runners
+        type: choice
+        options: [both, android, ios]
+        default: both
+permissions:
+  contents: read
+jobs:
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platform == 'android' && '["android"]' || inputs.platform == 'ios' && '["ios"]' || '["android","ios"]') }}
+    uses: ./.github/workflows/handy-cache-benchmark-platform.yml
+    with:
+      platform: ${{ matrix.platform }}
+    secrets: inherit

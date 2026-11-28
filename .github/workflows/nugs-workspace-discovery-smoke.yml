@@ -1,0 +1,20 @@
+name: Published native unbound workspace discovery
+
+# Proves the released, integrity-pinned CLI/MCP on a fresh runner against a
+# disposable Git store. No workspace seed, native Beads, model turn or Gas City
+# setup is needed for structural discovery. This is not generic intake delivery.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify published CLI, unbound MCP, creation and native attachment
+        env:
+          NUGS_TEST_NPM: '1'
+        run: python3 .github/scripts/test_nugs_ci.py Boundaries.test_pinned_npm_archive_downloads_and_its_native_executable_runs

@@ -1,0 +1,221 @@
+name: Bounded development workflow
+run-name: Development ${{ inputs.workspace }} / ${{ fromJSON(inputs.request).thread || fromJSON(inputs.request).bead }} / ${{ fromJSON(inputs.request).process }} · ${{ inputs.operation }}
+on:
+  workflow_dispatch:
+    inputs:
+      workspace: { type: string, required: true, description: Bound readable workspace handle }
+      workspace-context: { type: string, default: '', description: Versioned workspace context JSON; v2 has no native tracker handoff }
+      request: { type: string, required: true, description: Versioned request; v2 task and acceptance criteria use project-owned verification }
+      engine-commit: { type: string, default: '', description: Expected exact workflow source commit }
+      allow-source-effects: { type: boolean, default: false, description: Bound source work and approved branch-or-PR delivery authority }
+      operation:
+        type: choice
+        options: [run, inspect]
+        default: run
+        description: Run once, or GET-only inspect an existing process without replay
+  workflow_call:
+    inputs:
+      workspace: { type: string, required: true }
+      workspace-context: { type: string, default: '' }
+      request: { type: string, required: true }
+      engine-commit: { type: string, default: '' }
+      allow-source-effects: { type: boolean, default: false }
+      operation: { type: string, default: run }
+    outputs:
+      status: { value: '${{ jobs.development.outputs.status }}' }
+      candidate: { value: '${{ jobs.development.outputs.candidate }}' }
+      result_reference: { value: '${{ jobs.development.outputs.result_reference }}' }
+      report_url: { value: '${{ jobs.development.outputs.report_url }}' }
+    secrets:
+      AGENT_APP_ID: { required: true }
+      AGENT_APP_PRIVATE_KEY: { required: true }
+      NUGS_STORAGE_URL: { required: true }
+      INFERENCE_BASE_URL: { required: true }
+      INFERENCE_API_KEY: { required: true }
+      CF_ACCESS_CLIENT_ID: { required: true }
+      CF_ACCESS_CLIENT_SECRET: { required: true }
+      S3_CACHE_URL: { required: true }
+      S3_CACHE_REGION: { required: true }
+      S3_CACHE_BUCKET: { required: true }
+      S3_CACHE_PREFIX: { required: true }
+      S3_CACHE_PATH_STYLE: { required: true }
+      S3_CACHE_ACCESS_KEY_ID: { required: true }
+      S3_CACHE_SECRET_ACCESS_KEY: { required: true }
+permissions:
+  contents: read
+  checks: write
+jobs:
+  development:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    concurrency:
+      group: development-${{ inputs.workspace }}-${{ fromJSON(inputs.request).process }}
+      cancel-in-progress: false
+    outputs:
+      status: ${{ steps.work.outputs.status }}
+      candidate: ${{ steps.work.outputs.candidate }}
+      result_reference: ${{ steps.work.outputs.result_reference }}
+      report_url: ${{ steps.work.outputs.report_url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Authenticate operator before installation or credentials
+        env:
+          DEVELOPMENT_OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.DEVELOPMENT_OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - name: Install repairable Nix before any project agent
+        if: inputs.operation == 'run'
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.9/install
+          set_as_trusted_user: false
+          enable_kvm: false
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = false
+            require-sigs = true
+            extra-trusted-public-keys = agentic-development-cache-v1:EemmIz1RxukZhIqcPKeBuwyljsApMZ5qHAHDCNWnSlY=
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        if: inputs.operation == 'run'
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+        if: inputs.operation == 'run'
+      - id: storage-target
+        if: inputs.operation == 'run'
+        env:
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts storage-target
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: storage-auth
+        if: inputs.operation == 'run'
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ steps.storage-target.outputs.owner }}
+          repositories: ${{ steps.storage-target.outputs.repository }}
+          permission-contents: write
+      - run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts init
+        if: inputs.operation == 'run'
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: source-auth
+        if: inputs.operation == 'run'
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: github-ultimate
+          permission-contents: read
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: inputs.operation == 'run'
+        with:
+          repository: mickmister/github-ultimate
+          ref: a8c1fd67981ab662ac4d4c2872e4ee89e3315a03
+          token: ${{ steps.source-auth.outputs.token }}
+          path: .qrspi-review-cli
+          persist-credentials: false
+      - name: Install frozen review protocol dependencies
+        if: inputs.operation == 'run'
+        working-directory: .qrspi-review-cli
+        run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts
+      - name: Run bounded development or inspect retained evidence
+        id: work
+        env: &development-env
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ULTIMATE_ROOT: ${{ github.workspace }}/.qrspi-review-cli
+          DEVELOPMENT_OPERATION: ${{ inputs.operation }}
+          DEVELOPMENT_NIX_CACHE_ENABLED: ${{ vars.DEVELOPMENT_NIX_CACHE_ENABLED || 'false' }}
+          DEVELOPMENT_REQUEST: ${{ inputs.request }}
+          DEVELOPMENT_OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+          ALLOW_SOURCE_EFFECTS: ${{ inputs.allow-source-effects }}
+          REVIEW_WORKSPACE: ${{ inputs.workspace }}
+          REVIEW_REPOSITORY: ${{ vars.QRSPI_REVIEW_REPOSITORY }}
+          REVIEW_APP_URL: ${{ vars.QRSPI_REVIEW_APP_URL }}
+          NUGS_WORKSPACE_SEED: ${{ inputs.workspace-context || vars.NUGS_WORKSPACE_SEED }}
+          DEVELOPMENT_DEFAULT_CONTEXT: ${{ inputs.workspace-context == '' }}
+          DEVELOPMENT_ENGINE_COMMIT: ${{ inputs.engine-commit }}
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+          NUGS_STORAGE_TOKEN: ${{ steps.storage-auth.outputs.token }}
+          AGENT_APP_ID: ${{ inputs.operation == 'run' && secrets.AGENT_APP_ID || '' }}
+          AGENT_APP_PRIVATE_KEY: ${{ inputs.operation == 'run' && secrets.AGENT_APP_PRIVATE_KEY || '' }}
+          QRSPI_MODEL: ${{ vars.QRSPI_MODEL || 'gpt-6.1-sol' }}
+          INFERENCE_BASE_URL: ${{ inputs.operation == 'run' && secrets.INFERENCE_BASE_URL || '' }}
+          INFERENCE_API_KEY: ${{ inputs.operation == 'run' && secrets.INFERENCE_API_KEY || '' }}
+          CF_ACCESS_CLIENT_ID: ${{ inputs.operation == 'run' && secrets.CF_ACCESS_CLIENT_ID || '' }}
+          CF_ACCESS_CLIENT_SECRET: ${{ inputs.operation == 'run' && secrets.CF_ACCESS_CLIENT_SECRET || '' }}
+          S3_CACHE_URL: ${{ secrets.S3_CACHE_URL }}
+          S3_CACHE_REGION: ${{ secrets.S3_CACHE_REGION }}
+          S3_CACHE_BUCKET: ${{ secrets.S3_CACHE_BUCKET }}
+          S3_CACHE_PREFIX: ${{ secrets.S3_CACHE_PREFIX }}
+          S3_CACHE_PATH_STYLE: ${{ secrets.S3_CACHE_PATH_STYLE }}
+          S3_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_CACHE_ACCESS_KEY_ID }}
+          S3_CACHE_SECRET_ACCESS_KEY: ${{ secrets.S3_CACHE_SECRET_ACCESS_KEY }}
+        run: node --experimental-strip-types .github/qrspi-hosted/development-main.ts
+  analysis:
+    name: Deferred development analysis
+    needs: development
+    if: always() && !cancelled() && inputs.operation == 'run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DEVELOPMENT_REFERENCE: ${{ needs.development.outputs.result_reference }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.4'
+      - name: Authenticate operator before installation or credentials
+        env:
+          DEVELOPMENT_OPERATORS: ${{ vars.DEVELOPMENT_OPERATORS || vars.QRSPI_REVIEWERS }}
+        run: node -e 'if (!process.env.DEVELOPMENT_OPERATORS?.split(",").map(v=>v.trim()).includes(`github:${process.env.GITHUB_ACTOR_ID}`)) throw new Error("Trusted development operator required")'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/qrspi-hosted
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - run: uv sync --project .github/qrspi-spec-kit --frozen --python 3.12.16 --no-dev
+      - id: storage-target
+        env:
+          NUGS_STORAGE_URL: ${{ secrets.NUGS_STORAGE_URL }}
+        run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts storage-target
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: storage-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ steps.storage-target.outputs.owner }}
+          repositories: ${{ steps.storage-target.outputs.repository }}
+          permission-contents: write
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: source-auth
+        with:
+          app-id: ${{ secrets.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: mickmister
+          repositories: github-ultimate
+          permission-contents: read
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mickmister/github-ultimate
+          ref: a8c1fd67981ab662ac4d4c2872e4ee89e3315a03
+          token: ${{ steps.source-auth.outputs.token }}
+          path: .qrspi-review-cli
+          persist-credentials: false
+      - name: Install frozen review protocol dependencies
+        working-directory: .qrspi-review-cli
+        run: ../.github/qrspi-hosted/node_modules/.bin/pnpm install --frozen-lockfile --ignore-scripts
+      - run: node --experimental-strip-types .github/qrspi-hosted/bootstrap.ts init
+      - name: Interpret retained private evidence and enrich delivery review
+        env: *development-env
+        run: node --experimental-strip-types .github/qrspi-hosted/development-analysis.ts

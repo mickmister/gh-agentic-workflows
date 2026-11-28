@@ -1,0 +1,47 @@
+schema_version: '1.0'
+workflow:
+  id: questions-first-round
+  name: Full-route Questions first review boundary (deterministic spike)
+  version: 0.1.0
+inputs:
+  goals_status: {type: string, default: draft}
+  goals_revision: {type: string, default: '1'}
+  verdict: {type: string, default: error}
+steps:
+  - id: admission
+    type: if
+    condition: "{{ inputs.goals_status == 'approved' and inputs.goals_revision == '1' }}"
+    then:
+      - id: draft
+        type: shell
+        strict: true
+        output_format: json
+        run: node --experimental-strip-types fixture.ts draft
+      - id: review
+        type: shell
+        strict: true
+        output_format: json
+        env:
+          VERDICT: "{{ inputs.verdict }}"
+        run: node --experimental-strip-types fixture.ts review
+      - id: classify
+        type: if
+        condition: "{{ steps.review.output.data.verdict == 'clean' }}"
+        then:
+          - id: present
+            type: shell
+            strict: true
+            output_format: json
+            run: node --experimental-strip-types fixture.ts ready
+        else:
+          - id: unresolved
+            type: shell
+            strict: true
+            output_format: json
+            run: node --experimental-strip-types fixture.ts attention
+    else:
+      - id: refuse
+        type: shell
+        strict: true
+        output_format: json
+        run: node --experimental-strip-types fixture.ts blocked
