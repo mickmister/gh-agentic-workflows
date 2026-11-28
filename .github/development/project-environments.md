@@ -1,4 +1,4 @@
-# Project-owned environments
+# Central environments and project setup
 
 Use the task and relevant project source to determine setup. This applies to any
 repository in the supplied workspace; no engine repository registration is needed
@@ -10,8 +10,9 @@ selected-member worktree; workspace reads refer to the supplied committed vector
 
 Prefer scoped pinned Nix environments for reproducible toolchains. Do not install
 every workspace toolchain for an unrelated task. Provision missing tools in the
-current session and job. Persist successful discoveries in project-owned files,
-including practical setup scripts or instructions where Nix is not appropriate.
+current session and job. Persist reusable environment discoveries as central S3
+proposals, including practical native setup scripts and operator notes. Existing
+project setup remains useful; do not impose a Nix migration on unrelated work.
 No caller setup-command arrays or tracker record are prerequisites.
 
 Nix can coexist with native package managers, version-pinned vendor setup and
@@ -37,33 +38,58 @@ Running npm, Gradle or Cargo inside a Nix shell does not automatically cache the
 mutable outputs in Nix. A private-cache miss or not-applicable result does not
 prevent normal provisioning.
 
-For reusable project caches, inspect or author .agentic/environments.json. Use
-area:"environment", operation:"list" to discover its named environments. Executing
-roles can call operation:"restore", args:{name:"web"} for the relevant environment.
-This asks the host to verify and import signed paths; it grants no storage or
-signing credentials. A hit returns an exact profile usable with nix develop
-<profile> --command .... A warm result imports a previously qualified environment
-only to seed unchanged store paths; enter the current declaration, not that old
-profile, when validating changed inputs. Missing receipts are misses; auth,
-network, signature or content failures are explicit errors. Do not claim cached
-test results or reuse current-task approval.
+Reusable definitions and operator notes live centrally in S3. Do not add
+.agentic/environments.json or Nix files to application source merely to save an
+environment. Repository defaults and workspace overrides are pinned before roles
+start. Use area:"environment" with these operations:
 
-The declaration lists the flake, its complete bounded input files/directories and
-project-owned qualification checks. Input member "." means this repository,
-independent of its workspace placement. Cross-repo inputs name declared workspace
-members. Keep unrelated toolchains in separate entries. Declare every needed Nix
-input: the publisher builds from only that snapshot. Native setup, service checks
-and cleanup can live in qualification scripts. Projects without private-cache
-declarations remain usable normally. New definitions use same-job provisioning;
-trusted clean-runner validation/publication is separate from agent execution.
-Agents cannot dispatch that publication workflow themselves.
+- list: discover bound aliases, purposes, note previews and parent references.
+- read, args:{name:"web",path?,offset?,base?,ancestor?,proposalRevision?}: inspect
+  full notes, checks, source inputs and file hashes, or paginated file contents.
+  base:true reads the bound revision instead of your draft; ancestor:true reads
+  its immediate parent. Explain customization by comparing the parent and draft.
+- materialize, args:{name:"web",proposalRevision?}: executing roles get a private
+  directory outside source. Enter that absolute flake with nix develop
+  path:<returned-flake>#<shell> --no-update-lock-file --command ... for each command.
+- restore, args:{name:"web",proposalRevision?}: the host verifies signed cache
+  metadata and imports paths without granting storage or signing credentials.
+  hit means exact recipe bytes; use the returned profile. warm only seeds prior
+  paths: enter the current materialized flake to check changed inputs. miss and
+  disabled permit normal same-session provisioning. Auth/network/signature/content
+  failures are errors, never misses. No result reuses task tests or approval.
+- write, args:{name:"web",path,content,executable?}: implementers edit a private
+  draft. Extra files written with execute must be listed in propose's paths.
+- propose, args:{name:"web",reason,id?,purpose?,operatorNotes?,shell?,flake?,
+  sourceInputs?,checks?,paths?}: persist an immutable proposal. Use a new id to
+  fork, and record why it differs and which toolchain it serves. The receipt is
+  not activation. Use its proposalRevision to inspect/materialize that exact draft.
+- create, args:{definition,reason}: implementers can save an initial proposal when
+  no profile is bound. A definition needs schemaVersion:1, id, purpose, operatorNotes,
+  shell, flake, files:[{path,content,executable}], sourceInputs and nonempty checks.
+
+Definitions must include the complete bounded flake, lock and supporting files.
+sourceInputs use repository identity, path and stable mount; authorized source is
+copied under source/<mount>/<path>, independent of checkout placement. Sibling
+inputs use pinned Git worktrees. Checks can use {environment} for the materialized
+directory. Keep unrelated toolchains separate. Native setup/service cleanup can
+live in definition scripts. Trusted qualification, independent rebuild/signing,
+fresh-reader verification and explicit activation are separate host operations.
+Agents cannot dispatch them or change bindings. Testers can read/materialize a
+saved proposal through its revision, but cannot edit or propose. Reviewers only read.
 
 Implementers: include an environment object in your final JSON:
 {"summary":"setup used and actually exercised, including Nix/native split",
  "declarationPaths":["changed setup files also included in paths"],
- "limitations":["unavailable verification or external prerequisites"]}.
+ "limitations":["unavailable verification or external prerequisites"],
+ "maintenance":{"disposition":"unchanged|proposed|temporary","reason":"why"}}.
 Use empty arrays when appropriate. Describe unchanged setup in summary. This is
 an evidence report, not a claim of clean-runner validation or cache publication.
+Central standalone runs require maintenance. Changed known environment files must
+match a saved proposal or have a reasoned temporary disposition. Report tools
+installed outside those files too: the host cannot infer every ad-hoc package
+installation. Propose durable setup and notes, or explain why it is task-local.
+The later exit interview reads this evidence and proposes follow-ups; it cannot
+alter delivered source, environments or bindings.
 
 Evaluators: inspect the implementation environment report and actual commands.
 Check pins, justified non-Nix steps, relevant source inputs, service cleanup and

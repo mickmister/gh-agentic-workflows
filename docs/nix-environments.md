@@ -28,13 +28,15 @@ its installer and binary. The local verification used the tarball digest above.
 The action does not grant the runner user Nix daemon `trusted-users` privileges.
 Flake configuration cannot add trusted substituters/keys automatically.
 
-`flake.nix` and `flake.lock` pin Nixpkgs at
-`b6018f87da91d19d0ab4cf979885689b469cdd41`. The current Linux `web` shell supplies
+The migration seed `.github/environment-seeds/workflow-web.json` contains flake
+and lock bytes pinned to Nixpkgs `b6018f87da91d19d0ab4cf979885689b469cdd41`.
+Live reusable definitions now use [central S3 revisions](central-environments.md).
+The historical Linux `web` fixture supplies
 Node **22.22.2**. The host bootstrap remains on Node **22.23.4**. These are distinct
 environments, not an attempt to change the running agent's parent environment.
 
 ```sh
-nix develop .#web --no-update-lock-file --command node --version
+nix develop path:<materialized-environment>#web --no-update-lock-file --command node --version
 ```
 
 For a missing tool, the agent can immediately use a pinned `nix shell` command,
@@ -48,9 +50,13 @@ Nix environments do not automatically cache `node_modules`, Gradle state, Cargo
 
 ## Running the first proof
 
-The manually dispatched `nix-environment-proof.yml` has independent cache and agent
+The historical manually dispatched `nix-environment-proof.yml` has independent cache and agent
 branches, followed by fresh-runner consumers. It does not publish product source,
 merge a candidate, create a PR or grant QRSPI approval.
+
+The proof's source fixture is pinned to pre-migration commit
+`91ba76729e00259a6c6d01a6edda15b9c1151aa4`, distinct from its current executor SHA.
+The fixture is materialized outside live source; root Nix files are not required.
 
 1. **Fixed cache producer:** build the reviewed `agentic-nix-probe` package and
    record the actual web development environment with `nix develop --profile`.

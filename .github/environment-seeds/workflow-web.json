@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "workflow-web",
+  "purpose": "Linux web and workflow development toolchain, centrally managed independently of application source checkouts.",
+  "operatorNotes": "Migration seed from mickmister/gh-agentic-workflows commit 91ba76729e00259a6c6d01a6edda15b9c1151aa4. Canonical revisions belong in S3; this file is an executor migration fixture, not the live definition. Pins Nixpkgs and Node 22.22.2 for x86_64 Linux. This environment does not provision Android or Apple tooling. The probe package is retained for historical same-session feasibility tests and is not included in the web shell. Qualification installs semver 7.7.2 with npm into the role's private HOME, verifies persistence between commands, and checks/cleans up a local HTTP service. npm outputs are not Nix-cacheable. Offline Nix profile activation does not make npm network-free. Use {environment} paths in qualification commands; no Nix files need to be added to an application repository. Fork or propose a new immutable revision for durable changes, and record why it differs.",
+  "shell": "web",
+  "flake": ".",
+  "sourceInputs": [],
+  "checks": [
+    ["node", "--experimental-strip-types", "{environment}/qualify.mts"],
+    ["node", "--experimental-strip-types", "{environment}/qualify.mts", "--require-existing"]
+  ],
+  "files": [
+    {
+      "path": "flake.nix",
+      "executable": false,
+      "content": "{\n  description = \"Repairable project environments for agentic workflow development\";\n\n  inputs.nixpkgs.url = \"github:NixOS/nixpkgs/b6018f87da91d19d0ab4cf979885689b469cdd41\";\n\n  outputs = { nixpkgs, ... }:\n    let\n      system = \"x86_64-linux\";\n      pkgs = import nixpkgs { inherit system; };\n      probe = pkgs.writeShellScriptBin \"agentic-nix-probe\" ''\n        echo agentic-nix-proof-v1\n      '';\n    in {\n      packages.${system}.probe = probe;\n      devShells.${system} = rec {\n        web = pkgs.mkShell {\n          packages = [ pkgs.nodejs_22 ];\n        };\n        default = web;\n      };\n    };\n}\n"
+    },
+    {
+      "path": "flake.lock",
+      "executable": false,
+      "content": "{\n  \"nodes\": {\n    \"nixpkgs\": {\n      \"locked\": {\n        \"lastModified\": 1782847189,\n        \"narHash\": \"sha256-twXPFqFsrrY5r28Zh7Homgcp2gUMBgQ6WDS98Q/3xFI=\",\n        \"owner\": \"NixOS\",\n        \"repo\": \"nixpkgs\",\n        \"rev\": \"b6018f87da91d19d0ab4cf979885689b469cdd41\",\n        \"type\": \"github\"\n      },\n      \"original\": {\n        \"owner\": \"NixOS\",\n        \"repo\": \"nixpkgs\",\n        \"rev\": \"b6018f87da91d19d0ab4cf979885689b469cdd41\",\n        \"type\": \"github\"\n      }\n    },\n    \"root\": {\n      \"inputs\": {\n        \"nixpkgs\": \"nixpkgs\"\n      }\n    }\n  },\n  \"root\": \"root\",\n  \"version\": 7\n}\n"
+    },
+    {
+      "path": "qualify.mts",
+      "executable": false,
+      "content": "import assert from \"node:assert/strict\";\nimport { execFile } from \"node:child_process\";\nimport { promisify } from \"node:util\";\nimport { readFile } from \"node:fs/promises\";\nimport { join } from \"node:path\";\nimport { createServer } from \"node:http\";\nassert.equal(process.version, \"v22.22.2\");\nconst exec = promisify(execFile), prefix = join(process.env.HOME!, \"project-tools\");\nconst version = await readFile(join(prefix, \"node_modules/semver/package.json\"), \"utf8\").then(JSON.parse).then(p => p.version).catch(() => null);\nif (process.argv.includes(\"--require-existing\")) assert.equal(version, \"7.7.2\", \"Native setup must persist between required checks\");\nif (version !== \"7.7.2\") await exec(\"npm\", [\"install\", \"--prefix\", prefix, \"--ignore-scripts\", \"--no-audit\", \"--no-fund\", \"--save-exact\", \"semver@7.7.2\"], { timeout: 120000 });\nassert.equal((await exec(join(prefix, \"node_modules/.bin/semver\"), [\"-r\", \">=22.0.0\", process.versions.node])).stdout.trim(), \"22.22.2\");\nconst server = createServer((_request, response) => response.end(\"project-service-ready\"));\nawait new Promise<void>(ok => server.listen(0, \"127.0.0.1\", ok));\ntry {\n  const port = (server.address() as { port: number }).port;\n  assert.equal(await (await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(5000) })).text(), \"project-service-ready\");\n} finally {\n  server.closeAllConnections(); await new Promise<void>((ok, reject) => server.close(error => error ? reject(error) : ok()));\n}\nconsole.log(JSON.stringify({ node: process.version, nativeTool: \"semver@7.7.2\", nativeToolReused: version === \"7.7.2\", localService: \"passed\" }));\n"
+    }
+  ]
+}

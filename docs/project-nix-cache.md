@@ -1,4 +1,9 @@
-# General project Nix cache onboarding
+# Historical repository-owned Nix cache contract
+
+The current destination is [central environments](central-environments.md).
+Reusable definitions and notes live in S3; application repositories need no cache
+configuration. This page documents the legacy schema-1 compatibility path and its
+earlier qualification evidence. New profiles use central schema-2 requests.
 
 Projects can declare named environments in `.agentic/environments.json`. The
 development agent can author this file through normal source changes. No engine

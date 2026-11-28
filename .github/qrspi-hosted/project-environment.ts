@@ -45,7 +45,8 @@ export function workspaceSource(sources: Sources, task: Task, operation: string,
   return { member: member.path, commit: member.commit, text: window, nextOffset: offset + 150 < text.length ? offset + 150 : null };
 }
 
-export type EnvironmentReport = { summary: string; declarationPaths: string[]; limitations: string[] };
+export type EnvironmentReport = { summary: string; declarationPaths: string[]; limitations: string[];
+  maintenance?: { disposition: "unchanged" | "proposed" | "temporary"; reason: string } };
 export function environmentReport(value: any, paths: string[]): EnvironmentReport | null {
   // Historical workers need not return this field. Absence is unknown, not a
   // successful setup or clean-runner qualification.
@@ -55,5 +56,7 @@ export function environmentReport(value: any, paths: string[]): EnvironmentRepor
     value.declarationPaths.every((path: unknown) => typeof path === "string" && paths.includes(path)) &&
     Array.isArray(value.limitations) && value.limitations.length <= 50 && value.limitations.every((item: unknown) => typeof item === "string" && item.length > 0 && item.length <= 4000),
   "Environment report requires summary, changed declaration paths and explicit limitations");
-  return { summary: value.summary, declarationPaths: [...value.declarationPaths], limitations: [...value.limitations] };
+  if (value.maintenance !== undefined) assert(value.maintenance && ["unchanged", "proposed", "temporary"].includes(value.maintenance.disposition) &&
+    typeof value.maintenance.reason === "string" && value.maintenance.reason.trim() && value.maintenance.reason.length <= 4000, "Explicit environment maintenance disposition required");
+  return { summary: value.summary, declarationPaths: [...value.declarationPaths], limitations: [...value.limitations], ...(value.maintenance ? { maintenance: value.maintenance } : {}) };
 }

@@ -11,6 +11,7 @@ import { ExecutionEvidence } from "./execution.ts";
 import { inspectDevelopment } from "./development-inspect.ts";
 import { digest } from "./storage.ts";
 import { developmentContext, developmentBinding } from "./development-context.ts";
+import { environmentFixture, webDefinition } from "./.test-fixtures/environments.ts";
 
 test("standalone identity is tracker-free, strict and preserves exact historical bindings", () => {
   const seed = { schema_version: 2, workspace: "fixture", workspace_ref: `ws-${"a".repeat(32)}`, engagement: "personal" };
@@ -84,7 +85,7 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
         finish = "tool_calls";
         delta = { role: "assistant", content: "", tool_calls: [{ index: 0, id: `command-${cycle}`, type: "function", function: {
           name: "workspace_operation", arguments: JSON.stringify({ area: "execute", operation: "run", args: { argv: [process.execPath, "-e", "require('node:fs').writeFileSync(require('node:path').join(process.env.HOME,'implementer-only'),'private');console.log('implementation-command-proof')"] } }) } }] };
-      } else delta = { role: "assistant", content: JSON.stringify({ summary: "Implemented the fixture", paths: ["answer.txt"], environment: { summary: "Project-owned native setup", declarationPaths: [], limitations: ["Not a fresh-runner qualification"] } }) };
+      } else delta = { role: "assistant", content: JSON.stringify({ summary: "Implemented the fixture", paths: ["answer.txt"], environment: { summary: "Project-owned native setup", declarationPaths: [], limitations: ["Not a fresh-runner qualification"], maintenance: { disposition: "unchanged", reason: "No toolchain changes needed" } } }) };
     } else {
       if (round === 0) {
         res.writeHead(200, { "content-type": "text/event-stream" });
@@ -131,9 +132,6 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       cycle = 0;
       const directory = join(home, mode), root = join(directory, "workspace"), app = join(root, "app"); await mkdir(app, { recursive: true });
       localGit(app, ["init", "--quiet", "-b", "feature"]); await writeFile(join(app, "answer.txt"), "broken\n");
-      await mkdir(join(app, ".agentic"));
-      await writeFile(join(app, ".agentic/environments.json"), JSON.stringify({ schemaVersion: 1, environments: [{ name: "web", flake: ".",
-        inputs: [{ member: ".", path: "flake.nix" }, { member: ".", path: "flake.lock" }], checks: [[process.execPath, "--version"]] }] }));
       localGit(app, ["add", "."]);
       localGit(app, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "initial"]);
       const baseCommit = localGit(app, ["rev-parse", "HEAD"]), saved = new Map<string, any>();
@@ -143,6 +141,9 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       const libraryCommit = localGit(library, ["rev-parse", "HEAD"]); await writeFile(join(library, "setup.txt"), "mutable sibling setup\n");
       const sources = new Sources(root, directory, [{ path: "app", repository: "owner/app", branch: "refs/heads/feature", commit: baseCommit },
         { path: "library", repository: "other-owner/library", branch: "refs/heads/main", commit: libraryCommit }], {} as any, true, mode);
+      const central = environmentFixture(sources.members), ref = await central.store.create(webDefinition());
+      await central.qualify(ref); await central.store.activate("owner/app", "web", ref, null);
+      const environments = { store: central.store, context: await central.store.capture("ws-fixture", sources.members), proposals: [] };
       const request = developmentRequest(mode.startsWith("standalone") ? { schemaVersion: 2, process: mode, thread: "conversation", member: "app", task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"], publishCandidate: false } : { schemaVersion: 1, process: mode, bead: "task-fixture", member: "app", baseCommit, task: "Fix answer.txt", acceptanceCriteria: ["Answer contains fixed"],
         setupCommands: [[process.execPath, "-e", "const fs=require('node:fs'),p=require('node:path').join(process.env.HOME,'.npm','cache','a','b','c','d','e','f','g','h','i');fs.mkdirSync(p,{recursive:true});fs.writeFileSync(require('node:path').join(p,'index.json'),'package-cache-not-native-evidence')"]],
         testCommands: [[process.execPath, "-e", mode === "failed-tests" ? "process.exit(1)" : "if(!require('node:fs').readFileSync('answer.txt','utf8').includes('fixed'))process.exit(1)"]], publishCandidate: false });
@@ -151,7 +152,7 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
       saved.set("identity.json", { binding, executionId: "1-1" });
       const evidence = new ExecutionEvidence(binding, "1-1", async (suffix, value) => { saved.set(`evidence/${suffix}`, structuredClone(value)); });
       try {
-        const result = await runDevelopment(directory, request, sources, binding, "1-1", evidence, async (key, value) => { saved.set(key, structuredClone(value)); });
+        const result = await runDevelopment(directory, request, sources, binding, "1-1", evidence, async (key, value) => { saved.set(key, structuredClone(value)); }, undefined, environments);
         const accepted = mode === "retry" || mode === "standalone";
         assert.equal(result.status, accepted ? "accepted" : "exhausted");
         assert.equal(result.cycle, mode === "standalone" ? 1 : mode === "retry" ? 2 : 4); assert.equal(maximum, 3);
@@ -171,8 +172,11 @@ test("real Spec Kit loops, freezes candidates and overlaps all three evaluators;
         assert.equal(environment.cleanRunnerValidated, false);
         assert.equal(environment.cachePublished, false);
         assert.equal(environment.commandIds.length, mode.startsWith("standalone") ? 1 : 2);
-        assert.deepEqual(saved.get(`cycles/${result.cycle}/native/implementer.json`).environmentCaches,
+        const caches = saved.get(`cycles/${result.cycle}/native/implementer.json`).environmentCaches;
+        assert.deepEqual(caches.map(({ environment, status }: any) => ({ environment, status })),
           mode.startsWith("standalone") ? [{ environment: "web", status: "disabled" }] : []);
+        if (mode.startsWith("standalone")) assert.deepEqual(caches[0].definition, ref);
+        assert.deepEqual(saved.get("environment-context.json"), environments.context);
         assert.equal(JSON.stringify(saved.get(`cycles/${result.cycle}/native/implementer.json`).files).includes("package-cache-not-native-evidence"), false);
         assert.equal(saved.get("progress.json").nextStep, accepted ? "deliver-approved-candidate" : "publish-blocked-review");
         assert.equal(JSON.parse(saved.get("engine.json").output).status, "completed");

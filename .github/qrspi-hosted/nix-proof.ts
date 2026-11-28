@@ -14,8 +14,9 @@ import { inspectDevelopment } from "./development-inspect.ts";
 import { assessNixLoop, inspectNixCommands, loopCommands, nixCache, nixCacheEnvironment, nixVersion, probeMarker } from "./nix-environment.ts";
 
 const exec = promisify(execFile);
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const proofFlake = `${root}#probe`;
+let root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+// Historical feasibility proof only. Live profiles are central S3 revisions.
+const fixtureCommit = "91ba76729e00259a6c6d01a6edda15b9c1151aa4";
 const env = process.env;
 const run = env.NIX_PROOF_RUN || env.GITHUB_RUN_ID!, attempt = env.NIX_PROOF_ATTEMPT || env.GITHUB_RUN_ATTEMPT!;
 const repository = env.GITHUB_REPOSITORY!;
@@ -59,7 +60,7 @@ const read = async (suffix: string) => {
 async function producer() {
   assert(await store.admit(`${base}/cache-admission.json`, { sourceSha: env.GITHUB_SHA, run, attempt }), "Cache proof already started; inspect, do not replay");
   assert.equal((await nix(["--version"])).stdout.trim(), `nix (Nix) ${nixVersion}`);
-  const probe = JSON.parse((await nix(["build", proofFlake, "--no-update-lock-file", "--no-link", "--json"])).stdout)[0].outputs.out;
+  const probe = JSON.parse((await nix(["build", `${root}#probe`, "--no-update-lock-file", "--no-link", "--json"])).stdout)[0].outputs.out;
   assert(/^\/nix\/store\/[a-z0-9]{32}-agentic-nix-probe$/.test(probe));
   assert.equal((await execute(`${probe}/bin/agentic-nix-probe`, [])).stdout.trim(), probeMarker);
   const profile = join(home, "web-profile");
@@ -120,7 +121,7 @@ async function agent() {
   // Nix's Git reader must resolve objects from linked role worktrees without
   // depending on the Actions checkout through Git alternates.
   localGit(root, ["clone", "--quiet", "--no-hardlinks", root, app]);
-  const sourceSha = localGit(app, ["rev-parse", "HEAD"]); assert.equal(sourceSha, env.GITHUB_SHA);
+  const sourceSha = localGit(app, ["rev-parse", "HEAD"]); assert.equal(sourceSha, fixtureCommit);
   const process = `nix-${run}-${attempt}`;
   const binding = { workspace: "vk-46e5-vd-multi-instanc", workspace_ref: "ws-112ddba5d5a701238022cf9d6319f65d", process, bead: "task-3vt.34.16.2" };
   const developmentKey = `development/${digest(binding)}`;
@@ -155,18 +156,18 @@ async function agent() {
   const assessment = await inspectDevelopment(store, developmentKey, binding);
   assert.equal(assessment.evidence.unresolvedOperations, 0);
   await save("assessment.json", assessment);
-  await store.put(`${base}/agent.json`, { sourceSha, run, attempt, candidate, cycle, loop, state: result, developmentKey,
+  await store.put(`${base}/agent.json`, { sourceSha, engineCommit: env.GITHUB_SHA, historicalFixture: true, run, attempt, candidate, cycle, loop, state: result, developmentKey,
     assessment, flakeDigest: digest(after), metrics, phaseApproval: false }, { create: true });
 }
 
 async function replay() {
-  const expected = await read("agent.json"); assert.equal(expected.sourceSha, env.GITHUB_SHA);
+  const expected = await read("agent.json"); assert.equal(expected.engineCommit ?? expected.sourceSha, env.GITHUB_SHA);
   const reference = await read("development-reference.json");
   assert.equal(reference.developmentKey, `development/${digest(reference.binding)}`);
   assert.equal(expected.developmentKey, reference.developmentKey);
   const archived = (await store.read(`${expected.developmentKey}/cycles/${expected.cycle}/candidate-bundle.json`))?.value;
   assert(archived, "Candidate bundle missing");
-  assert.equal(archived.base, env.GITHUB_SHA); assert.equal(archived.candidate, expected.candidate);
+  assert.equal(archived.base, expected.sourceSha); assert.equal(archived.candidate, expected.candidate);
   const bundle = join(home, "candidate.bundle");
   const bytes = Buffer.from(archived.bundleBase64, "base64"); assert(bytes.length <= 8_000_000);
   await writeFile(bundle, bytes, { mode: 0o600 });
@@ -228,6 +229,13 @@ try {
   if (phase === "inspect") await inspect();
   else {
     const fn = { producer, consumer, agent, replay }[phase]; assert(fn, "Unknown Nix proof phase");
+    if (["producer", "agent", "replay"].includes(phase)) {
+      const fixture = join(home, "historical-source");
+      localGit(root, ["clone", "--quiet", "--no-hardlinks", root, fixture]);
+      localGit(fixture, ["fetch", "--quiet", "--no-tags", "https://github.com/mickmister/gh-agentic-workflows.git", fixtureCommit]);
+      localGit(fixture, ["checkout", "--quiet", "--detach", fixtureCommit]);
+      root = fixture;
+    }
     await fn();
     console.log(JSON.stringify({ phase, run, attempt, privateEvidence: `${base}/`, completed: true }));
   }

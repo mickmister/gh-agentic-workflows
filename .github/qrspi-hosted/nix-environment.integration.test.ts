@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { probeMarker } from "./nix-environment.ts";
 import { localGit } from "./workspace.ts";
+import { environmentDefinition, materializeEnvironment } from "./environment-store.ts";
 
 test("real pinned Nix provisions and immediately uses a tool, then replays its saved declaration", {
   skip: process.env.NIX_INTEGRATION !== "true", timeout: 240000,
@@ -30,10 +31,13 @@ test("real pinned Nix provisions and immediately uses a tool, then replays its s
     // after the host freezes a new candidate. Shared objects are also avoided.
     localGit(root, ["clone", "--quiet", "--no-local", root, checkout]);
     localGit(checkout, ["clone", "--quiet", "--no-hardlinks", checkout, source]);
+    const seed = environmentDefinition(JSON.parse(await readFile(new URL("../environment-seeds/workflow-web.json", import.meta.url), "utf8")));
+    await materializeEnvironment(seed, source);
+    localGit(source, ["add", "flake.nix", "flake.lock", "qualify.mts"]);
+    localGit(source, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "Materialize historical feasibility fixture"]);
     localGit(source, ["worktree", "add", "--quiet", "-b", "agentic/fixture/implementer", worktree, "HEAD"]);
-    const flake = await readFile(join(root, "flake.nix"), "utf8");
-    const lock = await readFile(join(root, "flake.lock"), "utf8");
-    await writeFile(join(worktree, "flake.nix"), flake); await writeFile(join(worktree, "flake.lock"), lock);
+    const flake = await readFile(join(worktree, "flake.nix"), "utf8");
+    const lock = await readFile(join(worktree, "flake.lock"), "utf8");
     await assert.rejects(nix("develop", ".#web", "--no-update-lock-file", "--command", "agentic-nix-probe"), (e: any) =>
       e.code !== 0 && /exec: agentic-nix-probe: not found/.test(e.stderr));
     assert.equal((await nix("shell", ".#probe", "--no-update-lock-file", "--command", "agentic-nix-probe")).stdout.trim(), probeMarker);

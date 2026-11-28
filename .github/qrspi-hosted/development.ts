@@ -12,8 +12,8 @@ import { nativeSessionIds, type SessionIdentity } from "./session.ts";
 import { sessionSpan, type ExecutionEvidence } from "./execution.ts";
 import { observePi } from "./live-session.ts";
 import { environmentSources, workspaceSource, environmentReport } from "./project-environment.ts";
-import { loadProjectEnvironments, projectCacheSummary } from "./project-cache.ts";
-import { restoreDevelopmentEnvironment } from "./project-cache-runtime.ts";
+import { projectCacheSummary } from "./project-cache.ts";
+import { EnvironmentTools, type EnvironmentServices } from "./environment-tools.ts";
 
 export const evaluators = ["reviewer-1", "reviewer-2", "tester"] as const;
 export type DevelopmentRole = "implementer" | typeof evaluators[number];
@@ -72,7 +72,8 @@ export type DevelopmentProgress = {
 type Agent = { role: DevelopmentRole; task: Task; dir: string; socketDir: string; session: SessionIdentity;
   bridge: Awaited<ReturnType<typeof serveTools>>; stopNative: ReturnType<typeof observeNative>; stopPi: () => Promise<void>;
   finish: (error?: unknown) => Promise<void>; result?: any; closed?: boolean; tests: Awaited<ReturnType<typeof command>>[];
-  commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[]; requiredChecks?: string[][]; environmentCaches: unknown[] };
+  commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[]; requiredChecks?: string[][]; environmentCaches: unknown[]; environments: EnvironmentTools;
+  environmentProposals: { ref: unknown; base: unknown; reason: string; evidence: string }[] };
 
 /** Mechanical source/session/receipt capabilities. Spec Kit YAML owns scheduling. */
 export class Development {
@@ -83,9 +84,11 @@ export class Development {
   private progressWrites = Promise.resolve();
   readonly request: ResolvedDevelopmentRequest; readonly sources: Sources; readonly home: string; readonly executionId: string;
   readonly evidence: ExecutionEvidence; readonly save: (key: string, value: unknown) => Promise<unknown>; readonly signal: AbortSignal;
+  readonly environments?: EnvironmentServices;
   constructor(request: DevelopmentRequest, sources: Sources, home: string,
     binding: Binding, executionId: string, evidence: ExecutionEvidence,
-    save: (key: string, value: unknown) => Promise<unknown>, signal: AbortSignal) {
+    save: (key: string, value: unknown) => Promise<unknown>, signal: AbortSignal, environments?: EnvironmentServices) {
+    this.environments = environments;
     this.request = resolveDevelopmentRequest(request, sources.members); this.sources = sources; this.home = home; this.executionId = executionId;
     this.evidence = evidence; this.save = save; this.signal = signal;
     developmentRequest(request);
@@ -121,6 +124,8 @@ export class Development {
     const session: SessionIdentity = { id: randomUUID(), parentId: null, role, executionId: this.executionId, sourceSha: process.env.GITHUB_SHA ?? this.request.baseCommit };
     const cwd = this.sources.directory(task), tests: Agent["tests"] = [];
     const commands: { argv: string[]; result: Awaited<ReturnType<typeof command>> }[] = [];
+    const environmentTools = new EnvironmentTools(this.environments, this.sources, task, join(this.home, "environments", task.id),
+      role === "implementer", role === "implementer" || role === "tester", `${this.executionId}:${this.request.process}:${task.id}`);
     const assignment = { task: this.request.task, acceptanceCriteria: this.request.acceptanceCriteria, candidate: this.state.candidate ?? null,
       baseCommit: this.request.baseCommit, cycle: this.state.cycle, priorFindings: this.state.history.at(-1)?.evaluations ?? [],
       workspace: { selectedMember: task.member, members: environmentSources(this.sources, task),
@@ -160,15 +165,17 @@ export class Development {
         }
         return { candidate: this.state.candidate, results };
       }
-      if (area === "help" || area === "assignment") return { role, assignment, capabilities: ["assignment", "workspace members/list/read", "environment list", "files list/read", ...(role === "implementer" ? ["files write", "execute run", "environment restore"] : ["evidence implementation", ...(role === "tester" ? ["execute run", "environment restore", ...(this.request.schemaVersion === 2 ? ["verification run"] : [])] : [])])] };
+      if (area === "help" || area === "assignment") return { role, assignment, capabilities: ["assignment", "workspace members/list/read", "environment list/read", "files list/read", ...(role === "implementer" ? ["files write", "execute run", "environment materialize/restore/write/propose/create"] : ["evidence implementation", ...(role === "tester" ? ["execute run", "environment materialize/restore", ...(this.request.schemaVersion === 2 ? ["verification run"] : [])] : [])])] };
       if (area === "workspace") return workspaceSource(this.sources, task, operation, args);
       if (area === "environment") {
-        if (operation === "list") return { environments: await loadProjectEnvironments(cwd, this.sources.members) };
-        assert(operation === "restore" && (role === "implementer" || role === "tester") && typeof args.name === "string", "Environment import requires an executing role and named project declaration");
-        const receipt = await restoreDevelopmentEnvironment(this.sources, task, args.name, join(this.home, "project-cache", task.id));
-        await this.save(`cycles/${this.state.cycle}/cache/${role}-${calls}.json`, receipt);
-        this.agents.get(role)!.environmentCaches.push({ environment: args.name, ...receipt });
-        return receipt;
+        const result = await environmentTools.call(operation, args);
+        if (operation === "restore") await this.save(`cycles/${this.state.cycle}/cache/${role}-${calls}.json`, result);
+        if (operation === "propose" || operation === "create") {
+          const proposal = environmentTools.proposals.at(-1)!, evidence = `cycles/${this.state.cycle}/environment-proposals/${role}-${calls}.json`;
+          await this.save(evidence, proposal);
+          this.agents.get(role)!.environmentProposals.push({ ref: proposal.ref, base: proposal.base, reason: proposal.reason, evidence });
+        }
+        return result;
       }
       if (area === "evidence") {
         assert(role !== "implementer" && operation === "implementation" && this.state.candidate, "Role capability does not permit this evidence");
@@ -177,6 +184,7 @@ export class Development {
         assert(Number.isSafeInteger(offset) && offset >= 0 && offset <= implementer.commands.length, "Invalid evidence offset");
         return { candidate: this.state.candidate, sessionId: implementer.session.id, summary: implementer.result.summary, environment: implementer.result.environment,
           environmentCaches: projectCacheSummary(implementer.environmentCaches),
+          environmentProposals: implementer.environmentProposals,
           commands: implementer.commands.slice(offset, offset + 3).map(({ argv, result }) => {
             const { commandId, exitCode, outcome, stdout, stderr, truncated, bytes } = result;
             return { argv, commandId, exitCode, outcome, stdout, stderr, truncated, bytes };
@@ -191,7 +199,8 @@ export class Development {
     const finish = await this.evidence.begin("session", this.evidence.scope(session), sessionSpan(session.id));
     const stopNative = observeNative(join(dir, "sessions"), this.evidence, session);
     const stopPi = observePi(dir, this.evidence, session, () => {});
-    const agent: Agent = { role, task, dir, socketDir, session, bridge, finish, stopNative, stopPi, tests, commands, environmentCaches: [] };
+    const agent: Agent = { role, task, dir, socketDir, session, bridge, finish, stopNative, stopPi, tests, commands,
+      environmentCaches: environmentTools.imports, environments: environmentTools, environmentProposals: [] };
     this.agents.set(role, agent);
     await this.progress(role === "implementer" ? "implement" : "evaluate", role === "implementer" ? "freeze-candidate" : "collect-evaluations");
     await this.save(`cycles/${this.state.cycle}/sessions/${role}.json`, { ...session, status: "allocated", candidate: this.state.candidate ?? null });
@@ -228,11 +237,15 @@ export class Development {
     } else {
       assert(typeof result.summary === "string" && Array.isArray(result.paths) && result.paths.length <= 100 && result.paths.every((p: unknown) => typeof p === "string"), "Implementation requires explicit changed paths");
       result.environment = environmentReport(result.environment, result.paths);
+      if (this.request.schemaVersion === 2 && this.environments) assert(result.environment?.maintenance, "Central environment work requires a maintenance disposition");
+      if (result.environment?.maintenance?.disposition === "proposed") assert(agent.environmentProposals.length > 0, "Environment proposal claim has no host receipt");
+      await agent.environments.assertReconciled(result.environment?.maintenance?.disposition);
       agent.result = result;
     }
     const ids = nativeSessionIds(native); assert(ids.length === 1, "Exactly one native session per role required");
     await this.save(`cycles/${this.state.cycle}/native/${role}.json`, { backend: "spec-kit", session: { ...agent.session, nativeSessionIds: ids, status: "completed" }, result: agent.result, native,
       environmentCaches: agent.environmentCaches,
+      environmentProposals: agent.environmentProposals,
       nativeTruncated: agent.stopNative.capture.truncated, files: await nativeFiles(agent.dir) });
     await agent.finish(); await agent.bridge.close(); await rm(agent.socketDir, { recursive: true, force: true }); agent.closed = true;
     await this.progress(role === "implementer" ? "implementation-complete" : "evaluate", role === "implementer" ? "freeze-candidate" : "collect-evaluations");
@@ -289,7 +302,8 @@ export class Development {
       if (!agent.closed) {
         try {
           await this.save(`cycles/${this.state.cycle}/interrupted/${agent.role}.json`, { backend: "spec-kit", session: { ...agent.session, status: "failed" },
-            native: agent.stopNative.capture.snapshot(), nativeTruncated: agent.stopNative.capture.truncated, environmentCaches: agent.environmentCaches });
+            native: agent.stopNative.capture.snapshot(), nativeTruncated: agent.stopNative.capture.truncated, environmentCaches: agent.environmentCaches,
+            environmentProposals: agent.environmentProposals });
           await agent.finish(failure ?? new Error("Role did not complete"));
         } finally { await agent.bridge.close(); await rm(agent.socketDir, { recursive: true, force: true }); agent.closed = true; }
       }

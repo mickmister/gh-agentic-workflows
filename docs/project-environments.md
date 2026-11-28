@@ -5,7 +5,7 @@ steps. Agents inspect the selected project and relevant workspace source, reuse
 working setup, and provision missing dependencies in the current session/job.
 Using setup for another repository does not require engine-side registration.
 Private binary-cache eligibility is a separate capability. See
-[general project cache onboarding](project-nix-cache.md) for project declarations,
+[central environments](central-environments.md) for S3 definitions and bindings,
 on-demand signed imports and separate clean-runner qualification/publication.
 
 ## Callers and workspace members
@@ -46,7 +46,8 @@ when the task needs those capabilities instead of claiming they were validated.
 - Reuse pinned scoped environments. Keep web/mobile environments separate when
   their dependencies differ. Enter the relevant shell for each command.
 - Use project package managers, lockfiles and version-pinned vendor setup when
-  useful. Persist working procedures in project scripts and instructions.
+  useful. Persist reusable environment procedures in central proposals and notes;
+  preserve existing application-owned procedures where they remain appropriate.
 - Keep access credentials, signing and account entitlements host-managed. A
   dependency declaration does not provide those prerequisites.
 - Use appropriate runners for Xcode, hardware, drivers or emulator capabilities.
@@ -65,7 +66,7 @@ caches and builders should be selected on evidence of useful reuse.
 
 ## Retained setup evidence
 
-Implementers return an environment summary, changed declaration paths and limits
+Implementers return an environment summary, changed source declaration paths, limits
 alongside their explicit changed paths. Historical responses without this report
 remain readable as unknown setup evidence. Evaluators receive the report through
 `evidence/implementation`, along with paginated command observations.
@@ -76,11 +77,15 @@ command IDs. It is marked `implementation-observations-only`, with
 `cleanRunnerValidated:false` and `cachePublished:false`. Neither the report nor
 three same-runner evaluations authorize cache signing or reusable promotion.
 
+Central standalone runs also require a reasoned maintenance disposition. Known
+draft changes must be proposed to S3 or explicitly temporary. Proposals and pinned
+environment context are retained for evaluators and the read-only exit interview.
+
 ## Cache and remaining issue-18 work
 
 The existing [pre-Pi B2 prefetch](development-nix-cache.md) still recognizes one
-reviewed recipe. The [general on-demand path](project-nix-cache.md) accepts named
-project declarations without repository registration and has separate clean-runner
+reviewed historical recipe. The [central on-demand path](central-environments.md)
+discovers repository defaults without source configuration and has separate clean-runner
 qualification, independent rebuild/signing and fresh-import jobs. Project outputs
 are not automatically published by coding agents. Alohak Android capability
 expansion, realistic incremental reuse measurements and retirement

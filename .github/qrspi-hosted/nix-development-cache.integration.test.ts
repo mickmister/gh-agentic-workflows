@@ -5,8 +5,8 @@ import { promisify } from "node:util";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { cacheRecipe, recipeId, signReceipt, verifyReceipt } from "./nix-development-cache.ts";
+import { environmentDefinition, materializeEnvironment } from "./environment-store.ts";
 
 test("real Nix key format signs a receipt for an actual reviewed web profile", {
   skip: process.env.NIX_INTEGRATION !== "true", timeout: 180000,
@@ -20,9 +20,10 @@ test("real Nix key format signs a receipt for an actual reviewed web profile", {
     child.child.stdin?.end(input); return (await child).stdout.trim();
   };
   try {
-    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const root = join(home, "environment");
+    await materializeEnvironment(environmentDefinition(JSON.parse(await readFile(new URL("../environment-seeds/workflow-web.json", import.meta.url), "utf8"))), root);
     const profile = join(home, "profile");
-    assert.equal(await nix(["develop", `${root}#web`, "--no-update-lock-file", "--profile", profile, "--command", "node", "--version"]), "v22.22.2");
+    assert.equal(await nix(["develop", `path:${root}#web`, "--no-update-lock-file", "--profile", profile, "--command", "node", "--version"]), "v22.22.2");
     const path = await nix(["path-info", profile]);
     const infos = JSON.parse(await nix(["path-info", "--json", path]));
     const info = Array.isArray(infos) ? infos[0] : infos[path];

@@ -65,8 +65,7 @@ export async function loadProjectEnvironments(directory: string, members: Member
   assert(file.info.isFile() && file.info.size <= 64000, "Environment declaration exceeds bound");
   return projectEnvironments(JSON.parse(await readFile(file.file, "utf8")), members);
 }
-export async function projectPlan(directories: Map<string, string>, members: Member[], selected: string, definition: ProjectEnvironment): Promise<ProjectPlan> {
-  const owner = members.find(m => m.path === selected); assert(owner, "Selected member missing");
+export async function collectEnvironmentFiles(directories: Map<string, string>, inputs: Input[]) {
   const files: ProjectPlan["files"] = [], seen = new Set<string>(); let total = 0;
   const visit = async (member: string, name: string): Promise<void> => {
     path(name); const root = directories.get(member); assert(root, "Input member directory missing");
@@ -82,8 +81,13 @@ export async function projectPlan(directories: Map<string, string>, members: Mem
       files.push({ member, path: name, mode: info.mode & 0o111 ? 0o755 : 0o644, bytes });
     }
   };
-  for (const input of definition.inputs) await visit(input.member === "." ? selected : input.member, input.path);
+  for (const input of inputs) await visit(input.member, input.path);
   files.sort((a, b) => `${a.member}:${a.path}`.localeCompare(`${b.member}:${b.path}`, "en"));
+  return files;
+}
+export async function projectPlan(directories: Map<string, string>, members: Member[], selected: string, definition: ProjectEnvironment): Promise<ProjectPlan> {
+  const owner = members.find(m => m.path === selected); assert(owner, "Selected member missing");
+  const files = await collectEnvironmentFiles(directories, definition.inputs.map(input => ({ ...input, member: input.member === "." ? selected : input.member })));
   const flake = definition.flake === "." ? "" : `${definition.flake}/`;
   assert([`${flake}flake.nix`, `${flake}flake.lock`].every(p => files.some(f => f.member === selected && f.path === p)), "Selected flake and lock must be declared inputs");
   const recipe: ProjectRecipe = { schemaVersion: 2, repository: owner.repository, member: selected, environment: definition.name, flake: definition.flake,
@@ -101,7 +105,7 @@ export async function writeProjectSnapshot(plan: ProjectPlan, root: string) {
   return join(root, plan.recipe.member, plan.definition.flake);
 }
 export type ProjectReceipt = { schemaVersion: 2; recipe: ProjectRecipe; recipeId: string; profile: string; narHash: string;
-  validation: { engineCommit: string; run: string; attempt: string; sources: Member[]; checksDigest: string } };
+  validation: { engineCommit: string; run: string; attempt: string; sources: Member[]; checksDigest: string; definition?: { id: string; revision: string }; member?: string } };
 export function signProjectReceipt(receipt: ProjectReceipt, publicKey: string, secret: string) {
   const envelope = { receipt, signature: signCacheBytes(publicKey, secret, Buffer.from(JSON.stringify(receipt))) };
   verifyProjectReceipt(receipt.recipe, envelope, publicKey); return envelope;

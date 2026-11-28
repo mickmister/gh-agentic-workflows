@@ -10,13 +10,21 @@ import { serveTools } from "./tools.ts";
 import { Development, type DevelopmentRequest, type DevelopmentRole } from "./development.ts";
 import type { Sources } from "./source.ts";
 import type { ExecutionEvidence } from "./execution.ts";
+import { EnvironmentStore } from "./environment-store.ts";
+import type { EnvironmentServices } from "./environment-tools.ts";
+import { cacheStore, loadCacheRecipe } from "./nix-cache-runtime.ts";
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export async function runDevelopment(home: string, request: DevelopmentRequest, sources: Sources, binding: Binding,
-  executionId: string, evidence: ExecutionEvidence, save: (key: string, value: unknown) => Promise<unknown>, signal?: AbortSignal) {
+  executionId: string, evidence: ExecutionEvidence, save: (key: string, value: unknown) => Promise<unknown>, signal?: AbortSignal, environments?: EnvironmentServices) {
   await configurePi(home);
+  if (!environments && process.env.S3_CACHE_BUCKET && process.env.S3_CACHE_ACCESS_KEY_ID && process.env.S3_CACHE_SECRET_ACCESS_KEY && process.env.S3_CACHE_URL) {
+    const store = new EnvironmentStore(cacheStore(process.env), (await loadCacheRecipe()).publicKey);
+    environments = { store, context: await store.capture(binding.workspace_ref, sources.members), proposals: [] };
+  }
+  await save("environment-context.json", environments?.context ?? { schemaVersion: 1, workspaceRef: binding.workspace_ref, repositories: [] });
   const controller = new AbortController(), combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
-  const development = new Development(request, sources, home, binding, executionId, evidence, save, combined);
+  const development = new Development(request, sources, home, binding, executionId, evidence, save, combined, environments);
   const dir = join(home, "engine"); await mkdir(join(dir, ".specify"), { recursive: true, mode: 0o700 });
   const yaml = await readFile(here("../qrspi-spec-kit/development.yml"), "utf8");
   await writeFile(join(dir, "development.yml"), yaml, { mode: 0o600 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, readFile, writeFile, rm, lstat } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, lstat, chmod } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GitHub } from "./github.ts";
@@ -13,6 +13,8 @@ import { nixCacheEnvironment, nixCacheLocation, nixVersion } from "./nix-environ
 import { sha256 } from "./nix-development-cache.ts";
 import { loadProjectEnvironments, projectPlan, writeProjectSnapshot, projectRecipeId, projectReceiptKey, projectLatestKey,
   restoreProjectCache, signProjectReceipt, verifyProjectReceipt, type ProjectPlan } from "./project-cache.ts";
+import { EnvironmentStore, environmentRef, environmentDefinition, environmentRevision, materializeEnvironment,
+  centralEnvironmentPlan, environmentQualificationKey, type EnvironmentRef, type EnvironmentDefinition } from "./environment-store.ts";
 
 const exec = promisify(execFile);
 export function projectCacheFailureReason(failure: any) {
@@ -32,9 +34,11 @@ export async function assertAbsentProfile(profile: string, stat = lstat) {
   catch (error: any) { if (error.code === "ENOENT") return; throw error; }
   throw new Error("Fresh reader already has profile");
 }
-export type ProjectCacheRequest = { schemaVersion: 1; member: string; environment: string; sources: Member[] };
+export type ProjectCacheRequest = { schemaVersion: 1; member: string; environment: string; sources: Member[] } |
+  { schemaVersion: 2; member: string; environment: string; sources: Member[]; definition: EnvironmentRef; expectedDefault?: EnvironmentRef | null };
 export function projectCacheRequest(value: any): ProjectCacheRequest {
-  assert(value?.schemaVersion === 1 && Object.keys(value).sort().join(",") === "environment,member,schemaVersion,sources" &&
+  assert(value && [1, 2].includes(value.schemaVersion) && Object.keys(value).every(key => ["schemaVersion", "member", "environment", "sources",
+    ...(value.schemaVersion === 2 ? ["definition", "expectedDefault"] : [])].includes(key)) &&
     typeof value.environment === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(value.environment) &&
     Array.isArray(value.sources) && value.sources.length > 0 && value.sources.length <= 20, "Invalid project cache request");
   assert(value.sources.every((s: any) => s && Object.keys(s).sort().join(",") === "branch,commit,path,repository" &&
@@ -42,7 +46,23 @@ export function projectCacheRequest(value: any): ProjectCacheRequest {
   manifestMembers({ schema_version: 1, workspace: "cache", repositories: value.sources.map((s: Member) => ({ path: s.path, branch: s.branch,
     remotes: [{ name: "origin", url: `https://github.com/${s.repository}.git` }] })) }, "cache");
   assert(value.sources.some((s: Member) => s.path === value.member), "Selected source member missing");
-  return { schemaVersion: 1, member: value.member, environment: value.environment, sources: value.sources.map((s: Member) => ({ ...s })) };
+  return { schemaVersion: value.schemaVersion, member: value.member, environment: value.environment, sources: value.sources.map((s: Member) => ({ ...s })),
+    ...(value.schemaVersion === 2 ? { definition: environmentRef(value.definition), ...(value.expectedDefault !== undefined ? { expectedDefault: value.expectedDefault === null ? null : environmentRef(value.expectedDefault) } : {}) } : {}) } as ProjectCacheRequest;
+}
+export function verifyCentralActivation(plan: ProjectPlan, request: Extract<ProjectCacheRequest, { schemaVersion: 2 }>, envelope: unknown,
+  records: unknown[], publicKey: string, identity: { engineCommit: string; run: string; attempt: string }) {
+  const receipt = verifyProjectReceipt(plan.recipe, envelope, publicKey);
+  assert(receipt.validation.definition?.id === request.definition.id && receipt.validation.definition.revision === request.definition.revision &&
+    receipt.validation.engineCommit === identity.engineCommit && receipt.validation.run === identity.run && receipt.validation.attempt === identity.attempt &&
+    receipt.validation.member === request.member && receipt.validation.checksDigest === sha256(JSON.stringify(plan.definition.checks)) &&
+    sha256(JSON.stringify(receipt.validation.sources)) === sha256(JSON.stringify(request.sources)), "Central qualification provenance mismatch");
+  assert(records.length === 2, "Validator and fresh-reader evidence required");
+  for (const record of records as any[]) assert(record?.engineCommit === identity.engineCommit && !record.failure &&
+    sha256(JSON.stringify(record.request)) === sha256(JSON.stringify(request)) &&
+    record.checks?.built?.recipeId === receipt.recipeId && record.checks.built.profile === receipt.profile && record.checks.built.narHash === receipt.narHash &&
+    record.checks?.results?.length === plan.definition.checks.length && record.checks.results.every((r: any) => r.outcome === "completed" && r.exitCode === 0),
+  "Successful exact clean-runner and reader evidence required");
+  return receipt;
 }
 async function nix(home: string, args: string[], credentials?: NodeJS.ProcessEnv) {
   await mkdir(home, { recursive: true, mode: 0o700 });
@@ -55,12 +75,10 @@ async function nix(home: string, args: string[], credentials?: NodeJS.ProcessEnv
 async function info(home: string, profile: string) {
   const value = JSON.parse(await nix(home, ["path-info", "--json", profile])); return Array.isArray(value) ? value[0] : value[profile];
 }
-export async function restoreDevelopmentEnvironment(sources: Sources, task: Task, name: string, home: string, env = process.env) {
-  const definitions = await loadProjectEnvironments(sources.directory(task), sources.members);
-  const definition = definitions.find(d => d.name === name); assert(definition, "Project environment not declared");
+export async function restoreCentralEnvironment(definition: EnvironmentDefinition, directory: string,
+  sources: Member[], directories: Map<string, string>, home: string, env = process.env) {
   if (env.DEVELOPMENT_NIX_CACHE_ENABLED !== "true") return { status: "disabled" as const };
-  const directories = new Map(sources.members.map(m => [m.path, m.path === task.member ? sources.directory(task) : sourceDirectory(sources.root, sources.members, m.path)]));
-  const plan = await projectPlan(directories, sources.members, task.member, definition), store = cacheStore(env);
+  const plan = await centralEnvironmentPlan(definition, directory, sources, directories), store = cacheStore(env);
   const publicKey = (await loadCacheRecipe()).publicKey;
   assert(await nix(home, ["--version"]) === `nix (Nix) ${nixVersion}`, "Nix version mismatch");
   return restoreProjectCache(plan.recipe, publicKey, {
@@ -77,6 +95,11 @@ async function prepared(state: string, request: ProjectCacheRequest): Promise<Pr
   for (const source of request.sources) {
     assert(localGit(directories.get(source.path)!, ["rev-parse", "HEAD"]) === source.commit &&
       !localGit(directories.get(source.path)!, ["diff", "HEAD", "--"]), "Source changed since exact checkout");
+  }
+  if (request.schemaVersion === 2) {
+    const definition = environmentDefinition(JSON.parse(await readFile(join(state, "definition.json"), "utf8")));
+    assert(definition.id === request.definition.id && environmentRevision(definition) === request.definition.revision, "Central definition changed since pinned preparation");
+    return centralEnvironmentPlan(definition, join(state, "environment"), request.sources, directories);
   }
   const definitions = await loadProjectEnvironments(directories.get(request.member)!, request.sources);
   const definition = definitions.find(d => d.name === request.environment); assert(definition, "Selected environment not declared");
@@ -119,6 +142,15 @@ async function main() {
       await github.git(directory, ["fetch", "--quiet", "--no-tags", "origin", source.commit], source.repository);
       localGit(directory, ["checkout", "--quiet", "--detach", source.commit]);
     }
+    if (request.schemaVersion === 2) {
+      const definition = await new EnvironmentStore(cacheStore(env)).read(request.definition);
+      await writeFile(join(state, "definition.json"), JSON.stringify(definition), { mode: 0o600 });
+      await materializeEnvironment(definition, join(state, "environment"));
+      const plan = await prepared(state, request);
+      for (const file of plan.files.filter(f => f.path.startsWith("source/"))) {
+        const target = join(state, "environment", file.path); await mkdir(join(target, ".."), { recursive: true }); await writeFile(target, file.bytes); await chmod(target, file.mode);
+      }
+    }
     await prepared(state, request); return;
   }
   if (mode === "record") {
@@ -135,7 +167,8 @@ async function main() {
   if (mode === "check") {
     const built = JSON.parse(await readFile(builtFile, "utf8")), results = [];
     for (const argv of plan.definition.checks) results.push(await command(join(state, "sources", request.member), join(state, "check-home"),
-      ["nix", "--extra-experimental-features", "nix-command flakes", "--offline", "develop", built.profile, "--command", ...argv]));
+      ["nix", "--extra-experimental-features", "nix-command flakes", "--offline", "develop", built.profile, "--command",
+        ...argv.map(arg => arg.split("{environment}").join(join(state, "environment")))]));
     await writeFile(join(state, "checks.json"), JSON.stringify({ request, built, checks: plan.definition.checks, results }), { mode: 0o600 });
     assert(results.every(result => result.outcome === "completed" && result.exitCode === 0), "Project qualification checks failed");
     assert((await info(join(state, "nix-home"), built.profile)).narHash === built.narHash, "Profile changed during checks");
@@ -145,6 +178,21 @@ async function main() {
     output("validation", JSON.stringify(validation)); console.log(JSON.stringify({ status: "validated", recipeId: built.recipeId, checks: results.length })); return;
   }
   const store = cacheStore(env), publicKey = (await loadCacheRecipe()).publicKey;
+  const qualificationKey = request.schemaVersion === 2 ? `environments/v1/qualifications/${request.definition.id}/${request.definition.revision}/${sha256(JSON.stringify(request))}/${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}.json` : projectReceiptKey(plan.recipe);
+  if (mode === "activate") {
+    assert(request.schemaVersion === 2 && env.PROJECT_CACHE_ACTIVATION_AUTHORIZED === "true", "Explicit central activation required");
+    const records = [];
+    for (const job of ["validate", "fresh-reader"]) {
+      const record = (await store.read(`project-validation/${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}/${job}.json`))?.value;
+      records.push(record);
+    }
+    const envelope = (await store.read(qualificationKey))?.value;
+    verifyCentralActivation(plan, request, envelope, records, publicKey, { engineCommit: env.GITHUB_SHA!, run: env.GITHUB_RUN_ID!, attempt: env.GITHUB_RUN_ATTEMPT! });
+    const repo = request.sources.find(s => s.path === request.member)!.repository;
+    await store.put(environmentQualificationKey(repo, request.definition), envelope);
+    await new EnvironmentStore(store, publicKey).activate(repo, request.environment, request.definition, request.expectedDefault ?? null);
+    console.log(JSON.stringify({ status: "activated", repository: repo, name: request.environment, definition: request.definition })); return;
+  }
   if (mode === "publish") {
     assert(env.PROJECT_CACHE_PUBLICATION_AUTHORIZED === "true", "Explicit publication authority required");
     const built = JSON.parse(await readFile(builtFile, "utf8")), validation = JSON.parse(env.PROJECT_CACHE_VALIDATION!);
@@ -152,7 +200,8 @@ async function main() {
       validation.recipeId === projectRecipeId(plan.recipe) && validation.engineCommit === env.GITHUB_SHA && validation.run === env.GITHUB_RUN_ID &&
       validation.attempt === env.GITHUB_RUN_ATTEMPT && validation.profile === built.profile && validation.narHash === built.narHash, "Clean-runner qualification does not match independent rebuild");
     const envelope = signProjectReceipt({ schemaVersion: 2, recipe: plan.recipe, ...built,
-      validation: { engineCommit: validation.engineCommit, run: validation.run, attempt: validation.attempt, sources: request.sources, checksDigest: validation.checksDigest } }, publicKey, env.NIX_CACHE_SIGNING_KEY!);
+      validation: { engineCommit: validation.engineCommit, run: validation.run, attempt: validation.attempt, sources: request.sources, checksDigest: validation.checksDigest,
+        ...(request.schemaVersion === 2 ? { definition: request.definition, member: request.member } : {}) } }, publicKey, env.NIX_CACHE_SIGNING_KEY!);
     const key = join(state, "signing-key"); await writeFile(key, env.NIX_CACHE_SIGNING_KEY!.trim() + "\n", { mode: 0o600 });
     try {
       const executable = (await exec("which", ["nix"])).stdout.trim(); assert(executable.startsWith("/nix/") && executable.endsWith("/bin/nix"));
@@ -166,11 +215,17 @@ async function main() {
       assert(old.profile === built.profile && old.narHash === built.narHash, "Existing recipe has different content");
     } else await store.put(projectReceiptKey(plan.recipe), envelope, { create: true });
     await store.put(projectLatestKey(plan.recipe), existing?.value ?? envelope);
+    if (request.schemaVersion === 2) {
+      const prior = await store.read(qualificationKey);
+      if (prior) assert(JSON.stringify(prior.value) === JSON.stringify(envelope), "Qualification revision already differs");
+      else await store.put(qualificationKey, envelope, { create: true });
+    }
     console.log(JSON.stringify({ status: "published", recipeId: built.recipeId, profile: built.profile })); return;
   }
   assert(mode === "import", "Unknown project cache operation");
-  const envelope = (await store.read(projectReceiptKey(plan.recipe)))?.value;
+  const envelope = (await store.read(qualificationKey))?.value;
   const receipt = verifyProjectReceipt(plan.recipe, envelope, publicKey);
+  if (request.schemaVersion === 2) assert(receipt.validation.definition?.revision === request.definition.revision, "Fresh reader definition mismatch");
   // A fresh reader cannot claim substitution when the environment was built here.
   // Metadata queries may resolve remote information or return null without a
   // failing exit status. Establish local absence without invoking Nix first.
